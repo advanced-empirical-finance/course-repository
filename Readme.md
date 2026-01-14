@@ -4,32 +4,44 @@ This repo initializes the folder structure for the course *Advanced Empirical Fi
 
 ## Technical prerequisites
 
-1.  Install [R (Version > 4.5.0)](https://cran.r-project.org/)
-2.  Install [Python (Version > 3.10.0)](https://www.python.org/downloads/)
+1.  Install [R (Version \> 4.5.0)](https://cran.r-project.org/)
+
+2.  Install [Python (Version \> 3.10.0)](https://www.python.org/downloads/)
+
 3.  Install [Positron (latest Version)](https://positron.posit.co/start.html)
+
 4.  Register a [free GitHub account](https://happygitwithr.com/github-acct)
-5.  Install [Git] (https://git-scm.com/install/)
+
+5.  Install \[Git\] (https://git-scm.com/install/)
+
 6.  Configure Git in Positron:
-     - In Positron and open the source control view (`Ctrl+Shift+G)`
-     - If Git is not installed, the Source Control view will show instructions on how to install it.
-     - Once Git is up and running you can clone the course-repository by opening the source control view (`Ctrl+Shift+G)` and pressing `Clone Repository`. Then, you provide the course repository url [https://github.com/advanced-empirical-finance/course-repository.git](https://github.com/advanced-empirical-finance/course-repository.git) and choose a local folder where the repository should be stored. 
 
-7. Open the cloned repository in Positron by navigating to `File` -> `Open Project` and selecting the folder where you cloned the repository.
-8. To install *all* required R packages for the course, open the Terminal (`Ctrl+``) in Positron and install the `renv` package by typing the commands
+    -   In Positron and open the source control view (`Ctrl+Shift+G)`
+    -   If Git is not installed, the Source Control view will show instructions on how to install it.
+    -   Once Git is up and running you can clone the course-repository by opening the source control view (`Ctrl+Shift+G)` and pressing `Clone Repository`. Then, you provide the course repository url <https://github.com/advanced-empirical-finance/course-repository.git> and choose a local folder where the repository should be stored.
 
-        install.packages("renv")
-        renv::restore()
+7.  Open the cloned repository in Positron by navigating to `File` -\> `Open Project` and selecting the folder where you cloned the repository.
 
-You can install new packages, e.g., by calling `install.packages("tidymodels")´. To collaborate with your peers, just run `renv::snapshot()` to keep track of all the packages you use, and share the `renv.lock` file. Your colleagues only have to run `renv::restore()` to replicate your exact R package environment.
+8.  To install *all* required R packages for the course, install `renv` in R and restore the lockfile: In Positron terminal, run `install.packages("renv")      renv::restore()`
+
+You can install new packages, e.g., by calling `install.packages("tidymodels")`. To collaborate with your peers, just run `renv::snapshot()`to keep track of all the packages you use, and share the `renv.lock` file. Your colleagues only have to run`renv::restore()\` to replicate your exact R package environment.
 
 ## Optional prerequisites
 
-1. Install the newest version of [Quarto](https://quarto.org/docs/download/). (Quarto comes prebundled with Positron, so you will have access to quarto once you followed the previous step)
-1. In order to create PDFs you will need to install a recent distribution of LaTeX. I recomment to install `TinyTeX`, a lightweight, cross-platform, portable, and easy-to-maintain LaTeX distribution by typing the command
-  
-          quarto install tool tinytex
+1.  Install the newest version of [Quarto](https://quarto.org/docs/download/). (Quarto comes prebundled with Positron, so you will have access to quarto once you followed the previous step)
 
-in Positron / Terminal or directly in the console
+2.  In order to create PDFs you will need to install a recent distribution of LaTeX. I recomment to install `TinyTeX`, a lightweight, cross-platform, portable, and easy-to-maintain LaTeX distribution by typing the command
+
+    ```         
+       quarto install tool tinytex
+    ```
+
+in Positron / Terminal. Alternatively, you can install `tinytex` from R with
+
+        ```r
+        install.packages("tinytex") 
+        tinytex::install_tinytex()
+        ```
 
 ## Content of the repository
 
