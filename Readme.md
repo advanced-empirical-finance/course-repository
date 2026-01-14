@@ -1,26 +1,38 @@
-# The course repository for Advanced Empirical Finance 2024
+# The course repository for Advanced Empirical Finance 2026
 
-This repo initializes an RStudio project and `renv` package management system for the course *Advanced Empirical Finance: Topics and Data Science* so that you can start working immediately. We will work with R and Python to write code in this course. We will use Quarto, an open-source technical publishing system, to create beautiful articles, slides, blogs, and more to communicate our results. The next few installation steps ensure you have a running version of all the required software.
+This repo initializes the folder structure for the course *Advanced Empirical Finance: Topics and Data Science* so that you can start working immediately. We will work with R *and* Python to write code in this course. We will use Quarto, an open-source technical publishing system, to create beautiful articles, slides, blogs, and more to communicate our results. The next few installation steps ensure you have a running version of all the required software.
 
-## How to use this repository
+## Technical prerequisites
 
-1.  Install [R (Version 4.3.2)](https://cran.r-project.org/) and [RStudio Desktop.](https://posit.co/download/rstudio-desktop/)
+1.  Install [R (Version > 4.5.0)](https://cran.r-project.org/)
+2.  Install [Python (Version > 3.10.0)](https://www.python.org/downloads/)
+3.  Install [Positron (latest Version)](https://positron.posit.co/start.html)
+4.  (Optional) Install the newest version of [Quarto](https://quarto.org/docs/download/). (Quarto comes prebundled with Positron, so you will have access to quarto once you followed the previous step)
+5.  Register a [free GitHub account](https://happygitwithr.com/github-acct)
+6.  Install [Git] (https://git-scm.com/install/)
+7.  Configure Git in Positron:
+     - In Positron and open the source control view (`Ctrl+Shift+G)`
+     - If Git is not installed, the Source Control view will show instructions on how to install it.
+     - Once Git is up and running you can clone the course-repository by opening the source control view (`Ctrl+Shift+G)` and pressing `Clone Repository` 
 
-2.  Install the newest version of [Quarto](https://quarto.org/docs/download/).
-3.  If you have not used Git (Version control) before, [follow these steps](https://happygitwithr.com/github-acct) to get ready to clone repositories from Github. You need to [register a GitHub account](https://happygitwithr.com/github-acct), [install Git](https://happygitwithr.com/install-git), and [configure Git](https://happygitwithr.com/hello-git) before proceeding.
 
-4.  Open the terminal in RStudio. The terminal is in the tab next to the R console pane in RStudio. Install/Update `TinyTeX`, a lightweight, cross-platform, portable, and easy-to-maintain LaTeX distribution by typing the command
+
+
+
+and [configure Git](https://happygitwithr.com/hello-git) before proceeding.
+
+8.  Open the terminal in RStudio. The terminal is in the tab next to the R console pane in RStudio. Install/Update `TinyTeX`, a lightweight, cross-platform, portable, and easy-to-maintain LaTeX distribution by typing the command
   
           quarto install tool tinytex
 
-6.  Clone the [course environment repository](https://github.com/advanced-empirical-finance/course_environment_AEF) by opening RStudio, clicking `File/New Project,` and selecting `Version Control`. Then, click `Git` and provide the repository address <https://github.com/advanced-empirical-finance/course_environment_AEF.git>. RStudio will then automatically open the project in the new environment.
+9.  Clone the [course environment repository](https://github.com/advanced-empirical-finance/course_environment_AEF) by opening RStudio, clicking `File/New Project,` and selecting `Version Control`. Then, click `Git` and provide the repository address <https://github.com/advanced-empirical-finance/course_environment_AEF.git>. RStudio will then automatically open the project in the new environment.
 
-7.  In the console of RStudio, install the `reticulate` R package. Proceed with `Y` when asked if you want to install the packages. Use the package to install Python
+10.  In the console of RStudio, install the `reticulate` R package. Proceed with `Y` when asked if you want to install the packages. Use the package to install Python
 
              install.packages("reticulate")                               
              reticulate::install_python(version = "3.10.11", force = TRUE)
 
-8.  Tell `renv` to use Python:
+11.  Tell `renv` to use Python:
   
         renv::use_python("PATH")
 
