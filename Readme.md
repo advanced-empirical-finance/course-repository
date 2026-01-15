@@ -4,8 +4,10 @@ This repo initializes the folder structure for the course *Advanced Empirical Fi
 
 ## Technical prerequisites
 
-1.  Install [R (Version > 4.5.0)](https://cran.r-project.org/)
-2.  Install [Python (Version > 3.10.0)](https://www.python.org/downloads/)
+1.  Install [R (Version \> 4.5.0)](https://cran.r-project.org/)
+
+2.  Install [Python (Version \> 3.10.0)](https://www.python.org/downloads/)
+
 3.  Install [Positron (latest Version)](https://positron.posit.co/start.html)
 4.  Register a [free GitHub account](https://happygitwithr.com/github-acct)
 5.  Install [Git] (https://git-scm.com/install/)
