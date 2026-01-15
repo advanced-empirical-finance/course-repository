@@ -35,6 +35,8 @@ Quarto enables you to weave together content and executable code into a finished
 import pandas as pd
 import numpy as np
 import tidyfinance as tf
+from plotnine import *
+from mizani.formatters import percent_format
 ```
 
 ```{python} 
@@ -59,24 +61,23 @@ returns = (prices
 1. Visualize the distribution of the daily returns.
 
 ```{python}
-#| fig-cap: "Distribution of daily stock returns."
-from plotnine import *
-from mizani.formatters import percent_format
+#| label: fig-return-distribution
+#| fig-cap: Distribution of daily stock returns. 
 
 returns_figure = (
   ggplot(returns, aes(x="ret", fill="symbol")) +
   geom_histogram(bins=100) +
   labs(x="", y="",
-       title="Distribution of daily stock returns",
        fill ="") +
   facet_wrap("symbol") +
-  scale_x_continuous(labels=percent_format())
+  scale_x_continuous(labels=percent_format()) +
+  theme_bw() +
+  theme(legend_position = "none")
 )
 returns_figure.draw()
-
 ```
 
-@ref(fig-return-distribution) shows the distribution of daily returns for the three assets.
+@fig-return-distribution shows the distribution of daily returns for the three assets.
 
 1. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns.
 Which of the individual assets delivered the highest Sharpe ratio (assume the risk-free rate is zero) during the sample period?^[Whenever reporting performance measures, compute annualized values and clearly state how you calculated the measure.]
@@ -85,7 +86,7 @@ The estimated moments may later be used for the construction of optimal portfoli
 ```{python}
 returns_matrix = (prices
   .pivot(columns="symbol", 
-         values="adjusted", 
+         values="adjusted_close", 
          index="date")
   .pct_change()
   .dropna()
@@ -103,11 +104,19 @@ $$
 \sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i},
 $$
 
-where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{r} sharpe_ratio |> filter(Sharpe == max(Sharpe)) |> pull(Ticker) ` with an annualized Sharpe-ratio of `{r} round(max(sharpe_ratio$Sharpe), 3)`. @tab-sharpe-ratios illustrates all Sharpe ratios. 
+where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{python} sharpe_ratio.loc[sharpe_ratio['Sharpe'] == sharpe_ratio['Sharpe'].max(), 'ticker'].iloc[0]` with an annualized Sharpe-ratio of `{python} round(sharpe_ratio['Sharpe'].max(), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
 
 ```{python}
-#| tbl-cap: "Historical annualized Sharpe-ratios"
-sharpe_ratio
+#| tbl-cap: Historical annualized Sharpe-ratios
+#| label: tbl-sharpe-ratios
+#| output: asis
+from great_tables import GT
+tbl = (
+    GT(sharpe_ratio)
+    .fmt_number(columns="Sharpe", decimals=3)
+)
+latex_tbl = tbl.as_latex()
+print(latex_tbl)
 ```
 
 ## References
