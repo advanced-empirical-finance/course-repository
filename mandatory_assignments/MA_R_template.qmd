@@ -1,7 +1,8 @@
 ---
-title: "Mandatory Assignment 0"
-author: "Stefan Voigt"
-date: "2024-01-03"
+title: Mandatory Assignment 0
+author: Stefan Voigt
+date: 2024-01-03
+date-format: MMMM DD, YYYY
 execute: 
   echo: false
   warning: false
@@ -14,55 +15,67 @@ format:
       - left=20mm
       - bottom=20mm
       - right=20mm
+    bibliography: references.bib
     cite-method: natbib
+    biblio-style: apalike  
+    lang: en
     fontsize: 12pt
-bibliography: references.bib
 ---
 
 ## Quarto - a framework for reproducible research
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>. When you click the **Render** button a document will be generated that includes both content and the output of embedded code. The template below can be used to submit your answers for the mandatory assignment. Within the template you find all typical issues. By default, code is omitted in the output (can be changed with `echo: true` in line 6). Formatting is done using markdown (e.g., check out how to use \# to define sections and subsections or how to generate bold text). Footnotes and citations are easy. You can also include math notation using LaTeX style. The template contains inline code execution (e.g. to automatically return the ticker of the asset with the highest Sharpe ratio) and shows how to embed figures into the document.
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>. When you click the **Preview** button in Positron or type `quarto render` in the terminal a .pdf document will be generated that includes both content and the output of embedded code. The template below can be used to submit your answers for the mandatory assignment. Within the template you find all typical issues. By default, code is omitted in the output (can be changed with `echo: true` in line 6). Formatting is done using markdown (e.g., check out how to use \# to define sections and subsections or how to generate bold text). Footnotes and citations are easy. You can also include math notation using LaTeX style. The template contains inline code execution (e.g. to automatically return the ticker of the asset with the highest Sharpe ratio) and shows how to embed figures into the document.
 
 ## Exercise
 
-1. Download daily adjusted prices for all constituents of three stocks: AAPL, MSFT, and BA for the period from January 1st, 2000 until December 31st, 2022 from Yahoo!Finance. Explicitly include the code you use to download the data into your report. Compute the daily returns for each of the tickers.
-```{r}
-#| echo: true
+1. Download daily adjusted prices for all constituents of three stocks: AAPL, MSFT, and BA for the period from January 1st, 2000 until December 31st, 2025 from Yahoo!Finance. Explicitly include the code you use to download the data into your report. Compute the daily returns for each of the tickers.
 
+```{r}
 library(tidyverse)
+library(tidyfinance)
 library(scales)
-library(tidyquant)
+```
+
+```{r}
+#| cache: true
+#| echo: true
 ticker <- c("AAPL", "MSFT", "BA")
 
-index_prices <- tq_get(ticker,
-  get = "stock.prices",
-  from = "2000-01-01",
-  to = "2022-12-31"
+prices <- download_data(
+  type = "stock_prices",
+  symbols = ticker,
+  start_date = "2000-01-01",
+  end_date = "2025-12-31"
 )
 
-returns <- index_prices |>
+returns <- prices |>
   group_by(symbol) |>
   transmute(date, 
-            ret = adjusted / lag(adjusted) - 1) |>
+            ret = adjusted_close / lag(adjusted_close) - 1) |>
   drop_na(ret)
 ```
+
 1. Visualize the distribution of the daily returns.
 ```{r}
-#| fig-cap: "Distribution of daily stock returns."
+#| label: fig-return-distribution
+#| fig-cap: Distribution of daily stock returns. 
+ 
 returns |>
   ggplot(aes(x = ret, fill = symbol)) +
   geom_histogram(bins = 100) +
   labs(
     x = NULL,
     y = NULL,
-    title = "Distribution of daily stock returns",
     fill = NULL,
   ) +
   facet_wrap(~symbol) +
   scale_x_continuous(labels = percent) +
   theme_bw() +
-  theme(legend.position = "bottom")
+  theme(legend.position = "none")
 ```
+
+@fig-return-distribution shows the distribution of daily returns for the three assets.
+
 1. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns.
 Which of the individual assets delivered the highest Sharpe ratio (assume the risk-free rate is zero) during the sample period?^[Whenever reporting performance measures, compute annualized values and clearly state how you calculated the measure.]
 The estimated moments may later be used for the construction of optimal portfolios (@Markowitz1952; @Merton1972)
@@ -80,18 +93,28 @@ sharpe_ratio <- tibble(Ticker = ticker,
                        Sharpe = sqrt(250) * mu / sqrt(diag(Sigma)))
 ```
 
-**Answer: ** The asset with the highest annualized Sharpe-ratio (computed as $\sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i}$, where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$is the standard deviation of asset $i$s dailys returns) is `r sharpe_ratio |> filter(Sharpe == max(Sharpe)) |> pull(Ticker) ` with an annualized Sharpe-ratio of `r round(max(sharpe_ratio$Sharpe), 3)`. A table with all Sharpe ratios can be found below. 
+**Answer: ** The asset with the highest annualized Sharpe-ratio, computed as 
+$$
+\sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i},
+$$
+
+where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{r} sharpe_ratio |> filter(Sharpe == max(Sharpe)) |> pull(Ticker) ` with an annualized Sharpe-ratio of `{r} round(max(sharpe_ratio$Sharpe), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
 ```{r}
-#| tbl-cap: "Historical annualized Sharpe-ratios"
-sharpe_ratio |> knitr::kable(booktabs = TRUE)
+#| tbl-cap: Historical annualized Sharpe-ratios
+#| label: tbl-sharpe-ratios
+#| output: asis
+library(gt)
+sharpe_ratio |> 
+  gt() |>
+  fmt_number(
+    columns = Sharpe,
+    decimals = 3
+  ) |>
+    as_latex() |>
+    cat()
 ```
 
+# References {.unnumbered}
 
-## How to generate a script to submit for peer feedback?
-
-This is easy. Once you are done with working on your quarto file, you simply run the line of code below (in a separate session, not as part of rendering the quarto file itself). Once executed you will see a new R-script which contains only the code.
-```{r}
-#| echo: true
-#| eval: false
-knitr::purl("MA_template.qmd")
-```
+::: {#refs}
+:::

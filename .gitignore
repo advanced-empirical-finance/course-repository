@@ -1,9 +1,2 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-/data
-/exercises
-lecture_slides/figures/twitter.png
-lecture_slides/figures/vikings.jpg
-/exam
+renv/
+.venv/
