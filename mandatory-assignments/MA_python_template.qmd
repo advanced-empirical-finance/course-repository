@@ -20,6 +20,7 @@ format:
     biblio-style: apalike  
     lang: en
     fontsize: 12pt
+    highlight-style: github-light
 ---
 
 
