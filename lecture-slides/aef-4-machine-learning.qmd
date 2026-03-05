@@ -145,67 +145,88 @@ E(\hat{\varepsilon}^2)&=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varepsilo
 \end{aligned}$$
 - A biased estimator with small variance may have a lower MSPE than an unbiased estimator
 
-## Over-fitting example 
+## Over-fitting example
 
 - 100 monthly manufacturing industry excess returns
 - Estimate a polynomial regression $$r_{t} = \alpha + \sum\limits_{p=1}^P \beta_pt^p $$ where $t$ is a time index, ranging from $1$ to $60$
-- Evaluate the performance in-sample and out-of-sample for $P = 1, 2, 3, 5, 20$
+- Use the slider to explore in-sample vs. out-of-sample performance for different $P$
 
-```{r}
-#| echo: false
-#| fig-align: center
+```{shinylive-r}
+#| standalone: true
+#| viewerHeight: 550
+library(shiny)
 library(arrow)
 library(tidyverse)
 
-data <- read_parquet("../data-r/industries_ff_monthly.parquet") |> 
-    select(date, returns = manuf) |> 
-    tail(40) |>
-    mutate(time = as.integer(date),
-    time = (time - mean(time)) / sd(time)) 
+data <- read_parquet("../data-r/industries_ff_monthly.parquet") |>
+  select(date, returns = manuf) |>
+  tail(40) |>
+  mutate(
+    time = as.integer(date),
+    time = (time - mean(time)) / sd(time),
+    date = as.Date(date)
+  )
 
-# Split the data into training and testing sets
 in_sample_size <- 20
 train_set <- data |> slice_head(n = in_sample_size)
-test_set <- data |> slice_tail(n = nrow(data) - in_sample_size)
+test_set  <- data |> slice_tail(n = nrow(data) - in_sample_size)
 
-# Function to fit polynomial regression models
-fit_polynomial <- function(degree, data = train_set) {
-  formula <- as.formula(paste("returns ~ poly(time, ", degree, ")", sep = ""))
-  model <- lm(formula, data)
-  return(model)
+fit_polynomial <- function(degree, df = train_set) {
+  formula <- as.formula(paste0("returns ~ poly(time, ", degree, ")"))
+  lm(formula, data = df)
 }
 
-results <- tibble(degree = c(1, 2, 5, 10, 19)) |> 
-  mutate(lm = map(degree, fit_polynomial),
-         lm_train = map(lm, predict, newdata = train_set),
-         lm_test = map(lm, predict, newdata = test_set),
-         lm_predictions = map2(lm_train, lm_test, 
-                               ~tibble(time = data$time,
-                                       returns =c(.x,.y)))) |>
-  unnest(lm_predictions) |> 
-  mutate(time = as.Date(time))
+ui <- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("degree", "Polynomial degree (P):",
+                  min = 1, max = in_sample_size - 1, value = 1, step = 1),
+      helpText("Shaded area = out-of-sample period."),
+      tableOutput("mse_table")
+    ),
+    mainPanel(plotOutput("poly_plot", height = "380px"))
+  )
+)
 
-# Plot the results
-ggplot(data |> mutate(time = as.Date(time)), 
-       aes(x = time, y = returns)) +
-  geom_point() +
-  coord_cartesian(
-  ylim = c(min(data$returns), max(data$returns))
-) +
-  scale_x_date(date_labels = "%Y-%m") +
-  scale_y_continuous(labels = scales::percent) +
-  geom_line(data = results, aes(color = as_factor(degree))) +
-  annotate("rect",
-           xmin = test_set |> pull(time) |> min() |> as.Date(),
-           xmax = test_set |> pull(time) |> max() |> as.Date(),
-           ymin = -Inf, ymax = Inf,
-           alpha = 0.5, fill = "grey70"
-  ) +
-  labs(x = NULL,
-       y = "Return",
-       color = NULL) +
-  theme_bw()
+server <- function(input, output, session) {
+  res <- reactive({
+    d <- input$degree
+    m <- fit_polynomial(d)
+    preds_train <- predict(m, newdata = train_set)
+    preds_test  <- predict(m, newdata = test_set)
+    list(
+      pred_df    = tibble(date = data$date, fitted = c(preds_train, preds_test)),
+      mse_train  = mean((train_set$returns - preds_train)^2),
+      mse_test   = mean((test_set$returns  - preds_test)^2)
+    )
+  })
 
+  output$poly_plot <- renderPlot({
+    r <- res()
+    ggplot(data, aes(x = date, y = returns)) +
+      annotate("rect",
+               xmin = min(test_set$date), xmax = max(test_set$date),
+               ymin = -Inf, ymax = Inf, alpha = 0.25, fill = "grey70") +
+      geom_point() +
+      geom_line(data = r$pred_df, aes(x = date, y = fitted),
+                color = "#2166ac", linewidth = 1) +
+      scale_x_date(date_labels = "%Y-%m") +
+      scale_y_continuous(labels = scales::percent) +
+      labs(title    = paste0("P = ", input$degree),
+           subtitle = sprintf("In-sample MSE: %.4f  |  OOS MSE: %.4f",
+                              r$mse_train, r$mse_test),
+           x = NULL, y = "Return") +
+      theme_bw()
+  })
+
+  output$mse_table <- renderTable({
+    r <- res()
+    tibble(Period = c("In-sample", "Out-of-sample"),
+           MSE    = c(r$mse_train, r$mse_test))
+  }, digits = 4)
+}
+
+shinyApp(ui, server)
 ```
 
 
