@@ -541,7 +541,7 @@ eval_gmvp <- function(Sigma_array, returns, label) {
     ann_var    = var(port_rets, na.rm = TRUE) * 252,
     ann_ret    = mean(port_rets, na.rm = TRUE) * 252,
     ann_sharpe = mean(port_rets, na.rm = TRUE) / sd(port_rets, na.rm = TRUE) * sqrt(252),
-    turnover   = mean(sapply(2:T, function(t)
+    turnover   = mean(sapply(2:(T-1), function(t)
                    sum(abs(w_list[[t]] - w_list[[t-1]]))))
   )
 }

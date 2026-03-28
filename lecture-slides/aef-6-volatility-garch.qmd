@@ -354,7 +354,7 @@ conv_data = {
   const sigma_bar = 20  // long-run annualised vol, %
   const sigma_now = sigma_bar * shock_m
   const half_life = Math.log(0.5) / Math.log(pers)
-  const hl_day = Math.round(-half_life)
+  const hl_day = Math.round(half_life)
   return Array.from({length: 121}, (_, h) => ({
     h,
     garch: Math.sqrt(sigma_bar**2 + pers**h * (sigma_now**2 - sigma_bar**2)),
