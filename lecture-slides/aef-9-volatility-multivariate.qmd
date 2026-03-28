@@ -225,10 +225,12 @@ Sigma_t <- rcov(dcc_fit)   # covariance matrices over time
 # DCC in Python: use arch for Step 1, implement Step 2 manually
 # (no production-ready DCC-GARCH library in Python as of 2026)
 
-from arch import arch_model
 import numpy as np
+import pandas as pd
+from arch import arch_model
 
 # Step 1: fit GARCH for each stock
+# returns: pd.DataFrame, columns = symbol names, rows = trading days
 garch_results = {sym: arch_model(returns[sym], vol="Garch", p=1, o=1, q=1,
                                   dist="t").fit(disp="off")
                  for sym in returns.columns}
@@ -262,9 +264,14 @@ def dcc_loglik(params, Z, Q_bar):
 ## R
 ```{r}
 #| eval: false
-# Plot conditional correlations for a tech-healthcare pair
-cor_ts <- rcor(dcc_fit)  # T x N x N
+# DCC time-varying and CCC (constant) correlations
+cor_ts <- rcor(dcc_fit)          # T x N x N array of conditional correlations
 aapl_jnj_cor <- cor_ts[, "AAPL", "JNJ"]
+
+# R_bar: unconditional (CCC) correlation matrix
+# = sample correlation of the standardised residuals z_{i,t} = r_{i,t}/sigma_{i,t}
+Z_mat <- do.call(cbind, lapply(multi_fit, residuals, standardize = TRUE))
+R_bar <- cor(Z_mat)              # N x N constant correlation matrix
 
 tibble(
   date   = index(returns),

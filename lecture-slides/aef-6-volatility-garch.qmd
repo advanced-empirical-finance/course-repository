@@ -229,7 +229,7 @@ spec <- garch_modelspec(
 fit <- estimate(spec)
 summary(fit)
 
-# Key output: persistence alpha + beta/2 + gamma/2, unconditional sigma
+# Key output: persistence alpha + beta + gamma/2, unconditional sigma
 ```
 
 ## Python

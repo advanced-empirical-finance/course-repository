@@ -509,14 +509,15 @@ jump_test_results <- lapply(trading_days, function(day) {
 ## Python
 ```{python}
 #| eval: false
-from scipy import stats
+import numpy as np
+from scipy import special, stats
 
 def bns_jump_test(returns):
     n = len(returns)
     rv  = (returns**2).sum()
     bpv = (np.pi/2) * np.sum(np.abs(returns[1:]) * np.abs(returns[:-1]))
     # Tri-power quarticity (simplified)
-    mu_4_3 = (2**(2/3) * scipy.special.gamma(7/6) / scipy.special.gamma(1/2))
+    mu_4_3 = (2**(2/3) * special.gamma(7/6) / special.gamma(1/2))
     tpq = mu_4_3**(-3) * n * np.sum(
         np.abs(returns[2:])**(4/3) * np.abs(returns[1:-1])**(4/3) *
         np.abs(returns[:-2])**(4/3)
