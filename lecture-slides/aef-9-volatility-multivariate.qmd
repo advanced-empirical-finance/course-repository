@@ -85,6 +85,59 @@ $$\Sigma_t = C'C + A' r_{t-1} r_{t-1}' A + B' \Sigma_{t-1} B$$
 
 **We need structure.** Two directions:
 
+## Interactive: The Eigenvalue Problem
+
+*All true eigenvalues equal 1 (identity covariance). Drag c = N/T upward to watch estimation noise spread the sample eigenvalues — the smallest approach zero, the largest inflate.*
+
+```{ojs}
+//| echo: false
+viewof c_rat = Inputs.range([0.02, 0.97], {step: 0.01, value: 0.20,
+  label: "c = N / T  (concentration ratio, e.g. 0.02 = 50 stocks / 2500 days)"})
+```
+
+```{ojs}
+//| echo: false
+mp_pts = {
+  const lmin = (1 - Math.sqrt(c_rat))**2
+  const lmax = (1 + Math.sqrt(c_rat))**2
+  return Array.from({length: 400}, (_, i) => {
+    const lam = lmin + (lmax - lmin) * (i + 0.5) / 400
+    const dens = Math.sqrt(Math.max((lmax - lam) * (lam - lmin), 0)) /
+                 (2 * Math.PI * c_rat * lam)
+    return { lam, dens }
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const lmin = ((1 - Math.sqrt(c_rat))**2).toFixed(3)
+  const lmax = ((1 + Math.sqrt(c_rat))**2).toFixed(3)
+  const inv_inflate = (1 / (1 - Math.sqrt(c_rat))**2).toFixed(1)
+  const note = html`Eigenvalues spread: [${lmin}, ${lmax}] &ensp;|&ensp;
+    Smallest eigenvalue ${lmin} → Σ⁻¹ inflates by <b>${inv_inflate}×</b> &ensp;|&ensp;
+    True value = 1 (all eigenvalues should be equal)`
+
+  const plt = Plot.plot({
+    width: 700, height: 265, marginLeft: 55,
+    marks: [
+      Plot.areaY(mp_pts, {x: "lam", y: "dens",
+        fill: "#901A1E", fillOpacity: 0.25}),
+      Plot.lineY(mp_pts, {x: "lam", y: "dens",
+        stroke: "#901A1E", strokeWidth: 2.5}),
+      Plot.ruleX([1], {stroke: "#3d3d3d", strokeDasharray: "4 2", strokeWidth: 1.5}),
+      Plot.text([{x: 1.04, y: mp_pts.reduce((a,d) => Math.max(a, d.dens), 0) * 0.55,
+                  label: "True λ = 1"}],
+        {x: "x", y: "y", text: "label", fontSize: 11, fill: "#3d3d3d"}),
+    ],
+    x: {label: "Sample eigenvalue λ̂  (true value = 1)", grid: true},
+    y: {label: "Marčenko-Pastur density", grid: true},
+  })
+  return html`${note}<br>${plt}`
+}
+```
+
 1. **Factor structure:** decompose $\Sigma_t$ into a small number of common factors (GO-GARCH, Factor-DCC)
 2. **Two-step decomposition:** model variances and correlations separately (DCC) — *this lecture*
 

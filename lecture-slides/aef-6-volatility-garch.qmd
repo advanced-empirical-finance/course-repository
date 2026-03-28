@@ -95,6 +95,61 @@ $$\text{NIC}(r) = \begin{cases} \omega + (\alpha + \gamma) r^2 + \beta\bar\sigma
 
 **Portfolio implication:** using a symmetric GARCH when the true process is asymmetric under-estimates the variance spike following a market crash — exactly when accurate estimates matter most
 
+## Interactive: Build Your Own News Impact Curve
+
+*Increase γ and watch the left arm of the curve steepen — that is the leverage effect in action*
+
+```{ojs}
+//| echo: false
+viewof a_nic = Inputs.range([0.01, 0.25], {step: 0.005, value: 0.08,
+  label: "α  (ARCH — symmetric reaction to news)"})
+viewof g_nic = Inputs.range([0.00, 0.35], {step: 0.005, value: 0.14,
+  label: "γ  (GJR leverage — extra reaction to bad news)"})
+viewof b_nic = Inputs.range([0.55, 0.98], {step: 0.01,  value: 0.88,
+  label: "β  (GARCH persistence)"})
+```
+
+```{ojs}
+//| echo: false
+nic_curves = {
+  const omega = 1e-6
+  const denom = 1 - a_nic - g_nic/2 - b_nic
+  const s2bar = denom > 0.001 ? omega / denom : 0.04 / 252
+  return Array.from({length: 201}, (_, i) => {
+    const r = (i - 100) * 0.001
+    const garch_var = omega + a_nic * r**2 + b_nic * s2bar
+    const gjr_var   = omega + (a_nic + (r < 0 ? g_nic : 0)) * r**2 + b_nic * s2bar
+    return {
+      r_pct: r * 100,
+      garch: Math.sqrt(Math.max(garch_var, 0) * 252) * 100,
+      gjr:   Math.sqrt(Math.max(gjr_var,   0) * 252) * 100,
+      lrun:  Math.sqrt(s2bar * 252) * 100
+    }
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 700, height: 280, marginLeft: 55,
+  marks: [
+    Plot.ruleY([nic_curves[0].lrun],
+      {stroke: "#cccccc", strokeDasharray: "4 2", strokeWidth: 1.5}),
+    Plot.ruleX([0], {stroke: "#dddddd"}),
+    Plot.lineY(nic_curves, {x: "r_pct", y: "garch",
+      stroke: "#666666", strokeWidth: 2}),
+    Plot.lineY(nic_curves, {x: "r_pct", y: "gjr",
+      stroke: "#901A1E", strokeWidth: 2.5}),
+  ],
+  x: {label: "Yesterday's return r_{t−1} (%)", grid: true},
+  y: {label: "σ_t — annualised vol (%)", grid: true},
+  caption: html`<span style='color:#666666'>——</span> GARCH (symmetric) &ensp;
+    <span style='color:#901A1E'>——</span> GJR-GARCH (asymmetric) &ensp;
+    <span style='color:#cccccc'>– –</span> Long-run vol`
+})
+```
+
 ## Why GARCH(1,1) and GJR-GARCH(1,1) Dominate
 
 Hansen & Lunde (2005): *"A Forecast Comparison of Volatility Models"*
@@ -280,6 +335,62 @@ forecasts = result.forecast(horizon=10)
 var_forecasts = forecasts.variance
 ```
 :::
+
+## Interactive: GARCH Mean Reversion vs EWMA
+
+*Move the shock slider up to simulate a market crash. Move persistence toward 1 to see how EWMA behaviour emerges.*
+
+```{ojs}
+//| echo: false
+viewof pers = Inputs.range([0.86, 0.999], {step: 0.001, value: 0.970,
+  label: "Persistence  α + β"})
+viewof shock_m = Inputs.range([1.0, 5.0], {step: 0.1, value: 3.0,
+  label: "Current vol / long-run vol  (shock size)"})
+```
+
+```{ojs}
+//| echo: false
+conv_data = {
+  const sigma_bar = 20  // long-run annualised vol, %
+  const sigma_now = sigma_bar * shock_m
+  const half_life = Math.log(0.5) / Math.log(pers)
+  const hl_day = Math.round(-half_life)
+  return Array.from({length: 121}, (_, h) => ({
+    h,
+    garch: Math.sqrt(sigma_bar**2 + pers**h * (sigma_now**2 - sigma_bar**2)),
+    ewma:  sigma_now,
+    lrun:  sigma_bar,
+    is_hl: h === hl_day
+  }))
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const hl = conv_data.find(d => d.is_hl)
+  const half_life_label = hl ? `½-life ≈ ${hl.h} days` : ""
+  return Plot.plot({
+    width: 700, height: 280, marginLeft: 55,
+    marks: [
+      Plot.ruleY([conv_data[0].lrun],
+        {stroke: "#cccccc", strokeDasharray: "4 2", strokeWidth: 1.5}),
+      Plot.lineY(conv_data, {x: "h", y: "ewma",
+        stroke: "#aaaaaa", strokeWidth: 1.8, strokeDasharray: "5 3"}),
+      Plot.lineY(conv_data, {x: "h", y: "garch",
+        stroke: "#901A1E", strokeWidth: 2.5}),
+      hl ? Plot.dot([hl], {x: "h", y: "garch", r: 5, fill: "#901A1E"}) : null,
+      hl ? Plot.text([{...hl, label: half_life_label}],
+        {x: "h", y: "garch", text: "label", dy: -14, fontSize: 11}) : null,
+    ].filter(Boolean),
+    x: {label: "Forecast horizon h (trading days)", grid: true},
+    y: {label: "E[σ_{t+h} | F_t]  (%)", grid: true},
+    caption: html`<span style='color:#901A1E'>——</span> GARCH (mean-reverts to long-run level) &ensp;
+      <span style='color:#aaaaaa'>– –</span> EWMA / IGARCH (flat — no mean reversion) &ensp;
+      <span style='color:#cccccc'>– –</span> Long-run vol (20%)`
+  })
+}
+```
 
 ## Forecast Evaluation
 

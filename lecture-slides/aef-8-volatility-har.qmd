@@ -75,6 +75,71 @@ $$RV_t^{(d)} = RV_t, \quad RV_t^{(w)} = \frac{1}{5}\sum_{j=0}^{4} RV_{t-j}, \qua
 - The averaging structure imposes a specific pattern of AR coefficients that matches the empirical slow decay
 - Mimics long memory without estimating a fractional integration parameter
 
+## Interactive: HAR vs GARCH — How Shocks Decay
+
+*A unit shock to RV today: how long does elevated volatility persist? Compare HAR (captures slow decay) with GARCH (exponential decay).*
+
+```{ojs}
+//| echo: false
+viewof bd = Inputs.range([0.0, 0.65], {step: 0.01, value: 0.36,
+  label: "β_d  (daily component)"})
+viewof bw = Inputs.range([0.0, 0.65], {step: 0.01, value: 0.34,
+  label: "β_w  (weekly component)"})
+viewof bm = Inputs.range([0.0, 0.40], {step: 0.01, value: 0.18,
+  label: "β_m  (monthly component)"})
+viewof gp = Inputs.range([0.85, 0.999], {step: 0.001, value: 0.970,
+  label: "GARCH persistence  α + β"})
+```
+
+```{ojs}
+//| echo: false
+har_ir = {
+  const H = 65
+  const rv = new Float64Array(H + 23).fill(0)
+  rv[0] = 1  // unit shock
+  const ir = []
+  for (let t = 1; t <= H; t++) {
+    const n_w = Math.min(t, 5), n_m = Math.min(t, 22)
+    let sum_w = 0, sum_m = 0
+    for (let k = 1; k <= n_w; k++) sum_w += rv[t - k]
+    for (let k = 1; k <= n_m; k++) sum_m += rv[t - k]
+    rv[t] = bd * rv[t-1] + bw * (sum_w / n_w) + bm * (sum_m / n_m)
+    ir.push({ h: t, har: rv[t], garch: gp**t,
+              persist_ok: (bd + bw + bm) < 1 })
+  }
+  return ir
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const total = bd + bw + bm
+  const warning = total >= 1
+    ? html`<span style='color:#901A1E'>⚠ β_d + β_w + β_m = ${total.toFixed(2)} ≥ 1 — non-stationary</span>`
+    : html`β_d + β_w + β_m = ${total.toFixed(2)} &ensp; (< 1 ✓ stationary)`
+
+  const plt = Plot.plot({
+    width: 700, height: 265, marginLeft: 55,
+    marks: [
+      Plot.ruleY([0], {stroke: "#dddddd"}),
+      Plot.lineY(har_ir, {x: "h", y: "garch",
+        stroke: "#666666", strokeWidth: 2, strokeDasharray: "5 3"}),
+      Plot.lineY(har_ir, {x: "h", y: "har",
+        stroke: "#901A1E", strokeWidth: 2.5}),
+      Plot.areaY(har_ir, {x: "h", y1: "har", y2: "garch",
+        fill: "#901A1E", fillOpacity: 0.08}),
+    ],
+    x: {label: "Horizon h (days after shock)", grid: true},
+    y: {label: "Impulse response (fraction of shock remaining)", grid: true},
+    caption: html`<span style='color:#901A1E'>——</span> HAR &ensp;
+      <span style='color:#666666'>– –</span> GARCH &ensp;
+      Shaded area = HAR forecasts more persistent volatility than GARCH`
+  })
+  return html`${warning}<br>${plt}`
+}
+```
+
 ## Estimation
 
 OLS with Newey-West standard errors (to account for autocorrelation in $\varepsilon_{t+1}$):

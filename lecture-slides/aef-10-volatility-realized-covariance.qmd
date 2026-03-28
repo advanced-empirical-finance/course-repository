@@ -98,6 +98,63 @@ tibble(seconds = freqs, correlation = corrs) |>
 :::
 ::::
 
+## Interactive: The Epps Effect
+
+*Increase liquidity (shorter inter-trade interval) to see the bias resolve faster. Drag ρ to set the true correlation — notice the measured value always starts near zero.*
+
+```{ojs}
+//| echo: false
+viewof rho_true = Inputs.range([0.10, 0.90], {step: 0.05, value: 0.65,
+  label: "True correlation  ρ"})
+viewof tau_sec = Inputs.range([1, 30], {step: 1, value: 8,
+  label: "Avg inter-trade interval  τ̄  (seconds)"})
+```
+
+```{ojs}
+//| echo: false
+epps_curve = {
+  // Theoretical Epps correction for Poisson arrivals (Hayashi-Yoshida approximation):
+  // ρ_obs(Δ) ≈ ρ * (1 - exp(-Δ / τ̄))
+  const n = 200
+  return Array.from({length: n}, (_, i) => {
+    const delta = 1 + i * 20   // 1s to ~4000s
+    const rho_obs = rho_true * (1 - Math.exp(-delta / (2 * tau_sec)))
+    return { delta, rho_obs, rho_true_line: rho_true }
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const rho_5min = rho_true * (1 - Math.exp(-300 / (2 * tau_sec)))
+  const bias_5min = ((rho_true - rho_5min) / rho_true * 100).toFixed(1)
+
+  const plt = Plot.plot({
+    width: 700, height: 270, marginLeft: 55,
+    marks: [
+      Plot.ruleY([rho_true],
+        {stroke: "#cccccc", strokeDasharray: "4 2", strokeWidth: 1.5}),
+      Plot.ruleX([300],
+        {stroke: "#666666", strokeDasharray: "2 2", strokeWidth: 1.2}),
+      Plot.text([{delta: 450, rho_obs: rho_true * 0.25, label: "5 min →"}],
+        {x: "delta", y: "rho_obs", text: "label", fontSize: 10, fill: "#666666"}),
+      Plot.lineY(epps_curve, {x: "delta", y: "rho_obs",
+        stroke: "#901A1E", strokeWidth: 2.5}),
+      Plot.areaY(epps_curve, {x: "delta", y1: "rho_obs", y2: "rho_true_line",
+        fill: "#901A1E", fillOpacity: 0.08}),
+    ],
+    x: {label: "Sampling interval Δ (seconds)", grid: true,
+        tickValues: [1, 60, 300, 600, 1800, 3600],
+        tickFormat: d => d < 60 ? `${d}s` : `${Math.round(d/60)}m`},
+    y: {label: "Measured correlation ρ̂(Δ)", domain: [0, 1], grid: true},
+  })
+  return html`At 5-min sampling: ρ̂ ≈ <b>${rho_5min.toFixed(2)}</b>
+    (bias = ${bias_5min}% of true ρ = ${rho_true}) &ensp; — &ensp;
+    refresh-time sampling corrects this<br>${plt}`
+}
+```
+
 # Synchronisation
 
 ## Refresh Time Sampling

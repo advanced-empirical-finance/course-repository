@@ -100,6 +100,50 @@ trades = msg[msg["event"].isin([4, 5])]  # visible + hidden executions
 - For 50 stocks: significant storage and memory management required
 - Typical workflow: pre-process and aggregate to 1-second or 5-minute bars; store as compressed `.rds` or `.parquet`
 
+## The Limit Order Book
+
+```{r}
+#| label: fig-orderbook
+#| echo: false
+#| warning: false
+#| fig-cap: "Simulated LOB snapshot around mid-price $150. The bid-ask spread sits at the centre; alternating executions at bid and ask create the **bid-ask bounce** — a key source of microstructure noise."
+#| fig-width: 9
+#| fig-height: 4.5
+
+library(tidyverse)
+
+mid <- 150.00; tick <- 0.01
+set.seed(42)
+
+lob <- bind_rows(
+  tibble(side = "Bid (buy)",  level = 1:10,
+         price = mid - tick * (1:10),
+         qty   = c(1200, 850, 2300, 540, 1800, 760, 430, 1100, 920, 680)),
+  tibble(side = "Ask (sell)", level = 1:10,
+         price = mid + tick * (1:10),
+         qty   = c(950, 1400, 620, 1750, 490, 2100, 870, 350, 1300, 760))
+)
+
+ggplot(lob, aes(y = sprintf("%.2f", price),
+                x = ifelse(side == "Bid (buy)", -qty, qty),
+                fill = side)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_vline(xintercept = 0, linewidth = 0.9, colour = "#3d3d3d") +
+  annotate("text", x = 0, y = 10.6, label = "← Spread →",
+           hjust = 0.5, size = 3.2, colour = "#666666") +
+  scale_fill_manual(values = c("Ask (sell)" = "#901A1E",
+                                "Bid (buy)"  = "#3d3d3d")) +
+  scale_x_continuous(
+    labels = function(x) scales::comma(abs(x)),
+    breaks = c(-2000, -1000, 0, 1000, 2000)
+  ) +
+  labs(x = "Quantity (shares)", y = "Price ($)", fill = NULL,
+       title = "NASDAQ limit order book snapshot (10 levels each side)") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "top",
+        panel.grid.major.y = element_blank())
+```
+
 # Microstructure Noise
 
 ## Sources of Noise
@@ -188,6 +232,64 @@ plt.show()
 - Steep upward slope at low $\Delta$: noise dominates — do not sample this finely
 - Flat region: variance stabilises — the "sweet spot" (typically 5–15 minutes for US large-caps)
 - Slight downward slope at very coarse $\Delta$: variance of the single daily return takes over
+
+## Interactive: Microstructure Noise & the Signature Plot
+
+*Increase the noise level ξ to see RV inflate at high frequency. The sweet spot is where the curve flattens.*
+
+```{ojs}
+//| echo: false
+viewof xi_noise = Inputs.range([0.000, 0.006], {step: 0.0001, value: 0.002,
+  label: "Noise level  ξ  (std dev of bid-ask noise)"})
+viewof iv_daily = Inputs.range([0.005, 0.060], {step: 0.001, value: 0.020,
+  label: "True integrated variance IV  (daily)"})
+```
+
+```{ojs}
+//| echo: false
+sig_data = {
+  // Sampling intervals in seconds; 23400 = 6.5h trading day
+  const deltas = [1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600]
+  const T_day  = 23400
+  return deltas.map(delta => {
+    const n     = Math.floor(T_day / delta)
+    const rv    = iv_daily + 2 * xi_noise**2 * n   // E[RV(Δ)] = IV + 2ξ²/Δ
+    const noise_pct = (2 * xi_noise**2 * n) / rv * 100
+    return {
+      delta,
+      annvol:     Math.sqrt(rv * 252) * 100,
+      true_vol:   Math.sqrt(iv_daily * 252) * 100,
+      noise_pct,
+      label: delta < 60 ? `${delta}s` : delta < 3600 ? `${delta/60}m` : "1h"
+    }
+  })
+}
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 700, height: 275, marginLeft: 55,
+  marks: [
+    Plot.ruleY([sig_data[0].true_vol],
+      {stroke: "#cccccc", strokeDasharray: "4 2", strokeWidth: 1.5}),
+    Plot.ruleX([300], {stroke: "#666666", strokeDasharray: "2 2", strokeWidth: 1}),
+    Plot.text([{delta: 420, annvol: sig_data[0].true_vol * 0.60, label: "5 min"}],
+      {x: "delta", y: "annvol", text: "label", fontSize: 10, fill: "#666666"}),
+    Plot.lineY(sig_data, {x: "delta", y: "annvol",
+      stroke: "#901A1E", strokeWidth: 2.5}),
+    Plot.dot(sig_data, {x: "delta", y: "annvol",
+      fill: "#901A1E", r: 4}),
+    Plot.text(sig_data, {x: "delta", y: "annvol", text: "label",
+      dy: -12, fontSize: 9, fill: "#3d3d3d"}),
+  ],
+  x: {type: "log", label: "Sampling interval Δ (seconds, log scale)",
+      grid: true, tickValues: [1, 5, 30, 60, 300, 1800, 3600]},
+  y: {label: "RV estimate — annualised vol (%)", grid: true},
+  caption: html`Noise bias = 2ξ²/Δ → ∞ as Δ → 0 &ensp;|&ensp;
+    <span style='color:#cccccc'>– –</span> True (noise-free) volatility`
+})
+```
 
 ## Data Cleaning
 

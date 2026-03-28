@@ -110,6 +110,84 @@ $$\text{kurt}(r_t) = \frac{E[(r_t - \mu)^4]}{\sigma^4} \gg 3$$
 :::
 ::::
 
+## All Four Facts in One Stock
+
+```{r}
+#| echo: false
+#| warning: false
+#| cache: true
+library(tidyverse)
+library(tidyfinance)
+
+prices_sf <- download_data(
+  type = "stock_prices", symbols = "AAPL",
+  start_date = "2015-01-01", end_date = "2024-12-31"
+) |>
+  arrange(date) |>
+  mutate(ret = log(adjusted_close / lag(adjusted_close))) |>
+  drop_na()
+
+ci_sf <- 1.96 / sqrt(nrow(prices_sf))
+
+acf_sq <- with(acf(prices_sf$ret^2, lag.max = 60, plot = FALSE),
+               list(lag = as.numeric(lag[-1]), acf = as.numeric(acf[-1])))
+
+cc_obj <- ccf(prices_sf$ret, prices_sf$ret^2, lag.max = 10, plot = FALSE)
+cc_lev <- list(lag = as.numeric(cc_obj$lag[as.numeric(cc_obj$lag) >= 0]),
+               ccf = as.numeric(cc_obj$acf[as.numeric(cc_obj$lag) >= 0]))
+
+ojs_define(
+  sf_returns = prices_sf |> mutate(date = as.character(date)) |>
+                 select(date, ret) |> as.list(),
+  sf_acf     = map2(acf_sq$lag, acf_sq$acf, ~ list(lag = .x, acf = .y)),
+  sf_ccf     = map2(cc_lev$lag, cc_lev$ccf, ~ list(lag = .x, ccf = .y)),
+  sf_ci      = ci_sf
+)
+```
+
+```{ojs}
+//| echo: false
+ret_data = sf_returns.date.map((d, i) => ({ date: new Date(d), ret: sf_returns.ret[i] * 100 }))
+
+p_ret = Plot.plot({
+  width: 340, height: 200, marginLeft: 42,
+  marks: [Plot.lineY(ret_data, {x: "date", y: "ret", stroke: "#3d3d3d", strokeWidth: 0.5})],
+  x: {label: null}, y: {label: "Return (%)"},
+  title: "(a) Daily log returns — AAPL 2015–2024"
+})
+
+p_qq = Plot.plot({
+  width: 340, height: 200, marginLeft: 42,
+  marks: [
+    Plot.qq(ret_data, {x: "ret", stroke: "#901A1E", strokeOpacity: 0.4, strokeWidth: 1.5}),
+  ],
+  title: "(b) QQ-plot vs Gaussian (tails outside line = fat tails)"
+})
+
+p_acf = Plot.plot({
+  width: 340, height: 200, marginLeft: 42,
+  marks: [
+    Plot.barY(sf_acf, {x: "lag", y: "acf", fill: "#901A1E", fillOpacity: 0.75}),
+    Plot.ruleY([sf_ci, -sf_ci], {stroke: "#666666", strokeDasharray: "3 2"})
+  ],
+  x: {label: "Lag (days)"}, y: {label: "ACF"},
+  title: "(c) ACF of r²ₜ — slow decay = clustering + long memory"
+})
+
+p_lev = Plot.plot({
+  width: 340, height: 200, marginLeft: 42,
+  marks: [
+    Plot.barY(sf_ccf, {x: "lag", y: "ccf", fill: "#901A1E", fillOpacity: 0.75}),
+    Plot.ruleY([0, sf_ci, -sf_ci], {stroke: ["#3d3d3d","#666666","#666666"],
+               strokeDasharray: ["0","3 2","3 2"]})
+  ],
+  x: {label: "Lag k"}, y: {label: "CCF"},
+  title: "(d) Corr(rₜ, r²ₜ₊ₖ) — negative at k>0 = leverage effect"
+})
+
+html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${p_ret}${p_qq}${p_acf}${p_lev}</div>`
+```
+
 ## Fact 2: Volatility Clustering
 
 **Mandelbrot (1963):** *"large changes tend to be followed by large changes, of either sign, and small changes tend to be followed by small changes"*
@@ -329,6 +407,83 @@ ewma_estimates = (crsp_returns
 )
 ```
 :::
+
+## Interactive: Rolling SD vs EWMA
+
+*Drag the sliders — watch how each estimator reacts to the same return path*
+
+```{ojs}
+//| echo: false
+viewof M_roll = Inputs.range([5, 126], {step: 1, value: 21,
+  label: "Rolling window  M (days)"})
+viewof lam_ewma = Inputs.range([0.85, 0.99], {step: 0.01, value: 0.94,
+  label: "EWMA decay  λ"})
+```
+
+```{ojs}
+//| echo: false
+// Simulate a GJR-GARCH(1,1) return series (fixed seed via deterministic init)
+garch_path = {
+  const n = 750, omega = 4e-5, a = 0.06, g = 0.10, b = 0.89
+  let s2 = omega / (1 - a - g/2 - b), r = 0
+  const out = []
+  // Use a simple LCG for reproducibility
+  let seed = 42
+  const lcg = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff
+    return (seed >>> 0) / 4294967296 }
+  const randn = () => Math.sqrt(-2*Math.log(lcg()+1e-10)) * Math.cos(2*Math.PI*lcg())
+  for (let t = 0; t < n; t++) {
+    const z = randn()
+    r = Math.sqrt(s2) * z
+    out.push({ t, r, true_vol: Math.sqrt(s2 * 252) * 100 })
+    s2 = omega + (a + (r < 0 ? g : 0)) * r*r + b * s2
+  }
+  return out
+}
+```
+
+```{ojs}
+//| echo: false
+vol_paths = {
+  const rets = garch_path.map(d => d.r)
+  const n = rets.length
+  const out = garch_path.map(d => ({...d, roll: null, ewma: null}))
+  // Rolling SD
+  for (let t = M_roll - 1; t < n; t++) {
+    const w = rets.slice(t - M_roll + 1, t + 1)
+    const mu = w.reduce((a,x) => a+x, 0) / M_roll
+    const v  = w.reduce((a,x) => a+(x-mu)**2, 0) / (M_roll-1)
+    out[t].roll = Math.sqrt(v * 252) * 100
+  }
+  // EWMA
+  let ev = rets[0]**2
+  for (let t = 0; t < n; t++) {
+    if (t > 0) ev = (1 - lam_ewma) * rets[t-1]**2 + lam_ewma * ev
+    out[t].ewma = Math.sqrt(ev * 252) * 100
+  }
+  return out
+}
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  width: 700, height: 270, marginLeft: 50,
+  marks: [
+    Plot.lineY(vol_paths, {x: "t", y: "true_vol",
+      stroke: "#cccccc", strokeWidth: 1.2}),
+    Plot.lineY(vol_paths.filter(d => d.roll !== null), {x: "t", y: "roll",
+      stroke: "#901A1E", strokeWidth: 2}),
+    Plot.lineY(vol_paths, {x: "t", y: "ewma",
+      stroke: "#3d3d3d", strokeWidth: 2, strokeDasharray: "5 3"}),
+  ],
+  y: {label: "Annualised vol (%)", grid: true},
+  x: {label: "Trading day"},
+  caption: html`<span style='color:#cccccc'>——</span> True (GJR-GARCH) &ensp;
+    <span style='color:#901A1E'>——</span> Rolling SD (M days) &ensp;
+    <span style='color:#3d3d3d'>– –</span> EWMA (λ)`
+})
+```
 
 ## Naive Estimators in Action — NASDAQ Example
 
