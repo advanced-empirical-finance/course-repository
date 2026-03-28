@@ -1,0 +1,469 @@
+---
+subtitle: "Volatility I: Stylized Facts & Naive Estimation"
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| eval: false
+library(tidyverse)
+library(scales)
+```
+
+## The Central Question
+
+The Markowitz mean-variance investor solves
+
+$$
+w_t^* = \arg\max_{w} \; w'\mu_t - \frac{\gamma}{2} w'\Sigma_t w
+$$
+
+- $\mu_t = E(r_{t+1} \mid \mathcal{F}_t)$: expected returns — hard to estimate, low signal-to-noise
+- $\Sigma_t = \text{Cov}(r_{t+1} \mid \mathcal{F}_t)$: conditional covariance matrix — **this lecture block**
+
+**Why focus on $\Sigma_t$?**
+
+- Estimation error in $\hat\mu$ swamps the signal; many practitioners set $\mu_t = 0$ and focus on the global minimum variance portfolio (GMVP)
+- The GMVP weights $w^* \propto \Sigma_t^{-1} \mathbf{1}$ depend *entirely* on $\Sigma_t$
+- Even expected-return-based strategies (factor models, ML predictions) require $\Sigma_t$ for risk adjustment and position sizing
+
+**The block roadmap:**
+
+| Lecture | Method | What it estimates |
+|---------|--------|-------------------|
+| 1 | Rolling SD, EWMA | Marginal $\sigma_{i,t}$ naively |
+| 2 | GARCH family | $\sigma_{i,t}$ from daily returns |
+| 3 | Realized variance | $\sigma_{i,t}$ from intraday data |
+| 4 | HAR models | Forecasts of $\sigma_{i,t+h}$ |
+| 5 | DCC-GARCH, shrinkage | Full $\Sigma_t$, $N = 50$ |
+| 6 | Realized covariance | Full $\Sigma_t$ from intraday data |
+
+## Running Example
+
+Throughout all six lectures we work with the **same universe of 50 NASDAQ-listed stocks**
+
+- Chosen to align with available data infrastructure
+- Large enough to make dimensionality a real challenge ($N = 50 \Rightarrow 1{,}275$ unique covariance elements)
+- Small enough to remain computationally manageable
+
+**Data sources by lecture:**
+
+| Data | Source | Lectures |
+|------|--------|----------|
+| Daily close prices | CRSP via WRDS | 1–2, 5 |
+| Tick-by-tick trades & quotes | LOBSTER (NASDAQ) | 3–4, 6 |
+| Pre-computed realized measures | VOLARE database | 4, 6 |
+
+**Why NASDAQ?**
+
+- LOBSTER covers NASDAQ natively (direct NASDAQ feed)
+- VOLARE provides ready-made realized measures for NASDAQ stocks
+- Sector diversity: tech, healthcare, consumer discretionary — interesting cross-sectional heterogeneity
+
+## The Problem: Volatility is Latent
+
+- At time $t$ we observe the return $r_t$ but **not** the variance $\sigma_t^2$ that generated it
+- We observe a single draw from $r_t \sim \mathcal{D}(0, \sigma_t^2)$ — the variance is a parameter, not a random variable we can see
+
+**Classical sample variance:** with $T$ observations
+
+$$\hat\sigma^2 = \frac{1}{T-1}\sum_{t=1}^T (r_t - \bar r)^2$$
+
+Problems:
+
+- Assumes $\sigma_t^2 = \sigma^2$ — constant over time
+- Returns are not i.i.d.: tomorrow's $\sigma_t^2$ depends on history
+- For portfolio rebalancing we need a **forecast**: $E(\sigma_{t+1}^2 \mid \mathcal{F}_t)$, not a historical average
+
+**The key challenge:** find an estimator that
+
+1. Responds quickly to changing market conditions
+2. Does not overfit to noise
+3. Scales to $N = 50$ assets and produces a coherent $\hat\Sigma_t$
+
+# Stylized Facts
+
+## Fact 1: Fat Tails
+
+Daily returns exhibit **excess kurtosis** — extreme moves are far more likely than Gaussian
+
+$$\text{kurt}(r_t) = \frac{E[(r_t - \mu)^4]}{\sigma^4} \gg 3$$
+
+- S&P 500 kurtosis historically around 5–10 (Gaussian = 3)
+- Tails heavier for individual stocks than for indices (diversification reduces kurtosis)
+- **Portfolio implication:** Gaussian VaR systematically underestimates tail risk; using $\Sigma$ from a Gaussian model misprices low-probability, high-impact events
+
+:::: {.columns}
+::: {.column width="50%"}
+**Implication for estimation:**
+
+- OLS on squared returns is not efficient under fat tails
+- QML (quasi-maximum likelihood) estimation of GARCH remains consistent even with non-Gaussian errors (Lecture 2)
+- For risk management: use Student-$t$ or skewed-$t$ distributions
+:::
+::: {.column width="50%"}
+**Implication for portfolio choice:**
+
+- Mean-variance is exact only under Gaussian returns or quadratic utility
+- With fat tails: higher moments matter; mean-variance remains a *useful approximation*
+- Practitioners add tail-risk overlays (options, stop-losses) on top of MV portfolios
+:::
+::::
+
+## Fact 2: Volatility Clustering
+
+**Mandelbrot (1963):** *"large changes tend to be followed by large changes, of either sign, and small changes tend to be followed by small changes"*
+
+$$\text{Corr}(r_t^2, r_{t-k}^2) > 0 \quad \text{for } k = 1, 2, \ldots$$
+
+The autocorrelation function (ACF) of squared returns is significantly positive at many lags
+
+**What this means for portfolio management:**
+
+- Volatility is **predictable** from its own history
+- High-volatility regimes persist → position sizing should respond dynamically
+- A model that uses a constant $\sigma^2$ will be consistently wrong in both directions
+
+**Key diagnostic:** ACF of $r_t^2$ (or $|r_t|$) should show slow decay; ACF of $r_t$ itself should be near zero
+
+## Fact 3: Mean Reversion
+
+Volatility is stationary — it clusters but eventually **reverts to its long-run mean** $\bar\sigma^2$
+
+- This is distinct from clustering: clustering = short-run persistence; mean reversion = long-run stationarity
+- Empirically: half-life of a volatility shock is roughly 10–30 trading days for most stocks
+- VIX: mean-reverts around $\approx 20\%$ annualised with well-documented spikes
+
+**For multi-step forecasting:**
+
+$$E(\sigma_{t+h}^2 \mid \mathcal{F}_t) \to \bar\sigma^2 \quad \text{as } h \to \infty$$
+
+Any reasonable volatility model must respect this — an integrated volatility model (IGARCH) does not mean-revert, which is problematic for long-horizon forecasts
+
+## Fact 4: The Leverage Effect
+
+**Black (1976):** negative returns increase volatility more than positive returns of the same magnitude
+
+$$\text{Corr}(r_t, \sigma_{t+1}^2) < 0$$
+
+Two competing explanations:
+
+:::: {.columns}
+::: {.column width="50%"}
+**Financial leverage channel:**
+
+A price drop increases the debt-to-equity ratio → the firm becomes riskier → volatility rises
+:::
+::: {.column width="50%"}
+**Volatility feedback channel:**
+
+Higher expected volatility raises the required return → price falls to deliver that return
+:::
+::::
+
+**Portfolio implication:**
+
+- Drawdowns coincide with rising volatility → losses and rising risk arrive together
+- Dynamic strategies must increase defensive positioning *quickly* after negative shocks
+- Symmetric volatility models (standard GARCH) miss this: we need GJR-GARCH or EGARCH (Lecture 2)
+
+**Diagnostic:** cross-correlation between $r_t$ and $r_{t+k}^2$ should be negative for small $k > 0$
+
+## Fact 5: Long Memory
+
+The ACF of $r_t^2$ decays **hyperbolically**, not exponentially
+
+$$\text{Corr}(r_t^2, r_{t-k}^2) \approx c \cdot k^{2d-1}, \quad 0 < d < 0.5$$
+
+- Exponential decay: $\rho_k \propto \phi^k$ — ARMA and standard GARCH
+- Hyperbolic decay: $\rho_k \propto k^{-\alpha}$ — long memory, still positive at lag 100+
+
+**Consequences:**
+
+- Standard GARCH(1,1) is near-integrated ($\alpha + \beta \approx 1$) to approximate long memory — but this implies no mean reversion
+- FIGARCH and EGARCH with long-memory specifications capture this directly
+- HAR models (Lecture 4) mimic long memory through a sum of AR components at different horizons — simple and effective
+
+## Fact 6: Co-movement & Common Factors
+
+Volatilities of different assets **move together**, especially during crises
+
+- Empirically: a single common factor explains 40–60% of variance in individual stock volatilities
+- The VIX ("fear gauge") proxies for this common factor at market level
+- Sector-specific volatility factors exist on top of the market factor
+
+**For portfolio choice:**
+
+$$\Sigma_t = D_t C_t D_t$$
+
+where $D_t = \text{diag}(\sigma_{1,t}, \ldots, \sigma_{N,t})$ and $C_t$ is the correlation matrix
+
+- Co-movement means $C_t$ is also time-varying — not just the marginal variances
+- A model that captures only $D_t$ (e.g., diagonal GARCH) misses the time-variation in $C_t$
+- DCC-GARCH (Lecture 5) captures both components
+
+# Naive Estimators
+
+## Rolling Window Standard Deviation
+
+The simplest time-varying volatility estimator:
+
+$$\hat\sigma_{t}^2 = \frac{1}{M-1} \sum_{s=t-M+1}^{t} (r_s - \bar r_{t,M})^2$$
+
+where $M$ is the window length (e.g., $M = 21$ for one month, $M = 63$ for one quarter)
+
+**The bias-variance tradeoff:**
+
+:::: {.columns}
+::: {.column width="50%"}
+**Short window ($M$ small):**
+
+- Responds quickly to volatility changes
+- High variance: noisy estimates
+- Weights past observation equally within the window, then drops to zero abruptly
+:::
+::: {.column width="50%"}
+**Long window ($M$ large):**
+
+- Smooth, stable estimates
+- Slow to react to regime changes
+- Incorporates stale data — poor in fast-moving markets
+:::
+::::
+
+**The cliff-edge problem:** when a large return falls out of the window, $\hat\sigma_t^2$ can jump even though no new information has arrived today
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(tidyverse)
+
+# Assume crsp_returns: a tibble with columns date, symbol, ret
+# for our 50 NASDAQ stocks from CRSP
+
+rolling_vol <- crsp_returns |>
+  group_by(symbol) |>
+  arrange(date) |>
+  mutate(
+    vol_21  = slider::slide_dbl(ret, sd, .before = 20, .complete = TRUE),
+    vol_63  = slider::slide_dbl(ret, sd, .before = 62, .complete = TRUE),
+    vol_126 = slider::slide_dbl(ret, sd, .before = 125, .complete = TRUE)
+  ) |>
+  ungroup()
+```
+
+## Python
+```{python}
+#| eval: false
+import pandas as pd
+
+# crsp_returns: DataFrame with columns date, symbol, ret
+rolling_vol = (crsp_returns
+  .sort_values(["symbol", "date"])
+  .groupby("symbol")["ret"]
+  .apply(lambda x: x.rolling(window=21, min_periods=21).std())
+  .reset_index(name="vol_21")
+)
+```
+:::
+
+## Exponentially Weighted Moving Average (EWMA)
+
+The **RiskMetrics** estimator (J.P. Morgan 1994) uses exponentially declining weights:
+
+$$\hat\sigma_t^2 = (1 - \lambda) r_{t-1}^2 + \lambda \hat\sigma_{t-1}^2$$
+
+where $\lambda = 0.94$ for daily data (the RiskMetrics default)
+
+**Recursive form:** expanding the recursion gives
+
+$$\hat\sigma_t^2 = (1-\lambda) \sum_{k=1}^{\infty} \lambda^{k-1} r_{t-k}^2$$
+
+- Exponentially declining weights: recent observations count more
+- No cliff-edge: all past observations included (with negligible weight at long lags)
+- Implicit mean reversion to zero: $E(\hat\sigma_\infty^2) = 0$ — problematic for long-horizon forecasts
+
+**Parameter $\lambda$:**
+
+- $\lambda$ close to 1: slow adjustment, sluggish response
+- $\lambda$ close to 0: fast adjustment, noisy estimates
+- RiskMetrics $\lambda = 0.94$: half-life of $\log(0.5)/\log(0.94) \approx 11$ trading days
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+ewma_vol <- function(ret, lambda = 0.94) {
+  n <- length(ret)
+  sigma2 <- numeric(n)
+  sigma2[1] <- ret[1]^2
+  for (t in 2:n) {
+    sigma2[t] <- (1 - lambda) * ret[t-1]^2 + lambda * sigma2[t-1]
+  }
+  sqrt(sigma2)
+}
+
+ewma_estimates <- crsp_returns |>
+  group_by(symbol) |>
+  arrange(date) |>
+  mutate(ewma_94 = ewma_vol(ret, lambda = 0.94),
+         ewma_97 = ewma_vol(ret, lambda = 0.97)) |>
+  ungroup()
+```
+
+## Python
+```{python}
+#| eval: false
+def ewma_vol(ret, lam=0.94):
+    sigma2 = [ret.iloc[0]**2]
+    for r in ret.iloc[1:]:
+        sigma2.append((1 - lam) * r**2 + lam * sigma2[-1])
+    return pd.Series(sigma2, index=ret.index) ** 0.5
+
+ewma_estimates = (crsp_returns
+  .sort_values(["symbol", "date"])
+  .groupby("symbol")
+  .apply(lambda df: df.assign(ewma_94=ewma_vol(df["ret"], 0.94)))
+  .reset_index(drop=True)
+)
+```
+:::
+
+## Naive Estimators in Action — NASDAQ Example
+
+**Stylized facts diagnostics** for selected NASDAQ stocks (pre-computed from CRSP daily returns):
+
+- **QQ-plots:** tails extend far beyond the Gaussian reference line — confirming excess kurtosis
+- **ACF of $r_t^2$:** significant positive autocorrelation at lags 1–50, slow decay — confirming long memory
+- **Leverage cross-correlations:** $\text{Corr}(r_t, r_{t+k}^2)$ negative for $k = 1, \ldots, 5$ — confirming leverage effect
+
+**Comparing rolling SD and EWMA:**
+
+- Both capture clustering qualitatively; EWMA is smoother and reacts faster
+- During COVID-19 crash (Feb–Mar 2020): EWMA rises quickly, rolling SD has a delayed and abrupt jump
+- After recovery: rolling SD remains elevated due to the cliff-edge; EWMA declines steadily
+
+**Cross-sectional heterogeneity:**
+
+- Tech stocks (AAPL, MSFT, NVDA): higher unconditional volatility, stronger clustering
+- Healthcare (JNJ, MRK): lower and more stable volatility
+- Consumer discretionary (AMZN, TSLA): high volatility, strong leverage effect
+
+## From Naive Estimators to Portfolio Weights
+
+To see the portfolio implications, plug $\hat\sigma_{i,t}$ into the GMVP:
+
+$$\hat\Sigma_t = \hat D_t \hat C \hat D_t$$
+
+where $\hat C$ is the **sample correlation matrix** (assumed constant) and $\hat D_t = \text{diag}(\hat\sigma_{1,t}, \ldots, \hat\sigma_{N,t})$ from rolling SD or EWMA
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(Matrix)
+
+# Compute GMVP weights from EWMA diagonal + sample correlations
+compute_gmvp <- function(sigma_vec, corr_mat) {
+  D <- diag(sigma_vec)
+  Sigma <- D %*% corr_mat %*% D
+  Sigma_inv <- solve(Sigma)
+  ones <- rep(1, nrow(Sigma))
+  w <- Sigma_inv %*% ones
+  w / sum(w)
+}
+
+# For each date t, compute weights
+sample_corr <- cor(returns_wide)  # N x N sample correlation matrix
+gmvp_weights <- rolling_vol |>
+  group_by(date) |>
+  summarise(
+    weights = list(compute_gmvp(vol_21, sample_corr))
+  )
+```
+
+## Python
+```{python}
+#| eval: false
+import numpy as np
+
+def compute_gmvp(sigma_vec, corr_mat):
+    D = np.diag(sigma_vec)
+    Sigma = D @ corr_mat @ D
+    Sigma_inv = np.linalg.inv(Sigma)
+    ones = np.ones(len(sigma_vec))
+    w = Sigma_inv @ ones
+    return w / w.sum()
+
+sample_corr = returns_wide.corr().values
+```
+:::
+
+**Limitation of naive approach:** $\hat C$ is assumed constant — we will relax this in Lectures 5–6
+
+## Forecasting Comparison: What Can Naive Estimators Do?
+
+Evaluate the one-step-ahead forecast $\hat\sigma_t^2$ against the proxy $r_t^2$ using the **QLIKE loss function**:
+
+$$\text{QLIKE} = \frac{r_t^2}{\hat\sigma_t^2} - \log\frac{r_t^2}{\hat\sigma_t^2} - 1$$
+
+- QLIKE is robust to the noise in $r_t^2$ as a proxy for the true (latent) $\sigma_t^2$
+- Under regularity conditions, QLIKE rankings are invariant to the choice of volatility proxy
+
+:::: {.columns}
+::: {.column width="60%"}
+**Preview of the full-block horse race:**
+
+| Estimator | Average QLIKE | Notes |
+|-----------|--------------|-------|
+| Rolling SD (M=21) | baseline | Cliff-edge, slow |
+| EWMA (λ=0.94) | ↓ | Faster response |
+| GARCH(1,1) | ↓↓ | Lecture 2 |
+| HAR-RV | ↓↓↓ | Lecture 4 |
+| DCC-GARCH | — | Lecture 5, multivariate |
+| Realized Cov | — | Lecture 6, multivariate |
+:::
+::: {.column width="40%"}
+**Takeaway:**
+
+Naive estimators are simple and interpretable but leave significant predictive accuracy on the table
+
+Each subsequent lecture shows how to recover that accuracy
+
+The final judge: **out-of-sample GMVP performance**
+:::
+::::
+
+# Exercises
+
+## Exercise Set 1
+
+**Data preparation**
+
+1. Load the daily CRSP returns for the 50 NASDAQ stocks. Compute log returns and verify that the data covers at least 10 years of history (≥2,500 trading days per stock).
+
+**Stylized facts**
+
+2. For a subset of 10 stocks (2 tech, 2 healthcare, 2 consumer discretionary, 4 of your choice):
+   - Plot QQ-plots against the Gaussian and Student-$t(5)$ distributions. Which fits better?
+   - Plot the ACF of $r_t^2$ up to lag 100. Do you observe slow hyperbolic decay?
+   - Compute and plot the cross-correlations $\text{Corr}(r_t, r_{t+k}^2)$ for $k = -10, \ldots, 10$. Is the leverage effect visible?
+
+**Naive estimators**
+
+3. Compute rolling standard deviations at $M \in \{21, 63, 126\}$ trading days for all 50 stocks.
+   - Visualise the three series for two stocks of your choice. Discuss the bias-variance tradeoff.
+   - Identify the cliff-edge problem: find a date where the rolling SD jumps despite no unusual return today.
+
+4. Compute EWMA volatility with $\lambda \in \{0.90, 0.94, 0.97\}$.
+   - Compare the half-life implied by each $\lambda$.
+   - How does the choice of $\lambda$ affect portfolio turnover? (Hint: compute $\hat w_t^{GMVP}$ for each $\lambda$ and count daily rebalancing trades.)
+
+**Portfolio evaluation**
+
+5. Construct the GMVP using each estimator (rolling 21-day, rolling 63-day, EWMA 0.94) combined with the sample correlation matrix.
+   - Compute the annualised out-of-sample portfolio volatility for each strategy.
+   - Which estimator gives the lowest realised volatility? Does a shorter or longer window win?
+
+**Key references:** Cont (2001); Pagan & Schwert (1990)

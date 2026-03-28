@@ -1,0 +1,485 @@
+---
+subtitle: "Volatility III: High-Frequency Data & Microstructure Noise"
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| eval: false
+library(tidyverse)
+library(highfrequency)
+```
+
+## The Information in Intraday Data
+
+**The problem with daily returns:** we observe *one* draw from $\mathcal{N}(0, \sigma_t^2)$ per day — extreme measurement noise
+
+**Key insight:** within a single trading day we observe *hundreds* of returns. As the sampling interval $\Delta \to 0$:
+
+$$RV_t(\Delta) = \sum_{j=1}^{1/\Delta} r_{t,j}^2 \xrightarrow{p} \int_0^1 \sigma_t^2(s)\, ds =: IV_t$$
+
+where $IV_t$ is the **integrated variance** — the true daily variance
+
+**From a portfolio perspective:**
+
+- GARCH uses $r_{t-1}^2$ as a proxy for $\sigma_t^2$ — extremely noisy ($\text{SNR} \approx 0.05$)
+- Realized variance $RV_t$ uses all intraday returns — much more precise
+- With $m = 78$ five-minute intervals per day: variance of $RV_t$ is $\approx 78\times$ lower than variance of $r_t^2$
+
+**Better estimates of $\sigma_{i,t}^2$ → better estimates of $\Sigma_t$ → better portfolio weights**
+
+## Data Infrastructure
+
+### LOBSTER
+
+**LOBSTER** (Limit Order Book System — The Efficient Reconstructor) provides:
+
+- Reconstructed **limit order book** for all NASDAQ-listed stocks
+- Two files per stock-day: `message file` (all events) + `order book file` (snapshots at each event)
+- Event types: 1 = submission, 2 = cancellation, 3 = deletion, 4 = execution (visible), 5 = execution (hidden), 7 = trading halt
+- Available: historical data from 2007 onwards for our 50 NASDAQ stocks
+
+### VOLARE
+
+**VOLARE** (VOLatility Archive for Realized Estimates): open-access database of **pre-computed** daily realized measures
+
+- Successor to the Oxford-Man Realized Library (discontinued 2022)
+- Covers NASDAQ stocks with daily: RV, BPV, realized kernels, semi-variances, quarticity
+- **When to use:** avoids raw tick processing for all 50 stocks — essential when tick data is unavailable or computation is a bottleneck
+
+## LOBSTER Data Structure
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(highfrequency)
+
+# Read LOBSTER message and orderbook files
+msg <- readLOBSTERMessageFile(
+  "AAPL_2023-01-03_34200000_57600000_message_10.csv"
+)
+lob <- readLOBSTEROrderbookFile(
+  "AAPL_2023-01-03_34200000_57600000_orderbook_10.csv"
+)
+
+# Merge into trades-and-quotes format
+taq <- mergeLOBSTERFiles(msg, lob)
+
+# Extract trade prices and compute mid-quote
+trades <- taq[taq$type == 4 | taq$type == 5, ]  # executions only
+mid    <- (taq$ask_price_1 + taq$bid_price_1) / 2
+```
+
+## Python
+```{python}
+#| eval: false
+import pandas as pd
+
+# LOBSTER message file columns:
+# time, event_type, order_id, size, price, direction
+msg = pd.read_csv(
+    "AAPL_2023-01-03_34200000_57600000_message_10.csv",
+    header=None,
+    names=["time", "event", "order_id", "size", "price", "direction"]
+)
+
+lob = pd.read_csv(
+    "AAPL_2023-01-03_34200000_57600000_orderbook_10.csv",
+    header=None
+)
+# LOB columns: ask_p1, ask_q1, bid_p1, bid_q1, ... (10 levels)
+
+trades = msg[msg["event"].isin([4, 5])]  # visible + hidden executions
+```
+:::
+
+**Practical considerations:**
+
+- A single active stock (AAPL, MSFT) generates 1–5 GB of raw data per year
+- For 50 stocks: significant storage and memory management required
+- Typical workflow: pre-process and aggregate to 1-second or 5-minute bars; store as compressed `.rds` or `.parquet`
+
+# Microstructure Noise
+
+## Sources of Noise
+
+Raw transaction prices deviate from the "efficient" price $p_t^*$ for several reasons:
+
+:::: {.columns}
+::: {.column width="50%"}
+**Mechanical sources:**
+
+- **Bid-ask bounce:** transactions alternate between bid and ask → spurious oscillation of order $\frac{1}{2}(ask - bid)$
+- **Price discreteness:** prices are quoted in discrete ticks (1 cent for most US stocks)
+- **Stale quotes:** best quotes do not update instantaneously; mid-quote lags the efficient price
+:::
+::: {.column width="50%"}
+**Structural sources:**
+
+- **Inventory effects:** market makers widen spreads to manage inventory → price includes a compensation for bearing risk
+- **Adverse selection:** informed traders move prices; the spread compensates market makers for trading against private information
+- **Rounding errors:** LOBSTER prices are in units of $10^{-4}$ — convert carefully
+:::
+::::
+
+**Model:** $p_{t,j} = p_{t,j}^* + u_{t,j}$ where $u_{t,j}$ is noise with $E(u) = 0$, $\text{Var}(u) = \xi^2$
+
+At high frequency, $r_{t,j} = \Delta p_{t,j}^* + \Delta u_{t,j}$ — the noise dominates the signal
+
+## The Signature Plot
+
+The **signature plot** reveals the bias-variance tradeoff of $RV_t(\Delta)$:
+
+$$E[RV_t(\Delta)] = IV_t + \frac{2\xi^2}{\Delta}$$
+
+- As $\Delta \to 0$ (sampling more frequently): noise bias $2\xi^2/\Delta \to \infty$
+- As $\Delta \to \infty$ (sampling less frequently): $RV_t \to r_t^2$ — one daily observation
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Signature plot: RV as a function of sampling frequency
+frequencies <- c(1, 5, 10, 30, 60, 300, 600, 900, 1800)  # seconds
+
+rv_by_freq <- sapply(frequencies, function(freq) {
+  r_sampled <- aggregateReturns(intraday_returns, on = "seconds",
+                                  k = freq)
+  RV(r_sampled)
+})
+
+tibble(seconds = frequencies, rv = rv_by_freq) |>
+  ggplot(aes(x = seconds, y = sqrt(rv) * sqrt(252))) +
+  geom_line(color = "#901A1E") +
+  geom_point() +
+  scale_x_log10(labels = scales::label_comma()) +
+  labs(x = "Sampling interval (seconds, log scale)",
+       y = "Annualised RV (sqrt)",
+       title = "Signature plot — AAPL") +
+  theme_minimal()
+```
+
+## Python
+```{python}
+#| eval: false
+import numpy as np
+import matplotlib.pyplot as plt
+
+frequencies = [1, 5, 10, 30, 60, 300, 600, 900, 1800]
+
+rv_by_freq = []
+for freq in frequencies:
+    # resample to 'freq' seconds and compute RV
+    r_s = intraday_prices.resample(f"{freq}s").last().pct_change().dropna()
+    rv_by_freq.append((r_s**2).sum())
+
+plt.semilogx(frequencies, np.sqrt(rv_by_freq) * np.sqrt(252))
+plt.xlabel("Sampling interval (seconds)")
+plt.ylabel("Annualised volatility")
+plt.title("Signature plot — AAPL")
+plt.grid(True)
+plt.show()
+```
+:::
+
+**Reading the signature plot:**
+
+- Steep upward slope at low $\Delta$: noise dominates — do not sample this finely
+- Flat region: variance stabilises — the "sweet spot" (typically 5–15 minutes for US large-caps)
+- Slight downward slope at very coarse $\Delta$: variance of the single daily return takes over
+
+## Data Cleaning
+
+Raw LOBSTER data requires cleaning before any realized measure is computed:
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(highfrequency)
+
+# Standard cleaning pipeline
+taq_clean <- tradesCleanup(
+  tDataRaw  = trades_raw,
+  qDataRaw  = quotes_raw,
+  exchHoursOnly = TRUE,     # 09:30–16:00 only
+  tz = "America/New_York"
+)
+
+# Apply Barndorff-Nielsen et al. (2009) cleaning rules:
+# - Remove outliers (price > 3 MAD from rolling median)
+# - Remove zero prices / quantities
+# - Keep only regular trades
+taq_clean <- tradesCleanupUsingQuotes(taq_clean)
+```
+
+## Python
+```{python}
+#| eval: false
+# Filter to regular trading hours
+trades_clean = trades[
+    (trades["time"] >= 34200) &  # 09:30:00 in seconds from midnight
+    (trades["time"] <= 57600)    # 16:00:00
+].copy()
+
+# Remove obvious outliers: price > 10 * median absolute deviation from median
+rolling_med = trades_clean["price"].rolling(50, center=True).median()
+mad = (trades_clean["price"] - rolling_med).abs().rolling(50).median()
+trades_clean = trades_clean[
+    (trades_clean["price"] - rolling_med).abs() <= 10 * mad
+]
+```
+:::
+
+# Noise-Robust Estimators
+
+## Sparse Sampling (5-Minute RV)
+
+The most common practitioner solution: sample returns at **5-minute intervals**
+
+$$\widehat{RV}_t^{(5\text{min})} = \sum_{j=1}^{78} r_{t,j,5\text{min}}^2$$
+
+- 78 five-minute intervals per 6.5-hour trading day
+- Largely eliminates bid-ask bounce bias
+- Simple to implement; widely used as benchmark
+- **Inefficiency:** discards most of the high-frequency data — uses 78 of ~23,400 one-second observations
+
+**Subsampling:** average multiple grids of 5-minute returns (offset by 1 minute) to recover efficiency
+
+## Realized Kernels
+
+Barndorff-Nielsen, Hansen, Lunde & Shephard (2008): include **lead-lag cross-products** of returns to correct for serial correlation induced by microstructure noise
+
+$$\widehat{RK}_t = \sum_{h=-H}^{H} k\!\left(\frac{h}{H+1}\right) \sum_{j=|h|+1}^{n} r_{t,j} r_{t,j-h}$$
+
+where $k(\cdot)$ is a kernel (Parzen, Tukey-Hanning, or flat-top) that down-weights large lags
+
+**Properties:**
+
+- Consistent for $IV_t$ as $n \to \infty$, $H \to \infty$, $H/n^{1/2} \to \infty$
+- Positive semi-definite (with appropriate kernel)
+- Optimal bandwidth $H \propto n^{3/5} \xi^{4/5}$ — depends on noise level
+- Asymptotically more efficient than sparse sampling
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Realized kernel with Parzen kernel (default)
+rk <- rKernel(
+  rData      = intraday_returns_1sec,
+  kernelType = "Parzen",
+  bw         = "optimal"   # optimal bandwidth selection
+)
+```
+
+## Python
+```{python}
+#| eval: false
+# highfrequency has no direct Python port — use R via rpy2 or implement manually
+# Manual flat-top realized kernel (simplified):
+
+def realized_kernel(returns, H):
+    n = len(returns)
+    gamma = np.array([np.sum(returns[h:] * returns[:n-h]) for h in range(H+1)])
+    weights = np.array([1 - abs(h)/(H+1) for h in range(-H, H+1)])  # Bartlett
+    kernel = weights[H] * gamma[0] + 2 * np.sum(weights[H+1:] * gamma[1:])
+    return kernel
+```
+:::
+
+## Pre-Averaging
+
+Jacod, Li, Mykland, Podolskij & Vetter (2009): pre-average returns over a local window before computing realized variance
+
+$$\bar r_{t,j} = \sum_{i=0}^{k_n-1} g(i/k_n) r_{t,j+i}$$
+
+where $g(\cdot)$ is a weight function (e.g., $g(x) = \min(x, 1-x)$)
+
+- Pre-averaging effectively averages out the i.i.d. noise
+- $k_n \propto n^{1/2}$: optimal block size grows with sample size
+- Feasible central limit theorem with known asymptotic variance → inference is straightforward
+- Available in `highfrequency::rPreaverageVariance()`
+
+## Two-Scale Realized Volatility (TSRV)
+
+Zhang, Mykland & Aït-Sahalia (2005): combine a fine-scale and a coarse-scale estimator
+
+$$\widehat{TSRV}_t = \frac{1}{1 - \bar n_J / n} \left[ RV_t^{(\text{sparse})} - \frac{\bar n_J}{n} RV_t^{(\text{all})} \right]$$
+
+- $RV_t^{(\text{all})}$: sum of all squared tick returns (biased by noise)
+- $RV_t^{(\text{sparse})}$: average of subsampled coarse-scale estimators
+- The linear combination cancels the noise bias at first order
+- Convergence rate: $n^{1/6}$ (compared to $n^{1/4}$ for plain sparse sampling)
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Two-scale RV
+tsrv <- rTSCov(
+  rData  = intraday_returns_1sec,
+  K      = 30,   # coarse scale (30 seconds)
+  J      = 1     # fine scale (1 second)
+)
+
+# Compare estimators for one stock-day
+tibble(
+  estimator = c("5-min RV", "Realized Kernel", "Pre-averaging", "TSRV"),
+  annualized_vol = sqrt(c(rv_5min, rk, rpa, tsrv) * 252) * 100
+)
+```
+
+## Python
+```{python}
+#| eval: false
+# Compute basic TSRV manually
+def tsrv(returns, K=30):
+    n = len(returns)
+    # Fine scale: all returns
+    rv_all = (returns**2).sum()
+    # Coarse scale: subsampled returns aggregated to K ticks
+    rv_coarse_list = []
+    for start in range(K):
+        r_agg = returns[start::K]
+        rv_coarse_list.append((r_agg**2).sum() * (len(r_agg) / (n / K)))
+    rv_coarse = np.mean(rv_coarse_list)
+    n_bar = n / K
+    return (rv_coarse - n_bar / n * rv_all) / (1 - n_bar / n)
+```
+:::
+
+# Jump Detection
+
+## Bipower Variation
+
+Barndorff-Nielsen & Shephard (2004): **bipower variation** separates continuous and jump components
+
+$$BPV_t = \frac{\pi}{2} \sum_{j=2}^{n} |r_{t,j}| |r_{t,j-1}|$$
+
+- $BPV_t \xrightarrow{p} IV_t$ — consistent for integrated variance even in the presence of jumps
+- $RV_t - BPV_t \xrightarrow{p}$ jump variation (sum of squared jump sizes)
+- Key property: absolute value of adjacent returns — individual jumps don't dominate consecutive pairs
+
+**For portfolio management:**
+
+- Continuous variance: persistent, predictable component of risk
+- Jump variance: transient, event-driven component (earnings, macro releases)
+- Optimal hedging differs: options required for jump risk; dynamic rebalancing for diffusive risk
+
+## The BNS Jump Test
+
+Barndorff-Nielsen & Shephard (2006): test for the presence of significant jumps on day $t$
+
+$$Z_t = \frac{RV_t - BPV_t}{\sqrt{(\pi^2/4 + \pi - 5) \frac{1}{n} \max(1, QV_t / BPV_t^2)}} \overset{d}{\to} \mathcal{N}(0,1)$$
+
+where $QV_t$ is the **tri-power quarticity** (a robust measure of integrated quarticity)
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(highfrequency)
+
+# Apply BNS jump test to all days for one stock
+jump_test_results <- lapply(trading_days, function(day) {
+  r_day <- intraday_returns[index(intraday_returns) == day, ]
+
+  rv_val  <- RV(r_day)
+  bpv_val <- BPV(r_day)
+
+  # Jump test (from highfrequency package)
+  jtest <- rJumpTest(rData = r_day, test = "BNS")
+
+  tibble(
+    date        = day,
+    rv          = rv_val,
+    bpv         = bpv_val,
+    jump_var    = max(rv_val - bpv_val, 0),
+    cont_var    = bpv_val,
+    z_stat      = jtest$statistic,
+    jump_day    = jtest$p.value < 0.01
+  )
+}) |> bind_rows()
+```
+
+## Python
+```{python}
+#| eval: false
+from scipy import stats
+
+def bns_jump_test(returns):
+    n = len(returns)
+    rv  = (returns**2).sum()
+    bpv = (np.pi/2) * np.sum(np.abs(returns[1:]) * np.abs(returns[:-1]))
+    # Tri-power quarticity (simplified)
+    mu_4_3 = (2**(2/3) * scipy.special.gamma(7/6) / scipy.special.gamma(1/2))
+    tpq = mu_4_3**(-3) * n * np.sum(
+        np.abs(returns[2:])**(4/3) * np.abs(returns[1:-1])**(4/3) *
+        np.abs(returns[:-2])**(4/3)
+    )
+    z = (rv - bpv) / np.sqrt((np.pi**2/4 + np.pi - 5) *
+                              max(1, tpq / bpv**2) / n)
+    p_val = 2 * (1 - stats.norm.cdf(abs(z)))
+    return {"rv": rv, "bpv": bpv, "z": z, "p_value": p_val,
+            "jump": p_val < 0.01}
+```
+:::
+
+## Jump Days and Portfolio Management
+
+**What happens to your portfolio on jump days?**
+
+- Jump events are typically associated with firm-specific news (earnings surprises, M&A, analyst upgrades)
+- During a jump day: the daily return may be +5% or -5% — this is non-diversifiable risk
+- GARCH models incorporate yesterday's jump into today's $\hat\sigma_t^2$ via $r_{t-1}^2$ — this inflates volatility spuriously
+- **HAR-CJ** (Lecture 4): separates continuous and jump components as predictors — jumps have lower persistence than continuous variance
+
+**Cross-referencing with VOLARE:**
+
+After computing BNS tests from LOBSTER, validate against the VOLARE database:
+- VOLARE provides daily $RV_t$ and $BPV_t$ for all 50 stocks
+- Compare your realized kernel estimates with VOLARE's pre-computed values
+- This cross-check ensures your data cleaning and aggregation pipeline is correct
+
+# Exercises
+
+## Exercise Set 3
+
+**Data handling**
+
+1. Load LOBSTER data for 3–5 stocks from the 50 NASDAQ universe. Process one full trading day per stock:
+   - Parse the message and order book files using `highfrequency::readLOBSTERMessageFile()`
+   - Extract trade prices and best bid/ask quotes
+   - Compute log mid-quote returns at 1-second intervals
+   - Report the number of events, average daily volume, and average bid-ask spread
+
+**Signature plots**
+
+2. Construct signature plots for a liquid (e.g., AAPL) and a less liquid stock:
+   - Compute $RV_t(\Delta)$ for $\Delta \in \{1s, 5s, 30s, 1m, 5m, 15m, 30m\}$
+   - Plot $RV_t(\Delta)$ vs $\Delta$ on a log scale
+   - At what frequency does the signature plot flatten out? How does this differ between the liquid and illiquid stock?
+
+**Estimator comparison**
+
+3. For the same stocks, compute on a sample of 20 trading days:
+   - $\widehat{RV}^{5\text{min}}$ (sparse sampling)
+   - $\widehat{RK}$ (realized kernel with Parzen kernel and optimal bandwidth)
+   - $\widehat{TSRV}$ (two-scale RV, $K = 30$)
+   - Compare the three series: plot them side by side and compute pairwise correlations
+   - Cross-check with VOLARE realized measures for the same dates
+
+**Jump detection**
+
+4. Apply the BNS jump test at the 1% level to 60 trading days for two stocks:
+   - What fraction of days have detected jumps?
+   - Plot the time series of $RV_t$, $BPV_t$, and the jump component $\max(RV_t - BPV_t, 0)$
+   - Identify the 3 largest jump days. What firm-specific news occurred on those dates?
+
+**Portfolio implications**
+
+5. On detected jump days: compare $\hat\sigma_t^2 = RV_t$ vs $\hat\sigma_t^2 = BPV_t$ as inputs to the GMVP. Does removing jump variation from the covariance estimate change portfolio weights significantly?
+
+**Key references:** Barndorff-Nielsen, Hansen, Lunde & Shephard (2008); Andersen, Bollerslev, Diebold & Labys (2003); Boudt, Kleen & Sjoerup (2022)

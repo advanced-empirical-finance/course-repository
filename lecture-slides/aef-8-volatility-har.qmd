@@ -1,0 +1,484 @@
+---
+subtitle: "Volatility IV: Forecasting Realized Volatility — HAR Models"
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| eval: false
+library(tidyverse)
+library(highfrequency)
+library(sandwich)
+library(lmtest)
+```
+
+## Where We Are
+
+**Progress so far:**
+
+- Lecture 1: volatility is latent, exhibits rich dynamics (clustering, leverage, long memory)
+- Lecture 2: GARCH extracts a signal from daily returns alone
+- Lecture 3: realized variance $RV_t$ from intraday data is a precise, low-noise estimator of $\sigma_t^2$
+
+**This lecture:** we have a clean time series $\{RV_t\}$ for each of our 50 NASDAQ stocks — now **forecast** it
+
+**Why forecasting matters for portfolios:**
+
+At time $t$, the portfolio optimizer requires $E(\sigma_{i,t+1}^2 \mid \mathcal{F}_t)$ — a **forecast**, not the realized value
+
+$$\hat\Sigma_{t+1|t} = \hat D_{t+1|t} \hat C_{t+1|t} \hat D_{t+1|t}$$
+
+The HAR model provides $\hat D_{t+1|t}$; DCC (Lecture 5) and realized covariance (Lecture 6) will provide $\hat C_{t+1|t}$
+
+## The Heterogeneous Market Hypothesis
+
+**Müller et al. (1997):** financial markets are populated by agents operating at **different time horizons**
+
+- **Daily traders:** short-term speculators, market makers, high-frequency traders
+- **Weekly portfolio managers:** institutional investors rebalancing weekly
+- **Monthly investors:** pension funds, long-only asset managers
+
+Each group perceives and reacts to volatility at their own horizon:
+
+- Daily traders react to yesterday's news
+- Weekly managers update positions based on the past week's activity
+- Monthly investors are almost insensitive to daily fluctuations
+
+**Implication for volatility dynamics:**
+
+The observed long-memory-like behavior in $RV_t$ arises from the *superposition* of volatility shocks generated at different time scales
+
+The HAR model operationalises this idea with a simple, estimable regression
+
+# The HAR Model
+
+## HAR-RV Specification
+
+**Corsi (2009):** the Heterogeneous AutoRegressive model for Realized Variance
+
+$$RV_{t+1} = \beta_0 + \beta_d\, RV_t^{(d)} + \beta_w\, RV_t^{(w)} + \beta_m\, RV_t^{(m)} + \varepsilon_{t+1}$$
+
+where:
+
+$$RV_t^{(d)} = RV_t, \quad RV_t^{(w)} = \frac{1}{5}\sum_{j=0}^{4} RV_{t-j}, \quad RV_t^{(m)} = \frac{1}{{22}}\sum_{j=0}^{21} RV_{t-j}$$
+
+**Three regressors, one equation:**
+
+- $\beta_d$: reaction of tomorrow's variance to yesterday's variance (daily component)
+- $\beta_w$: reaction to the average of the past week (weekly component)
+- $\beta_m$: reaction to the average of the past month (monthly component)
+- All three $\beta > 0$ typically: volatility is positively autocorrelated at all horizons
+
+**Why it works:**
+
+- HAR is a restricted AR(22) — but estimated with only 3 parameters
+- The averaging structure imposes a specific pattern of AR coefficients that matches the empirical slow decay
+- Mimics long memory without estimating a fractional integration parameter
+
+## Estimation
+
+OLS with Newey-West standard errors (to account for autocorrelation in $\varepsilon_{t+1}$):
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+library(highfrequency)
+library(sandwich)
+library(lmtest)
+
+# Pull RV from VOLARE (pre-computed daily measures for all 50 stocks)
+# rv_data: data frame with columns date, symbol, rv, bpv, rv_kernel
+
+# Construct HAR regressors for AAPL
+har_data <- rv_data |>
+  filter(symbol == "AAPL") |>
+  arrange(date) |>
+  mutate(
+    rv_d = rv,
+    rv_w = slider::slide_dbl(rv, mean, .before = 4, .complete = TRUE),
+    rv_m = slider::slide_dbl(rv, mean, .before = 21, .complete = TRUE),
+    rv_lead = lead(rv)  # next-day RV as dependent variable
+  ) |>
+  drop_na()
+
+# Estimate HAR-RV
+har_fit <- lm(rv_lead ~ rv_d + rv_w + rv_m, data = har_data)
+coeftest(har_fit, vcov = NeweyWest(har_fit, lag = 5))
+```
+
+## Python
+```{python}
+#| eval: false
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as smf
+from statsmodels.stats.sandwich_covariance import cov_hac
+
+# Construct HAR regressors
+df = rv_data[rv_data["symbol"] == "AAPL"].sort_values("date").copy()
+df["rv_d"] = df["rv"]
+df["rv_w"] = df["rv"].rolling(5).mean()
+df["rv_m"] = df["rv"].rolling(22).mean()
+df["rv_lead"] = df["rv"].shift(-1)
+df = df.dropna()
+
+# Estimate HAR-RV with HAC standard errors
+har_model = smf.ols("rv_lead ~ rv_d + rv_w + rv_m", data=df).fit()
+hac_results = har_model.get_robustcov_results(cov_type="HAC", maxlags=5)
+print(hac_results.summary())
+```
+:::
+
+**Using `highfrequency::HARmodel()`:**
+
+```{r}
+#| eval: false
+# Alternatively, use the dedicated HAR function
+har_fit2 <- HARmodel(
+  data     = rv_aapl,
+  periods  = c(1, 5, 22),
+  type     = "HAR",
+  h        = 1
+)
+summary(har_fit2)
+```
+
+## Extensions: HAR-J and HAR-CJ
+
+### HAR-J (Andersen, Bollerslev & Diebold 2007)
+
+Add the jump component as an additional predictor:
+
+$$RV_{t+1} = \beta_0 + \beta_d RV_t^{(d)} + \beta_w RV_t^{(w)} + \beta_m RV_t^{(m)} + \beta_J J_t + \varepsilon_{t+1}$$
+
+where $J_t = \max(RV_t - BPV_t, 0)$ is the estimated jump variation
+
+- If $\hat\beta_J < \hat\beta_d$: jumps are less persistent than continuous variance — they don't forecast future volatility well
+- Typical finding: $\hat\beta_J$ is small and often insignificant — jumps are transient
+
+### HAR-CJ (Andersen, Bollerslev & Diebold 2007)
+
+Separate continuous and jump components as regressors:
+
+$$RV_{t+1} = \beta_0 + \beta_{Cd} C_t^{(d)} + \beta_{Cw} C_t^{(w)} + \beta_{Cm} C_t^{(m)} + \beta_{Jd} J_t^{(d)} + \varepsilon_{t+1}$$
+
+where $C_t = BPV_t$ (continuous) and $J_t = \max(RV_t - BPV_t, 0)$ (jump)
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# HAR-CJ using highfrequency
+har_cj <- HARmodel(
+  data    = cbind(rv = rv_aapl, bpv = bpv_aapl),
+  periods = c(1, 5, 22),
+  type    = "HARCJ",
+  h       = 1
+)
+summary(har_cj)
+```
+
+## Python
+```{python}
+#| eval: false
+# Construct HAR-CJ regressors manually
+df["cont"]   = df["bpv"]
+df["jump"]   = np.maximum(df["rv"] - df["bpv"], 0)
+df["cont_w"] = df["cont"].rolling(5).mean()
+df["cont_m"] = df["cont"].rolling(22).mean()
+df["jump_d"] = df["jump"]
+
+har_cj = smf.ols(
+    "rv_lead ~ cont + cont_w + cont_m + jump_d", data=df
+).fit()
+print(har_cj.get_robustcov_results(cov_type="HAC", maxlags=5).summary())
+```
+:::
+
+## The Leverage HAR (Patton & Sheppard 2015)
+
+**Motivation:** the leverage effect (Lecture 1) applies to realized variance too — negative return days are followed by higher realized variance
+
+Define **signed semivariances**:
+
+$$RS_t^+ = \sum_{j: r_{t,j} > 0} r_{t,j}^2, \quad RS_t^- = \sum_{j: r_{t,j} < 0} r_{t,j}^2, \quad RV_t = RS_t^+ + RS_t^-$$
+
+**Leverage HAR-RS:**
+
+$$RV_{t+1} = \beta_0 + \beta^+ RS_t^{+(d)} + \beta^- RS_t^{-(d)} + \beta_w RV_t^{(w)} + \beta_m RV_t^{(m)} + \varepsilon_{t+1}$$
+
+- Test: $H_0: \beta^+ = \beta^-$ (symmetry) vs $H_a: \beta^- > \beta^+$ (leverage)
+- Patton & Sheppard (2015): "Good volatility, bad volatility" — downside variance predicts future variance more strongly than upside variance
+
+```{r}
+#| eval: false
+# Semivariances from LOBSTER or VOLARE
+har_rs <- HARmodel(
+  data    = cbind(rv = rv_aapl, rs_plus = rs_plus, rs_minus = rs_minus),
+  periods = c(1, 5, 22),
+  type    = "HARSEMV",
+  h       = 1
+)
+```
+
+# VOLARE and the Full Cross-Section
+
+## Using VOLARE for All 50 Stocks
+
+**VOLARE** removes the need to process raw LOBSTER data for every stock-day combination:
+
+- Pre-computed daily $RV_t$, $BPV_t$, realized kernels, $RS_t^+$, $RS_t^-$, quarticity
+- Updated regularly, covers our 50 NASDAQ stocks
+- Enables HAR estimation across the **full 50-stock cross-section**
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Load VOLARE data (CSV or API)
+volare_data <- read_csv("volare_nasdaq50.csv") |>
+  select(date, symbol, rv, bpv, rk, rs_plus, rs_minus)
+
+# Estimate HAR-RV for all 50 stocks in one go
+library(future.apply)
+plan(multisession, workers = 8)
+
+har_fits <- future_lapply(unique(volare_data$symbol), function(sym) {
+  df <- volare_data |>
+    filter(symbol == sym) |>
+    arrange(date) |>
+    mutate(
+      rv_d    = rv,
+      rv_w    = slider::slide_dbl(rv, mean, .before = 4, .complete = TRUE),
+      rv_m    = slider::slide_dbl(rv, mean, .before = 21, .complete = TRUE),
+      rv_lead = lead(rv)
+    ) |>
+    drop_na()
+
+  lm(rv_lead ~ rv_d + rv_w + rv_m, data = df)
+})
+names(har_fits) <- unique(volare_data$symbol)
+```
+
+## Python
+```{python}
+#| eval: false
+from joblib import Parallel, delayed
+
+def fit_har(symbol, data):
+    df = (data[data["symbol"] == symbol]
+          .sort_values("date")
+          .assign(
+              rv_d = lambda x: x["rv"],
+              rv_w = lambda x: x["rv"].rolling(5).mean(),
+              rv_m = lambda x: x["rv"].rolling(22).mean(),
+              rv_lead = lambda x: x["rv"].shift(-1)
+          )
+          .dropna())
+    return smf.ols("rv_lead ~ rv_d + rv_w + rv_m", data=df).fit()
+
+har_fits = Parallel(n_jobs=8)(
+    delayed(fit_har)(sym, volare_data)
+    for sym in volare_data["symbol"].unique()
+)
+```
+:::
+
+## Cross-Sectional Variation in HAR Coefficients
+
+Do HAR coefficients vary systematically across stocks? Patterns to look for:
+
+- **By sector:** tech stocks may show stronger daily persistence ($\hat\beta_d$); large caps may have stronger weekly component ($\hat\beta_w$)
+- **By liquidity:** less liquid stocks may show weaker HAR fit (more noise in $RV_t$)
+- **By size:** $R^2$ tends to be higher for larger stocks with more liquid intraday data
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Extract HAR coefficients across all 50 stocks
+har_coefs <- bind_rows(lapply(names(har_fits), function(sym) {
+  tibble(
+    symbol = sym,
+    beta_d = coef(har_fits[[sym]])["rv_d"],
+    beta_w = coef(har_fits[[sym]])["rv_w"],
+    beta_m = coef(har_fits[[sym]])["rv_m"],
+    r2     = summary(har_fits[[sym]])$r.squared
+  )
+}))
+
+# Join with sector metadata
+har_coefs |>
+  left_join(sector_lookup, by = "symbol") |>
+  group_by(sector) |>
+  summarise(across(starts_with("beta"), mean), r2 = mean(r2))
+```
+
+## Python
+```{python}
+#| eval: false
+coef_records = []
+for sym, fit in zip(volare_data["symbol"].unique(), har_fits):
+    coef_records.append({
+        "symbol": sym,
+        "beta_d": fit.params["rv_d"],
+        "beta_w": fit.params["rv_w"],
+        "beta_m": fit.params["rv_m"],
+        "r2": fit.rsquared
+    })
+har_coefs = pd.DataFrame(coef_records)
+```
+:::
+
+# GARCH vs HAR: A Forecasting Comparison
+
+## The Information Advantage of HAR
+
+| Feature | GARCH(1,1) | HAR-RV |
+|---------|-----------|--------|
+| Input data | Daily returns $r_t$ | Intraday realized variance $RV_t$ |
+| Information set | $r_t^2$ (very noisy) | $RV_t$ (precise) |
+| Memory structure | Exponential decay | Slow hyperb. via weekly/monthly avg |
+| Leverage | GJR-GARCH only | HAR-RS (Patton & Sheppard) |
+| Estimation | MLE/QML | OLS |
+| Scalability | Medium (parallel) | Very fast (OLS) |
+| Data requirement | Daily prices | Intraday tick data or VOLARE |
+
+**Empirical finding:** HAR typically dominates at **daily and weekly horizons**; GARCH is competitive only when intraday data is unavailable
+
+**Why HAR wins:**
+
+- $RV_t$ is essentially a direct observation of $\sigma_t^2$ — much less noise than $r_t^2$
+- The regression SNR is dramatically higher for HAR than for GARCH
+- Variance of $RV_t$ is $O(1/n)$ where $n$ = number of intraday returns; variance of $r_t^2$ is $O(1)$
+
+## Rolling Out-of-Sample Evaluation
+
+::: {.panel-tabset group="language"}
+## R
+```{r}
+#| eval: false
+# Rolling forecast evaluation: HAR vs GARCH vs EWMA
+# Use 5-year estimation window, 2-year out-of-sample period
+
+oos_results <- lapply(unique(volare_data$symbol), function(sym) {
+  rv_sym  <- volare_data |> filter(symbol == sym) |> pull(rv)
+  ret_sym <- daily_returns[, sym]
+
+  # Rolling HAR forecasts
+  har_fc <- roll_har_forecast(rv_sym, train = 1260, h = 1)
+
+  # Rolling GARCH forecasts (from Lecture 2 fits)
+  garch_fc <- roll_garch_forecast(ret_sym, train = 1260, h = 1)
+
+  # EWMA forecasts
+  ewma_fc <- ewma_vol(ret_sym, lambda = 0.94)^2
+
+  # Evaluate via QLIKE
+  tibble(
+    symbol = sym,
+    qlike_har   = mean(qlike_loss(rv_sym[-(1:1260)], har_fc)),
+    qlike_garch = mean(qlike_loss(rv_sym[-(1:1260)], garch_fc)),
+    qlike_ewma  = mean(qlike_loss(rv_sym[-(1:1260)], ewma_fc[-(1:1260)]))
+  )
+}) |> bind_rows()
+
+oos_results |>
+  summarise(across(starts_with("qlike"), mean))
+```
+
+## Python
+```{python}
+#| eval: false
+def qlike_loss(actual, forecast):
+    return actual / forecast - np.log(actual / forecast) - 1
+
+results = []
+for sym in volare_data["symbol"].unique():
+    rv = volare_data[volare_data["symbol"] == sym]["rv"].values
+    # ... compute rolling forecasts for HAR, GARCH, EWMA ...
+    results.append({
+        "symbol": sym,
+        "qlike_har": np.mean(qlike_loss(rv_oos, har_fc)),
+        "qlike_garch": np.mean(qlike_loss(rv_oos, garch_fc))
+    })
+```
+:::
+
+## Realized GARCH: Bridging Both Worlds
+
+Hansen, Huang & Shek (2012): the **Realized GARCH** model uses realized measures *within* the GARCH framework
+
+$$r_t = \sqrt{h_t}\, z_t, \quad z_t \overset{i.i.d.}{\sim} \mathcal{D}(0,1)$$
+
+$$\log h_{t+1} = \omega + \beta \log h_t + \gamma \log x_t$$
+
+$$\log x_t = \xi + \varphi \log h_t + \tau(z_t) + u_t$$
+
+where $x_t$ is a realized measure (e.g., $RV_t$ or realized kernel) and $\tau(z_t) = \tau_1 z_t + \tau_2(z_t^2 - 1)$ captures the leverage effect
+
+**Best of both worlds:**
+
+- Uses daily returns for consistency with the conditional return distribution
+- Incorporates realized measures for efficiency gains
+- Produces proper conditional variance forecasts with uncertainty quantification
+
+## From Univariate to the Full Covariance Matrix
+
+We now have precise univariate forecasts $\hat\sigma_{i,t+1|t}^2$ for all 50 stocks — but the portfolio optimizer needs the **full covariance matrix**
+
+**Preview of remaining lectures:**
+
+| Lecture | What it adds |
+|---------|-------------|
+| 5 (DCC) | Time-varying conditional correlations $\hat C_{t+1|t}$ from daily returns |
+| 6 (Realized Cov) | Full $\hat\Sigma_{t+1|t}$ estimated from intraday cross-products |
+
+**Two complementary approaches:**
+
+1. **HAR diagonal + DCC correlations:** use HAR forecasts for $D_{t+1|t}$, DCC for $C_{t+1|t}$
+2. **Realized GARCH + scalar DCC:** combine realized GARCH for margins with DCC for correlations
+
+# Exercises
+
+## Exercise Set 4
+
+**HAR estimation**
+
+1. Pull realized measures from VOLARE for all 50 NASDAQ stocks. For each stock, estimate:
+   - HAR-RV (baseline)
+   - HAR-J (add jump component)
+   - HAR-CJ (separate continuous and jump components)
+   - HAR-RS (leverage: separate $RS_t^+$ and $RS_t^-$)
+
+   Report the estimated coefficients and $R^2$ for each specification.
+
+2. Is the jump component $\hat\beta_J$ statistically significant? Does the HAR-CJ outperform HAR-RV in-sample (adjusted $R^2$)?
+
+3. Test for the leverage effect: is $\hat\beta^- > \hat\beta^+$ in HAR-RS? What fraction of the 50 stocks show a significant leverage effect?
+
+**Cross-sectional analysis**
+
+4. Summarise HAR-RV coefficients $(\hat\beta_d, \hat\beta_w, \hat\beta_m)$ by sector (tech, healthcare, consumer discretionary). Are there systematic differences? What do the patterns tell you about the heterogeneity of market participants across sectors?
+
+**Out-of-sample forecasting horse race**
+
+5. Using a rolling 5-year estimation window and 2-year out-of-sample period, compare:
+   - HAR-RV
+   - HAR-CJ
+   - GARCH(1,1) (from Lecture 2)
+   - GJR-GARCH(1,1) (from Lecture 2)
+   - EWMA ($\lambda = 0.94$)
+
+   Evaluation metric: QLIKE loss with $RV_t$ as the proxy. Which model wins most often across the 50 stocks?
+
+**Portfolio evaluation**
+
+6. Combine HAR-RV forecasts for $D_{t+1|t}$ with the constant sample correlation matrix $\hat C$. Construct the GMVP and compute out-of-sample realised portfolio variance. Compare to:
+   - GARCH-based diagonal $\hat D_{t+1|t}$ + sample correlation (Lecture 2)
+   - Rolling SD (Lecture 1)
+
+   Does better volatility forecasting translate into better portfolio performance?
+
+**Key references:** Corsi (2009); Andersen, Bollerslev & Diebold (2007); Patton & Sheppard (2015)
