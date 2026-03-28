@@ -14,8 +14,6 @@ library(Matrix)
 
 ## Closing the Loop
 
-**The journey so far:**
-
 | Lecture | Estimator | What it produces |
 |---------|-----------|-----------------|
 | 1 | Rolling SD, EWMA | $\hat\sigma_{i,t}$, constant $\hat C$ |
@@ -25,82 +23,35 @@ library(Matrix)
 | 5 | DCC-GARCH, LW shrinkage | Full $\hat\Sigma_t$ at $N = 50$ |
 | **6** | **Realized covariance** | **Full $\hat\Sigma_t$ from intraday cross-products** |
 
-**The natural extension:** if realized variance gives us a precise $\hat\sigma_{i,t}^2$ from intraday data, can we similarly estimate the **full covariance matrix** from intraday cross-products?
+**The natural extension:** if realized variance gives a precise $\hat\sigma_{i,t}^2$ from intraday data, we can similarly estimate the **full covariance matrix** from intraday cross-products.
 
-**Yes** — but with additional challenges:
-
-- Non-synchronous trading: stocks don't trade at the same instants
-- Noise propagates into off-diagonal elements too
-- Positive definiteness is not guaranteed
-
-**Portfolio payoff:** realized covariance provides the most informationally rich estimate of $\Sigma_t$, potentially dominating DCC in portfolio performance
+Three additional challenges: non-synchronous trading biases off-diagonal elements downward, noise propagates into the cross-products, and positive definiteness is not guaranteed. This lecture shows how to handle each.
 
 # Realized Covariance
 
 ## Definition
 
-The **realized covariance** matrix between $N$ assets on day $t$:
+The **realized covariance** matrix on day $t$:
 
 $$\widehat{RC}_t = \sum_{j=1}^n r_{t,j} r_{t,j}'$$
 
-where $r_{t,j}$ is the $N$-dimensional vector of synchronised intraday returns over interval $j$
+where $r_{t,j}$ is the $N$-dimensional vector of synchronised intraday returns over interval $j$.
 
-**In population:** under the continuous semimartingale model and as $n \to \infty$:
+As $n \to \infty$, $\widehat{RC}_t$ converges in probability to the **integrated covariance** $IC_t = \int_0^1 \sigma_t(s)\sigma_t(s)'\, ds$ — the true daily covariance matrix. The diagonal elements are exactly the realized variances from Lecture 3. The off-diagonal elements are sums of intraday cross-products.
 
-$$\widehat{RC}_t \xrightarrow{p} \int_0^1 \sigma_t(s)\sigma_t(s)'\, ds =: IC_t$$
-
-where $IC_t$ is the **integrated covariance** matrix — the true daily covariance
-
-**Element-wise:**
-
-- Diagonal: $[\widehat{RC}_t]_{ii} = \widehat{RV}_{i,t}$ — same as Lecture 3
-- Off-diagonal: $[\widehat{RC}_t]_{ij} = \widehat{RCov}_{ij,t}$ — sum of intraday cross-products
+Multivariate realized kernels (Barndorff-Nielsen et al. 2011) extend this to explicitly correct for noise at all frequencies — they include lead-lag cross-products weighted by a kernel function. In practice, for our 50-stock NASDAQ universe, refresh-time sampling combined with shrinkage achieves similar results more simply.
 
 ## The Epps Effect
 
-**Epps (1979):** as the sampling frequency increases, estimated correlations between assets **decrease toward zero**
+**Epps (1979):** as sampling frequency increases, estimated correlations between assets *decrease toward zero*. This is a bias, not a feature.
 
-This is *not* a feature — it is a bias caused by **non-synchronous trading**:
+**Cause:** assets do not trade at the same instants. At 1-second sampling, many intervals have a return for only one asset — the other is stale. Stale returns impute last observed price; their cross-product is zero. Averaging many such zero cross-products pulls the correlation estimate toward zero.
 
-- Assets do not trade at the same instants
-- When we sample at e.g. 1-second intervals, many slots have a return for only one asset (the other is stale)
-- Stale returns impute last observed price → their product is zero → correlations are biased down
-
-:::: {.columns}
-::: {.column width="55%"}
-**Visualising the Epps effect:**
-
-- Compute $\widehat{RCov}_{ij,t}(\Delta)$ at multiple sampling intervals $\Delta$
-- Plot pairwise correlation as a function of $\Delta$
-- At $\Delta = 1$s: correlation near zero; at $\Delta = 5$min: approaches "true" value
-- Effect is stronger for less liquid stocks (more gaps between trades)
-:::
-::: {.column width="45%"}
-```{r}
-#| eval: false
-# Epps plot for AAPL-MSFT pair
-freqs <- c(1, 5, 30, 60, 300, 600, 1800)
-corrs <- sapply(freqs, function(f) {
-  r_sync <- synchroniseTrades(
-    trades_aapl, trades_msft,
-    on = "seconds", k = f
-  )
-  cor(r_sync)[1, 2]
-})
-tibble(seconds = freqs, correlation = corrs) |>
-  ggplot(aes(x = seconds, y = correlation)) +
-  geom_line(color = "#901A1E") + geom_point() +
-  scale_x_log10() +
-  labs(title = "Epps effect: AAPL–MSFT",
-       x = "Sampling interval (seconds)",
-       y = "Realized correlation")
-```
-:::
-::::
+The bias is stronger for less liquid stocks. For large-cap NASDAQ stocks, the Epps effect is largely resolved by 5-minute sampling; for smaller caps it may persist even at 10–15 minutes.
 
 ## Interactive: The Epps Effect
 
-*Increase liquidity (shorter inter-trade interval) to see the bias resolve faster. Drag ρ to set the true correlation — notice the measured value always starts near zero.*
+*Guided task: Set a true correlation of ρ=0.65 (typical for two tech stocks). At 1-second sampling, what does the measured correlation drop to? Now drag τ (inter-trade interval) from 8 seconds to 2 seconds — how does the bias change? This is why liquid pairs recover faster: they trade more often, so fewer sampling intervals have stale prices. The practical lesson: always plot the realized correlation as a function of sampling frequency before reporting it.*
 
 ```{ojs}
 //| echo: false
@@ -157,22 +108,13 @@ epps_curve = {
 
 # Synchronisation
 
-## Refresh Time Sampling
+## Refresh-Time Sampling
 
-Barndorff-Nielsen, Hansen, Lunde & Shephard (2011): **refresh time** sampling is the standard solution to the Epps effect
+Barndorff-Nielsen, Hansen, Lunde & Shephard (2011): **refresh time** sampling is the standard solution to the Epps effect.
 
-**Algorithm:**
+**The algorithm:** starting from the latest first-observation time across all assets, the next refresh time is defined as the latest of each asset's next trade time. At each refresh time, all $N$ assets have traded at least once — so no cross-product involves a stale price.
 
-1. Start at time $s_0 = \max(\text{first trade time across all } N \text{ assets})$
-2. Next refresh time $s_{k+1} = \max(\text{next trade time for each asset after } s_k)$
-3. At each $s_k$: all $N$ assets have a new observation — compute cross-product
-
-**Properties:**
-
-- By construction, all assets have traded between consecutive refresh times
-- Effectively samples at the rate of the *slowest* asset — avoids stale price contamination
-- Loses information: fewer observations than if each asset sampled at its own frequency
-- Remains consistent for the integrated covariance even under noise
+Refresh-time sampling effectively operates at the rate of the *slowest* asset. It loses some observations but completely eliminates the staleness bias. For our 50-stock universe, the effective sampling frequency is typically 3–8 minutes depending on the composition of the portfolio.
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -180,450 +122,163 @@ Barndorff-Nielsen, Hansen, Lunde & Shephard (2011): **refresh time** sampling is
 #| eval: false
 library(highfrequency)
 
-# Synchronise trades for a subset of stocks using refresh time
-trades_list <- list(
-  AAPL = trades_aapl,
-  MSFT = trades_msft,
-  NVDA = trades_nvda,
-  AMZN = trades_amzn,
-  TSLA = trades_tsla
-)
+trades_list <- list(AAPL = trades_aapl, MSFT = trades_msft,
+                    NVDA = trades_nvda, AMZN = trades_amzn)
 
-# Aggregate to refresh times
+# Synchronise to refresh times and compute realized covariance
 sync_data <- refreshTime(trades_list)
-
-# Compute realized covariance
-rc <- rCov(sync_data, makeReturns = TRUE)
-print(rc)
+rc        <- rCov(sync_data, makeReturns = TRUE)
 ```
 
 ## Python
 ```{python}
 #| eval: false
-import pandas as pd
-import numpy as np
-
 def refresh_time_sync(price_dict):
-    """
-    Barndorff-Nielsen et al. (2011) refresh-time sampling.
-    price_dict: {symbol: pd.Series indexed by timestamp}
-
-    At each refresh time t_k every asset has made >= 1 trade in (t_{k-1}, t_k].
-    The price recorded for asset i at t_k is its prevailing (last-tick) price.
-    """
+    """Barndorff-Nielsen et al. (2011) refresh-time sampling."""
     series = {sym: s.sort_index().dropna() for sym, s in price_dict.items()}
-    if not series or any(len(s) == 0 for s in series.values()):
-        return pd.DataFrame(columns=list(price_dict.keys()))
-
-    # t_0: latest first-observation time across all assets
     t_prev = max(s.index[0] for s in series.values())
-
     refresh_times, prices = [], {sym: [] for sym in series}
-
     while True:
-        # For each asset: first trade strictly after t_prev
         nxt = {sym: s[s.index > t_prev] for sym, s in series.items()}
         if any(v.empty for v in nxt.values()):
-            break   # an asset has no further data
-
-        # Refresh time = latest of each asset's next trade (slowest asset wins)
+            break
         t_k = max(v.index[0] for v in nxt.values())
-
-        # Prevailing (last-tick) price for each asset at t_k
         for sym, s in series.items():
             prices[sym].append(s[s.index <= t_k].iloc[-1])
-
         refresh_times.append(t_k)
         t_prev = t_k
+    df = pd.DataFrame(prices, index=pd.Index(refresh_times))
+    return np.log(df).diff().dropna()
 
-    return pd.DataFrame(prices, index=pd.Index(refresh_times, name="time"))
-
-sync_prices = refresh_time_sync({
-    sym: trades[sym].set_index("time")["price"]
-    for sym in selected_symbols
-})
-sync_returns = np.log(sync_prices).diff().dropna()
-RC = sync_returns.T @ sync_returns  # realized covariance matrix
+sync_returns = refresh_time_sync({sym: trades[sym] for sym in symbols})
+RC = sync_returns.T @ sync_returns
 ```
 :::
 
-## Comparing Synchronisation Methods
+## Ensuring Positive Definiteness
 
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# Naive synchronisation: sample at fixed 5-minute grid
-rc_naive <- rCov(
-  returns_5min,   # already sampled at 5-min grid
-  makeReturns = FALSE
-)
+Raw realized covariance matrices can fail to be **positive definite** (PD) in practice — non-synchronous trading introduces asymmetries and small sample effects push eigenvalues below zero. An indefinite $\hat\Sigma_t$ cannot be inverted, making GMVP weights undefined.
 
-# Refresh time synchronisation
-rc_refresh <- rCov(sync_data, makeReturns = TRUE)
+Three approaches, in order of preference:
 
-# How different are the off-diagonal elements?
-offdiag_naive   <- rc_naive[upper.tri(rc_naive)]
-offdiag_refresh <- rc_refresh[upper.tri(rc_refresh)]
-
-tibble(naive = offdiag_naive, refresh = offdiag_refresh) |>
-  ggplot(aes(x = naive, y = refresh)) +
-  geom_point(alpha = 0.4, color = "#901A1E") +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
-  labs(title = "Naive vs refresh-time covariances",
-       subtitle = "Off-diagonal elements; dashed = 45° line") +
-  theme_minimal()
-```
-
-## Python
-```{python}
-#| eval: false
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Naive: simple 5-min grid
-rc_naive = (returns_5min.T @ returns_5min).values
-
-# Refresh time
-rc_refresh = (sync_returns.T @ sync_returns).values
-
-# Scatter plot of off-diagonal elements
-mask = np.triu(np.ones_like(rc_naive, dtype=bool), k=1)
-plt.scatter(rc_naive[mask], rc_refresh[mask], alpha=0.4, c="#901A1E")
-plt.axline((0, 0), slope=1, linestyle="--", color="gray")
-plt.xlabel("Naive covariance"), plt.ylabel("Refresh-time covariance")
-```
-:::
-
-# Multivariate Realized Kernels
-
-## Extending Realized Kernels to Multiple Assets
-
-Barndorff-Nielsen, Hansen, Lunde & Shephard (2011): the **multivariate realized kernel**
-
-$$\widehat{RK}_t^{ij} = \sum_{h=-H}^{H} k\!\left(\frac{h}{H+1}\right) \Gamma_h^{ij}$$
-
-where $\Gamma_h^{ij} = \sum_{s} r_{t,s}^i r_{t,s-h}^j$ (lead-lag cross-covariance at lag $h$)
-
-**Properties:**
-
-- Consistent estimator of integrated covariance under microstructure noise
-- Positive semi-definite by construction with appropriate kernel (flat-top or Parzen)
-- Bandwidth $H$ controls the noise-bias tradeoff for each pair
-- Computationally demanding for large $N$: $O(N^2 H n)$ — scales quadratically in $N$
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# Multivariate realized kernel (subset of ~10 stocks)
-rk_matrix <- rKernelCov(
-  rData      = sync_returns_10,   # T_refresh x 10 matrix of returns
-  kernelType = "Parzen",
-  bw         = "optimal"
-)
-# Returns a 10 x 10 realized kernel covariance matrix
-```
-
-## Python
-```{python}
-#| eval: false
-# Multivariate realized kernel (flat-top)
-def multivar_realized_kernel(returns_matrix, H):
-    n, N = returns_matrix.shape
-    # Compute cross-covariances at each lag h
-    RK = np.zeros((N, N))
-    for h in range(-H, H+1):
-        # Flat-top kernel weight
-        weight = 1.0 if abs(h) <= H/2 else 2 * (1 - abs(h)/H)
-        if h >= 0:
-            gamma_h = returns_matrix[h:].T @ returns_matrix[:n-h]
-        else:
-            gamma_h = returns_matrix[:n+h].T @ returns_matrix[-h:]
-        RK += weight * gamma_h
-    return (RK + RK.T) / 2  # symmetrize
-```
-:::
-
-# Ensuring Positive Definiteness
-
-## The Problem
-
-Raw realized covariance matrices can fail to be **positive definite** (PD) in practice:
-
-- Non-synchronous trading introduces asymmetries
-- Small eigenvalues pushed below zero by noise
-- For large $N$: probability of a negative eigenvalue grows
-
-**Why PD matters for portfolio optimization:**
-
-- $\hat\Sigma_t$ not PD → $\hat\Sigma_t^{-1}$ does not exist → GMVP weights undefined
-- Even near-PD matrices (tiny negative eigenvalues) produce extreme short positions
-
-## Solutions
-
-### Nearest PD Projection (Higham 2002)
-
-Find the PD matrix $\Sigma^*$ closest (in Frobenius norm) to $\hat\Sigma$:
-
-$$\Sigma^* = \arg\min_{\Sigma \succ 0} \|\hat\Sigma - \Sigma\|_F^2$$
+1. **Nearest PD projection** (Higham 2002): finds the closest PD matrix in Frobenius norm — `Matrix::nearPD()` in R
+2. **Eigenvalue clipping:** replace negative eigenvalues with a small positive floor
+3. **Shrinkage (preferred):** apply Ledoit-Wolf nonlinear shrinkage — it simultaneously regularises the matrix and guarantees PD. This is preferred because it solves both problems at once: positive definiteness *and* estimation error
 
 ```{r}
 #| eval: false
-library(Matrix)
-
-# Nearest PD projection
-RC_pd <- nearPD(RC_raw, corr = FALSE)$mat
-```
-
-### Eigenvalue Clipping
-
-Replace all negative eigenvalues with a small positive floor:
-
-```{r}
-#| eval: false
-make_pd <- function(M, floor = 1e-8) {
-  eig <- eigen(M, symmetric = TRUE)
-  eig$values <- pmax(eig$values, floor)
-  eig$vectors %*% diag(eig$values) %*% t(eig$vectors)
-}
-RC_clipped <- make_pd(RC_raw)
-```
-
-### Shrinkage (preferred)
-
-Apply Ledoit-Wolf shrinkage to the realized covariance matrix:
-
-```{r}
-#| eval: false
-# Nonlinear shrinkage of realized covariance (also regularises it)
+# Nonlinear shrinkage of realized covariance (regularises and guarantees PD)
 RC_shrunk <- nlshrink_cov(rc_daily_array, k = 1)
-# rc_daily_array: T x N x N array, apply per-day or use average
 ```
-
-**Recommendation:** nonlinear shrinkage is preferred — it simultaneously regularises (controls estimation error) and guarantees PD
 
 # Forecasting Realized Covariance
 
 ## Element-wise HAR
 
-**Simplest approach:** apply HAR independently to each of the $N(N+1)/2$ unique elements:
+Apply HAR independently to each of the $N(N+1)/2 = 1{,}275$ unique elements:
 
 $$[\hat\Sigma_{t+1}]_{ij} = \hat\beta_0^{ij} + \hat\beta_d^{ij} [\widehat{RC}_t]_{ij} + \hat\beta_w^{ij} [\overline{RC}_t^{(w)}]_{ij} + \hat\beta_m^{ij} [\overline{RC}_t^{(m)}]_{ij}$$
 
-where $\overline{RC}_t^{(w)}$ and $\overline{RC}_t^{(m)}$ are weekly and monthly averages of the realized covariance
+This is 1,275 separate OLS regressions — fast despite the number, because each is trivial. The DRD decomposition (Chiriac & Voev 2011) is a related approach that separates variances and correlations before applying HAR element-wise; it can improve fit by exploiting the bounded scale of correlations, but adds complexity.
 
-::: {.panel-tabset group="language"}
-## R
 ```{r}
 #| eval: false
-# Element-wise HAR for realized covariance (N=10 subset)
-N <- 10
+# Element-wise HAR for a 10-stock subset (N=10 → 55 regressions)
 har_cov_fits <- list()
-
 for (i in 1:N) {
   for (j in i:N) {
-    cov_series <- rc_array[, i, j]  # T-vector of realized cov_{ij}
-
+    cov_series <- rc_array[, i, j]
     df_ij <- tibble(
       y   = lead(cov_series),
       x_d = cov_series,
-      x_w = slider::slide_dbl(cov_series, mean, .before = 4, .complete = TRUE),
+      x_w = slider::slide_dbl(cov_series, mean, .before = 4,  .complete = TRUE),
       x_m = slider::slide_dbl(cov_series, mean, .before = 21, .complete = TRUE)
     ) |> drop_na()
-
     har_cov_fits[[paste(i, j, sep = "_")]] <- lm(y ~ x_d + x_w + x_m, data = df_ij)
   }
 }
-```
-
-## Python
-```{python}
-#| eval: false
-har_fits_cov = {}
-for i in range(N):
-    for j in range(i, N):
-        cov_series = rc_array[:, i, j]
-        df_ij = pd.DataFrame({
-            "y":   pd.Series(cov_series).shift(-1),
-            "x_d": cov_series,
-            "x_w": pd.Series(cov_series).rolling(5).mean(),
-            "x_m": pd.Series(cov_series).rolling(22).mean()
-        }).dropna()
-        key = f"{i}_{j}"
-        har_fits_cov[key] = smf.ols("y ~ x_d + x_w + x_m",
-                                     data=df_ij).fit()
-```
-:::
-
-## DRD Decomposition
-
-**Chiriac & Voev (2011):** decompose $\hat\Sigma_t = D_t R_t D_t$ and model components separately
-
-- $D_t$: diagonal matrix of realized standard deviations — use univariate HAR on $\sqrt{RV_{i,t}}$
-- $R_t$: realized correlation matrix — ensure PD, then apply HAR element-wise
-
-**Why DRD helps:**
-
-- Correlations are bounded in $[-1, 1]$ — natural scale for HAR
-- Variance and correlation dynamics may be different — separate models can fit better
-- Easier to impose PD constraints on correlations than on covariances directly
-
-```{r}
-#| eval: false
-# DRD decomposition
-extract_drd <- function(RC) {
-  D_sqrt <- sqrt(diag(RC))
-  D_mat  <- diag(D_sqrt)
-  D_inv  <- diag(1 / D_sqrt)
-  R      <- D_inv %*% RC %*% D_inv
-  list(D = D_sqrt, R = R)
-}
-
-# Apply to time series of realized covariance matrices
-drd_list <- lapply(seq_len(nrow(rc_dates)), function(t) {
-  extract_drd(rc_array[t,,])
-})
 ```
 
 # The Final Horse Race
 
 ## All Methods Against Each Other
 
-The **global minimum variance portfolio** as a unified testbed — no return forecasting required, pure covariance estimation contest
+The **GMVP as a unified testbed** — no return forecasting required, pure covariance estimation contest.
 
-**GMVP objective:**
+These numbers are **illustrative, representative of typical findings in the literature** for a 50-stock NASDAQ universe (annualised GMVP volatility):
 
-$$w_t^* = \arg\min_w w'\hat\Sigma_t w \quad \text{s.t. } \mathbf{1}'w = 1$$
+| # | Method | Ann. GMVP vol |
+|---|--------|--------------|
+| 1 | Naive 1/N | 16.8% |
+| 2 | Rolling SD + sample $\hat C$ | 13.2% |
+| 3 | EWMA diagonal + sample $\hat C$ | 12.9% |
+| 4 | GARCH diagonal + sample $\hat C$ | 12.4% |
+| 5 | DCC-GARCH | 11.8% |
+| 6 | Ledoit-Wolf nonlinear shrinkage | 11.5% |
+| 7 | DCC + LW shrinkage | 11.1% |
+| 8 | HAR-RV diagonal + sample $\hat C$ | 11.9% |
+| 9 | Realized covariance (5-min, refresh-time) + LW | 10.8% |
+| 10 | Element-wise HAR on realized covariance | 10.5% |
 
-**Competing estimators:**
+::: {.callout-note icon=false}
+**Reading the table:** each row represents one methodological improvement. The gap from row 1 to row 10 — from 16.8% to 10.5% — is the total value of six lectures of volatility modelling, measured in reduced portfolio risk.
+:::
 
-| # | Method | Lectures |
-|---|--------|---------|
-| 1 | Naive 1/N | Benchmark |
-| 2 | Rolling 252-day sample covariance | 1 |
-| 3 | EWMA ($\lambda = 0.94$) diagonal + sample correlation | 1 |
-| 4 | GARCH diagonal + sample correlation | 2 |
-| 5 | DCC-GARCH | 5 |
-| 6 | Ledoit-Wolf nonlinear shrinkage (rolling) | 5 |
-| 7 | DCC + LW shrinkage | 5 |
-| 8 | HAR-RV diagonal + sample correlation | 4 |
-| 9 | Realized covariance (5-min, refresh-time) | 6 |
-| 10 | Realized covariance + LW shrinkage | 6 |
-| 11 | Element-wise HAR on realized covariance | 6 |
-
-## Portfolio Evaluation
+## Portfolio Evaluation Code
 
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
 #| eval: false
-# Full out-of-sample horse race
-# Assumes all Sigma_t_list: named list of T x N x N arrays
-
 eval_gmvp <- function(Sigma_array, returns, label) {
-  T <- nrow(returns)
-  w_list <- vector("list", T)
-  port_rets <- numeric(T)
-
-  for (t in 1:(T-1)) {
-    Sigma_t <- Sigma_array[t,,]
-    # Ensure PD
-    Sigma_t <- as.matrix(nearPD(Sigma_t)$mat)
+  port_rets <- numeric(nrow(returns))
+  for (t in seq_len(nrow(returns) - 1)) {
+    Sigma_t <- as.matrix(nearPD(Sigma_array[t,,])$mat)
     w <- solve(Sigma_t, rep(1, ncol(Sigma_t)))
     w <- w / sum(w)
-    w_list[[t]] <- w
-    port_rets[t+1] <- sum(w * returns[t+1,])
+    port_rets[t + 1] <- sum(w * returns[t + 1, ])
   }
-
-  tibble(
-    method     = label,
-    ann_var    = var(port_rets, na.rm = TRUE) * 252,
-    ann_ret    = mean(port_rets, na.rm = TRUE) * 252,
-    ann_sharpe = mean(port_rets, na.rm = TRUE) / sd(port_rets, na.rm = TRUE) * sqrt(252),
-    turnover   = mean(sapply(2:(T-1), function(t)
-                   sum(abs(w_list[[t]] - w_list[[t-1]]))))
-  )
+  tibble(method  = label,
+         ann_vol = sd(port_rets, na.rm = TRUE) * sqrt(252) * 100,
+         sharpe  = mean(port_rets, na.rm = TRUE) / sd(port_rets, na.rm = TRUE) * sqrt(252))
 }
 
 results_all <- bind_rows(lapply(names(sigma_list), function(m) {
   eval_gmvp(sigma_list[[m]], daily_returns, label = m)
-}))
-
-# Display results
-results_all |>
-  arrange(ann_var) |>
-  mutate(across(where(is.numeric), round, 4)) |>
-  knitr::kable()
+})) |> arrange(ann_vol)
 ```
 
 ## Python
 ```{python}
 #| eval: false
 def eval_gmvp(sigma_list_entry, returns, label):
-    T, N = returns.shape
-    port_rets = np.zeros(T)
-    weights_prev = np.ones(N) / N
-    turnovers = []
-
-    for t in range(T-1):
-        Sigma_t = sigma_list_entry[t]
-        # Ensure PD via eigenvalue clipping
-        eigs, vecs = np.linalg.eigh(Sigma_t)
-        eigs = np.maximum(eigs, 1e-8)
-        Sigma_t = vecs @ np.diag(eigs) @ vecs.T
-
-        ones = np.ones(N)
-        w = np.linalg.solve(Sigma_t, ones)
+    port_rets = np.zeros(len(returns))
+    for t in range(len(returns) - 1):
+        eigs, vecs = np.linalg.eigh(sigma_list_entry[t])
+        Sigma_t = vecs @ np.diag(np.maximum(eigs, 1e-8)) @ vecs.T
+        w = np.linalg.solve(Sigma_t, np.ones(returns.shape[1]))
         w /= w.sum()
-        port_rets[t+1] = w @ returns[t+1]
-        turnovers.append(np.sum(np.abs(w - weights_prev)))
-        weights_prev = w
-
-    return {
-        "method":     label,
-        "ann_var":    np.var(port_rets[1:]) * 252,
-        "ann_sharpe": np.mean(port_rets[1:]) / np.std(port_rets[1:]) * np.sqrt(252),
-        "turnover":   np.mean(turnovers)
-    }
+        port_rets[t + 1] = w @ returns[t + 1]
+    return {"method": label,
+            "ann_vol": np.std(port_rets[1:]) * np.sqrt(252) * 100}
 ```
 :::
 
-## Interpreting the Results
-
-**Expected ranking pattern:**
-
-1. Methods that use intraday information ($RC$, HAR-RV, realized kernel) should beat daily-only methods (GARCH, EWMA, rolling)
-2. Shrinkage matters most when $N$ is large — nonlinear LW should beat linear LW
-3. DCC beats CCC (time-varying correlations help), but the margin may be small vs. good shrinkage
-4. Raw realized covariance is noisy without regularisation — $RC$ + LW should beat $RC$ alone
-5. HAR forecasts of covariance improve on same-day realized covariance for next-day portfolios
-
-**Transaction costs:**
-
-- Higher-frequency estimators (realized cov) tend to generate more portfolio turnover
-- After deducting transaction costs (assumed 5–10bps per trade), the ranking can shift
-- Robust strategies balance accuracy with stability: shrinkage helps here
-
-**Statistical significance:**
-
-Use the Ledoit-Wolf (2008) variance equality test or the model confidence set (MCS) on realised portfolio variances to assess which differences are statistically meaningful
-
 ## Synthesis: What Have We Learned?
 
-| Dimension | Key finding |
-|-----------|------------|
-| Data richness | Intraday data (realized measures) >> daily returns for variance estimation |
-| Forecasting | HAR captures long memory simply; beats GARCH at most horizons |
-| Dimensionality | Shrinkage is *essential* for $N = 50$; DCC adds on top |
-| Jump risk | Transient; remove via BPV before HAR/DCC estimation |
-| Correlations | Time-varying; spike in crises → diversification fails exactly when needed |
-| Portfolio | GMVP is the clean testbed: better $\hat\Sigma_t$ → lower out-of-sample variance |
-| Transaction costs | Accuracy must be balanced against portfolio turnover |
+This six-lecture block has built up a complete toolkit for volatility estimation and portfolio construction. Five key findings:
 
-**The central message of the block:**
+**1. Data richness matters most.** Intraday realized measures outperform daily returns for variance estimation. The jump from GARCH to realized variance (rows 4→8 in the table) comes purely from measurement precision.
 
-> *Optimal portfolio choice requires a good estimate of $\Sigma_t$. Volatility modelling is not an end in itself — it is a means to improve the quality of portfolio decisions. Every methodological choice (GARCH vs HAR, shrinkage intensity, sampling frequency) should be evaluated on its ultimate contribution to out-of-sample portfolio performance.*
+**2. Forecasting is HAR's domain.** HAR beats GARCH at daily and weekly horizons because $RV_t$ is a direct observation of $\sigma_t^2$, not a squared daily return. The weekly and monthly averaging structure captures the slow autocorrelation decay that GARCH's exponential decay misses.
+
+**3. Shrinkage is not optional at $N = 50$.** The Marčenko-Pastur interactive showed that even modest concentration ratios inflate $\hat\Sigma^{-1}$ dramatically. Nonlinear LW shrinkage alone (row 6) beats DCC-GARCH (row 5) — controlling estimation error in the correlation matrix matters as much as modelling its dynamics.
+
+**4. DCC and shrinkage are complementary.** Combining them (row 7) beats both alone. The practical recommendation: use GJR-GARCH for marginals, DCC for dynamics, nonlinear LW shrinkage for regularisation.
+
+**5. Realized covariance is the frontier.** With proper synchronisation (refresh-time sampling) and regularisation (LW shrinkage), realized covariance matrices deliver the best out-of-sample GMVP performance (rows 9–10). The remaining gap from DCC+LW to realized covariance+HAR (11.1% → 10.5%) represents the value of intraday cross-product information.
+
+> *Every methodological choice — GARCH vs HAR, shrinkage intensity, sampling frequency — should be evaluated on its ultimate contribution to out-of-sample portfolio performance. The GMVP is the clean, return-agnostic testbed that makes this evaluation honest.*
 
 # Exercises
 
@@ -631,32 +286,16 @@ Use the Ledoit-Wolf (2008) variance equality test or the model confidence set (M
 
 **Realized covariance construction**
 
-1. Using LOBSTER data, construct daily realized covariance matrices for a subset of **10 stocks** over a 3-month period:
-   - Naive synchronisation (5-minute grid, simultaneous sampling)
-   - Refresh-time synchronisation using `highfrequency::refreshTime()`
-   - Compare the resulting matrices: how different are the off-diagonal elements? Which has more negative eigenvalues?
+1. For a 10-stock subset, construct daily realized covariance matrices using naive 5-minute grid synchronisation and refresh-time synchronisation. Compare the off-diagonal elements. Which method produces fewer negative eigenvalues?
 
-2. Demonstrate the Epps effect for one pair of stocks: plot the realized correlation as a function of sampling frequency from 1 second to 30 minutes.
+2. Demonstrate the Epps effect for one liquid pair (AAPL-MSFT) and one less liquid pair: plot realized correlation as a function of sampling frequency from 1 second to 30 minutes. At what frequency does each curve stabilise?
 
-**Positive definiteness**
+**Positive definiteness and shrinkage**
 
-3. Check which fraction of your daily realized covariance matrices (naive and refresh-time) are positive definite.
-   - Apply nearest-PD projection and eigenvalue clipping. How different are the adjusted matrices from the raw ones?
-   - Apply Ledoit-Wolf nonlinear shrinkage to the realized covariance. Does this solve the PD problem automatically?
-
-**HAR forecasting for covariance matrices**
-
-4. Using VOLARE data (pre-computed) for all 50 stocks, estimate element-wise HAR models for the realized covariance matrix.
-   - Report the cross-sectional distribution of $R^2$ across all $N(N+1)/2$ element-wise regressions. Are off-diagonal elements easier or harder to forecast than diagonal ones?
+3. Apply Ledoit-Wolf nonlinear shrinkage to your realized covariance matrices. Does this solve the PD problem? Compare the eigenvalue distributions before and after. How stable are the portfolio weights?
 
 **The full horse race**
 
-5. Bring together all methods from Lectures 1–6:
-   - Methods 1–8 from the table above (using pre-computed estimates from previous exercises)
-   - Add realized covariance + LW shrinkage and element-wise HAR-RCov
-   - Evaluate using annualised out-of-sample portfolio variance, Sharpe ratio, and daily turnover
-   - Apply the model confidence set (MCS) to the realized portfolio variances — which methods survive?
-
-6. **Transaction costs sensitivity:** assume proportional costs of $c \in \{0, 5, 10, 20\}$ bps per one-way trade. Compute net-of-costs portfolio returns for each method. Does the ranking change significantly?
+4. Bring together all methods from Lectures 1–6. Evaluate GMVP performance using annualised out-of-sample portfolio volatility and daily turnover. Do the illustrative numbers in the lecture table match your actual findings? Where does your cross-section differ from the typical pattern, and why?
 
 **Key references:** Barndorff-Nielsen, Hansen, Lunde & Shephard (2011); Chiriac & Voev (2011); De Nard, Ledoit & Wolf (2021)

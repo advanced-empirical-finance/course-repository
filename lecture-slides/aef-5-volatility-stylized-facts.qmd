@@ -7,57 +7,58 @@ subtitle: "Volatility I: Stylized Facts & First Estimates"
 #| warning: false
 #| eval: false
 library(tidyverse)
+library(tidyfinance)
 library(scales)
 ```
 
-## The Central Question
+## Where We Are
 
-The Markowitz investor sets $\mu_t = 0$ and minimises portfolio variance — the **Global Minimum Variance Portfolio**:
+The **Global Minimum Variance Portfolio** is our running testbed throughout all six lectures:
 
-$$w^* \propto \Sigma_t^{-1} \mathbf{1}$$
+$$w^* = \frac{\Sigma_t^{-1} \mathbf{1}}{\mathbf{1}' \Sigma_t^{-1} \mathbf{1}}$$
 
-The GMVP is our testbed throughout — every modelling choice evaluated by one question: does it reduce out-of-sample portfolio variance?
+Every modelling choice we make will be evaluated by one question: does it reduce out-of-sample portfolio variance?
 
-**The block roadmap:**
+**The six-lecture roadmap:**
 
-| Lecture | What we estimate |
-|---------|-----------------|
-| 1 | Individual $\sigma_{i,t}$ — naive rolling SD and EWMA |
-| 2 | $\sigma_{i,t}$ from GARCH family (daily returns) |
-| 3 | $\sigma_{i,t}$ from intraday realized measures |
-| 4 | $\sigma_{i,t+h}$ — HAR forecasts at multiple horizons |
-| 5 | Full $\Sigma_t$ — DCC-GARCH and shrinkage |
-| 6 | Full $\Sigma_t$ — realized covariance from intraday data |
+| Lecture | What we estimate | Building block |
+|---------|-----------------|----------------|
+| 1 | Individual $\hat\sigma_{i,t}$ — rolling SD and EWMA | Diagonal $\hat D_t$ |
+| 2 | $\hat\sigma_{i,t}$ from GARCH family | Better $\hat D_t$ |
+| 3 | $\hat\sigma_{i,t}$ from intraday realized variance | Precise $\hat D_t$ |
+| 4 | $\hat\sigma_{i,t+h}$ — HAR forecasts | Forecast $\hat D_{t+h}$ |
+| 5 | Full $\hat\Sigma_t$ — DCC-GARCH and shrinkage | $\hat D_t \hat C_t \hat D_t$ |
+| 6 | Full $\hat\Sigma_t$ — realized covariance | Intraday $\hat\Sigma_t$ |
 
-## Running Example
+Loss function we use throughout: **QLIKE** — a proper loss for variance forecasts.
 
-We work with the **same 50 NASDAQ stocks throughout all six lectures** (2010–2024)
+## The Portfolio Lens
 
-| Data | Source | Used in |
-|------|--------|---------|
-| Daily close prices | CRSP via WRDS | Lectures 1–2, 5 |
-| Tick-by-tick trades & quotes | LOBSTER (NASDAQ) | Lectures 3–4, 6 |
-| Pre-computed realized measures | VOLARE database | Lectures 4, 6 |
+We work with **50 NASDAQ stocks** (2010–2024) across tech, healthcare, and consumer discretionary. This gives us 1,275 unique covariance elements — large enough to make dimensionality a real challenge.
 
-$N = 50$ means 1,275 unique covariance elements — large enough to make dimensionality a real challenge, small enough to remain computationally manageable
+The decomposition that structures the whole block:
 
-**Sector diversity:** tech, healthcare, consumer discretionary — interesting cross-sectional heterogeneity in all stylized facts
+$$\hat\Sigma_t = \hat D_t \hat C_t \hat D_t$$
+
+where $\hat D_t = \text{diag}(\hat\sigma_{1,t}, \ldots, \hat\sigma_{N,t})$ collects individual volatilities and $\hat C_t$ is the correlation matrix.
+
+**Lectures 1–4** build better models for the diagonal $\hat D_t$. **Lectures 5–6** tackle the full $\hat C_t$, which spikes in crises — precisely when diversification is most needed.
 
 ## The Core Problem: Volatility is Latent
 
-At time $t$ we observe the return but not the variance that generated it:
+We observe the return, not the variance that generated it:
 
-$$r_t \sim \mathcal{D}(0,\, \sigma_t^2) \quad \text{— } \sigma_t^2 \text{ is unknown}$$
+$$r_t \sim \mathcal{D}(0,\, \sigma_t^2) \quad \text{— } \sigma_t^2 \text{ is unobservable}$$
 
-**Why sample variance fails:** $\hat\sigma^2 = \frac{1}{T-1}\sum r_t^2$ assumes $\sigma_t^2$ is constant — returns are not i.i.d. For portfolio rebalancing we need a **forecast**: $E(\sigma_{t+1}^2 \mid \mathcal{F}_t)$, not a historical average
+A static sample variance assumes $\sigma_t^2$ is constant. But for portfolio rebalancing we need a **forecast**: $E(\sigma_{t+1}^2 \mid \mathcal{F}_t)$.
 
 **Three things the data make unambiguously clear:**
 
-1. Volatility is **not constant** — periods of calm and crisis are visibly different
-2. Volatility is **predictable from its own history** — today's level tells us something about tomorrow's
-3. Volatility **mean-reverts** — elevated periods eventually end and return to a long-run level
+1. Volatility is **not constant** — calm and turbulent periods are visibly different
+2. Volatility is **predictable from its own history** — today tells us something about tomorrow
+3. Volatility **mean-reverts** — elevated periods eventually return to a long-run level
 
-These are the stylized facts. Models that ignore them leave accuracy on the table.
+These are the stylized facts. Models that ignore them leave forecasting accuracy on the table.
 
 # Stylized Facts
 
@@ -67,8 +68,6 @@ These are the stylized facts. Models that ignore them leave accuracy on the tabl
 #| echo: false
 #| warning: false
 #| cache: true
-library(tidyverse)
-library(tidyfinance)
 
 prices_sf <- download_data(
   type = "stock_prices", symbols = "AAPL",
@@ -122,7 +121,7 @@ p_acf = Plot.plot({
     Plot.ruleY([sf_ci, -sf_ci], {stroke: "#666666", strokeDasharray: "3 2"})
   ],
   x: {label: "Lag (days)"}, y: {label: "ACF"},
-  title: "(c) ACF of r²ₜ — slow decay = clustering + long memory"
+  title: "(c) ACF of r²ₜ — slow decay = clustering"
 })
 
 p_lev = Plot.plot({
@@ -139,101 +138,61 @@ p_lev = Plot.plot({
 html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">${p_ret}${p_qq}${p_acf}${p_lev}</div>`
 ```
 
-**What to look for:** (a) calm and turbulent stretches — *clustering*. (b) points outside the diagonal at both ends — *fat tails*. (c) positive bars that decay slowly — *volatility autocorrelated for months*. (d) negative bars at positive lags — *bad news raises future variance more than good news*.
+**What to look for:** (a) calm and turbulent stretches — *clustering*. (b) points outside the diagonal at both ends — *fat tails*. (c) positive bars decaying slowly — *volatility autocorrelated for months*. (d) negative bars at positive lags — *bad news raises future variance more than good news*.
 
 ## Fact 1: Fat Tails
 
-Daily returns have **excess kurtosis** — extreme moves are far more likely than a Gaussian model predicts:
+Daily returns have **excess kurtosis** — extreme moves are far more likely than a Gaussian predicts:
 
 $$\text{kurt}(r_t) = \frac{E[(r_t - \mu)^4]}{\sigma^4} \gg 3$$
 
-| Threshold | Gaussian predicts | Reality |
-|-----------|------------------|---------|
+| Threshold | Gaussian predicts | Reality (US equities) |
+|-----------|------------------|-----------------------|
 | $\|r_t\| > 3\sigma$ | 0.3% of days | ~1–2% of days |
-| $\|r_t\| > 5\sigma$ | One in 3.5 million days | Several per year |
+| $\|r_t\| > 5\sigma$ | Once per 3.5 million days | Several per year |
 
-**Portfolio implication:** Gaussian VaR systematically underestimates tail risk; a covariance matrix calibrated under normality misprices exactly the scenarios that matter most — the large crashes, not the quiet days.
+::: {.callout-note icon=false}
+**Portfolio implication:** Gaussian VaR systematically underestimates tail risk. A covariance matrix calibrated under normality misprices exactly the scenarios that matter most — the large crashes, not the quiet days.
+:::
 
 ## Fact 2: Volatility Clustering
 
-**Mandelbrot (1963):** *"large changes tend to be followed by large changes, of either sign, and small changes tend to be followed by small changes"*
+**Mandelbrot (1963):** *"large changes tend to be followed by large changes, of either sign, and small changes tend to be followed by small changes."*
 
 $$\text{Corr}(r_t^2,\, r_{t-k}^2) > 0 \quad \text{for } k = 1, 2, \ldots$$
 
-The ACF of $r_t^2$ is significantly positive at many lags and decays slowly — hyperbolically rather than exponentially.
+The ACF of $r_t^2$ is significantly positive at many lags and decays slowly — consistent with long memory. This means volatility is **predictable from its own history**: a dynamic $\hat\sigma_{i,t}$ that responds to recent squared returns will outperform a fixed $\hat\sigma$.
 
-**Portfolio implication:** volatility is predictable from its own history. A dynamic $\hat\sigma_{i,t}$ that responds to yesterday's squared return will outperform a fixed $\hat\sigma$. Position sizing should respond to the current volatility regime.
+::: {.callout-note icon=false}
+**Portfolio implication:** position sizing should respond to the current volatility regime. A fund that ignores clustering holds the same position into a crisis as it does in calm markets.
+:::
 
-## Fact 3: Mean Reversion
+## Fact 3: Mean Reversion & the Leverage Effect
 
-Volatility clusters, but it does not stay elevated forever:
+**Mean reversion:** elevated volatility eventually subsides. The empirical half-life of a volatility shock is roughly **10–30 trading days** for most equities. A model without mean reversion — like EWMA — keeps forecasts elevated indefinitely after a crisis, generating defensive positioning that never unwinds.
 
-$$E(\sigma_{t+h}^2 \mid \mathcal{F}_t) \to \bar\sigma^2 \quad \text{as } h \to \infty$$
-
-- Empirical half-life of a volatility shock: roughly **10–30 trading days** for most equities
-- The VIX illustrates this clearly — it spikes in crises but reliably reverts toward ~20% annualised
-
-**Portfolio implication:** risk forecasts should converge to a long-run level at long horizons. A model that does not mean-revert — IGARCH, EWMA — maintains perpetually elevated forecasts after a crisis, generating defensive positioning that never unwinds. This is costly for a long-horizon investor.
-
-## Fact 4: The Leverage Effect
-
-Negative returns raise future volatility more than positive returns of equal magnitude:
+**The leverage effect:** negative returns raise future volatility more than positive returns of the same magnitude:
 
 $$\text{Corr}(r_t,\, \sigma_{t+1}^2) < 0$$
 
-:::: {.columns}
-::: {.column width="50%"}
-**Financial leverage channel**
+Two channels explain this: (i) a price drop increases debt-to-equity, making the firm riskier; (ii) higher expected volatility raises the required return, so prices must fall further. Either way, drawdowns and rising risk arrive simultaneously.
 
-A price drop increases the debt-to-equity ratio — the firm becomes riskier — volatility rises
+::: {.callout-note icon=false}
+**Portfolio implication:** symmetric models (EWMA, basic GARCH) treat a −3% day and a +3% day identically. GJR-GARCH (Lecture 2) captures the asymmetry directly — it matters for hedging costs.
 :::
-::: {.column width="50%"}
-**Volatility feedback channel**
-
-Higher expected volatility raises the required return — the price must fall to deliver it
-:::
-::::
-
-**Portfolio implication:** drawdowns and rising risk arrive simultaneously. Symmetric volatility models miss this — they treat a -3% day and a +3% day identically. GJR-GARCH (Lecture 2) captures the asymmetry directly.
-
-## Fact 5: Co-movement
-
-Volatilities of different assets move together, especially in crises. A single common factor explains **40–60% of individual stock volatility variance**.
-
-The decomposition that structures the entire lecture block:
-
-$$\Sigma_t = D_t C_t D_t$$
-
-where $D_t = \text{diag}(\sigma_{1,t}, \ldots, \sigma_{N,t})$ and $C_t$ is the conditional correlation matrix
-
-Lectures 1–4 model the diagonal $D_t$ — the individual volatilities. Lectures 5–6 model the full matrix, including time-varying $C_t$.
-
-**Portfolio implication:** a model that captures only $D_t$ with a constant $\hat C$ will mis-weight assets when correlations spike in a crisis — as they always do.
 
 # Naive Estimators
 
 ## Rolling Window Standard Deviation
 
-The simplest time-varying volatility estimator:
-
 $$\hat\sigma_{t}^2 = \frac{1}{M-1} \sum_{s=t-M+1}^{t} (r_s - \bar r_{t,M})^2$$
 
-**Bias-variance tradeoff:**
-
-| Window | Behaviour | Problem |
-|--------|-----------|---------|
-| Short $M$ | Reacts quickly to regime changes | Noisy — high variance |
-| Long $M$ | Smooth, stable estimates | Stale in fast-moving markets |
-
-The **cliff-edge problem:** when a large return exits the window, $\hat\sigma_t^2$ jumps even though no new information arrived today.
+The **cliff-edge problem:** when a large return exits the window, $\hat\sigma_t^2$ jumps even though no new information arrived today. The bias-variance tradeoff: short $M$ reacts fast but is noisy; long $M$ is smooth but stale.
 
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
 #| eval: false
-library(tidyverse)
-
-# crsp_returns: tibble with columns date, symbol, ret
 rolling_vol <- crsp_returns |>
   group_by(symbol) |>
   arrange(date) |>
@@ -248,9 +207,6 @@ rolling_vol <- crsp_returns |>
 ## Python
 ```{python}
 #| eval: false
-import pandas as pd
-
-# crsp_returns: DataFrame with columns date, symbol, ret
 rolling_vol = (crsp_returns
   .sort_values(["symbol", "date"])
   .groupby("symbol")["ret"]
@@ -266,11 +222,9 @@ The **RiskMetrics** estimator (J.P. Morgan 1994):
 
 $$\hat\sigma_t^2 = (1 - \lambda)\, r_{t-1}^2 + \lambda\, \hat\sigma_{t-1}^2$$
 
-- $\lambda = 0.94$: RiskMetrics default for daily data
-- Half-life: $\log(0.5) / \log(0.94) \approx \mathbf{11}$ **trading days**
-- No cliff-edge: all past returns included with exponentially declining weights
+$\lambda = 0.94$ is the RiskMetrics default, implying a half-life of about **11 trading days**. No cliff-edge: all past returns included with exponentially declining weights.
 
-**Important:** setting $\alpha + \beta = 1$ (as EWMA does) means no mean reversion — volatility forecasts never converge to the long-run level. Compare to GARCH in Lecture 2, which pins $\omega > 0$ to enforce convergence.
+**Important:** setting $\alpha + \beta = 1$ (as EWMA does implicitly) means no mean reversion — volatility forecasts never converge to a long-run level. This is the EWMA's biggest practical flaw.
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -302,25 +256,12 @@ def ewma_vol(ret, lam=0.94):
     for r in ret.iloc[1:]:
         sigma2.append((1 - lam) * r**2 + lam * sigma2[-1])
     return pd.Series(sigma2, index=ret.index) ** 0.5
-
-ewma_estimates = (crsp_returns
-  .sort_values(["symbol", "date"])
-  .groupby("symbol")
-  .apply(lambda df: df.assign(ewma_94=ewma_vol(df["ret"], 0.94)))
-  .reset_index(drop=True)
-)
 ```
 :::
 
 ## Interactive: Rolling SD vs EWMA
 
-*Try these experiments:*
-
-**(1)** Set M = 21 and λ = 0.94. Find the largest volatility spike — which estimator reacts first?
-
-**(2)** Set M = 5 and M = 126 in turn. What is the tradeoff you see?
-
-**(3)** Slowly increase λ from 0.85 to 0.99. At what λ does EWMA behave like a long rolling window?
+*Guided task: Set M=5 and λ=0.97. Find the largest spike in the series — which estimator reacts first? Now set M=126 and observe what happens after the spike exits the window. That sudden jump with no new information is the cliff-edge problem. Finally, ask yourself: why does EWMA with λ close to 1 behave like a long rolling window — but without the cliff-edge?*
 
 ```{ojs}
 //| echo: false
@@ -395,59 +336,57 @@ Plot.plot({
 })
 ```
 
-## What Naive Estimators Give Us
+## From Volatility Estimates to Portfolio Weights
 
-Plugging $\hat\sigma_{i,t}$ into the GMVP:
+With $\hat\sigma_{i,t}$ from either rolling SD or EWMA, we form:
 
 $$\hat\Sigma_t = \hat D_t \hat C \hat D_t$$
 
-where $\hat C$ is the **sample correlation matrix** (constant) and $\hat D_t = \text{diag}(\hat\sigma_{1,t}, \ldots, \hat\sigma_{N,t})$
+where $\hat C$ is the constant sample correlation matrix and $\hat D_t = \text{diag}(\hat\sigma_{1,t}, \ldots, \hat\sigma_{N,t})$.
 
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
 #| eval: false
-# Compute GMVP weights from diagonal vol + sample correlation
 compute_gmvp <- function(sigma_vec, corr_mat) {
   D <- diag(sigma_vec)
   Sigma <- D %*% corr_mat %*% D
-  Sigma_inv <- solve(Sigma)
-  ones <- rep(1, nrow(Sigma))
-  w <- Sigma_inv %*% ones
+  w <- solve(Sigma, rep(1, nrow(Sigma)))
   w / sum(w)
 }
 
-sample_corr <- cor(returns_wide)  # N x N sample correlation matrix
+sample_corr <- cor(returns_wide)
 gmvp_weights <- rolling_vol |>
   group_by(date) |>
-  summarise(
-    weights = list(compute_gmvp(vol_21, sample_corr))
-  )
+  summarise(weights = list(compute_gmvp(vol_21, sample_corr)))
 ```
 
 ## Python
 ```{python}
 #| eval: false
-import numpy as np
-
 def compute_gmvp(sigma_vec, corr_mat):
     D = np.diag(sigma_vec)
     Sigma = D @ corr_mat @ D
-    Sigma_inv = np.linalg.inv(Sigma)
-    ones = np.ones(len(sigma_vec))
-    w = Sigma_inv @ ones
+    w = np.linalg.solve(Sigma, np.ones(len(sigma_vec)))
     return w / w.sum()
 
 sample_corr = returns_wide.corr().values
 ```
 :::
 
-**Honest assessment:**
+::: {.callout-note icon=false}
+**Portfolio implication:** both rolling SD and EWMA capture clustering qualitatively, but keeping $\hat C$ constant misses the fact that correlations spike in crises (Fact 3). Better variance models (Lectures 2–4) improve $\hat D_t$; time-varying correlations (Lectures 5–6) improve $\hat C_t$.
+:::
 
-- Both rolling SD and EWMA capture clustering qualitatively
-- EWMA is more responsive; rolling SD has the cliff-edge discontinuity
-- $\hat C$ is constant — but correlations spike in crises (Fact 5), so this is a real limitation
-- Better variance models (Lectures 2–4) improve $\hat D_t$; time-varying correlations (Lectures 5–6) improve $\hat C_t$
+## Bridge to Lecture 2
+
+**What naive estimators cannot do:**
+
+- $\lambda$ in EWMA is hard-coded, not estimated from data
+- Both rolling SD and EWMA are symmetric — they ignore the leverage effect
+- Neither enforces mean reversion
+
+**Lecture 2** introduces GARCH: likelihood-based estimation, built-in asymmetry via GJR-GARCH, and mean reversion by construction. The same portfolio testbed applies — we will compare GARCH-based $\hat D_t$ directly against the rolling SD and EWMA estimates from today.
 
 # Exercises
 
@@ -455,20 +394,16 @@ sample_corr = returns_wide.corr().values
 
 **Stylized facts**
 
-1. For a subset of 10 stocks (2 tech, 2 healthcare, 2 consumer discretionary, 4 of your choice): plot QQ-plots against the Gaussian and Student-$t(5)$ distributions. Which fits better? Plot the ACF of $r_t^2$ up to lag 100 — do you observe slow hyperbolic decay?
+1. For 5 stocks (tech and healthcare): plot QQ-plots against the Gaussian distribution. Compute excess kurtosis for each. Does the ranking align with your prior about which sectors have fatter tails?
 
-2. Compute and plot the cross-correlations $\text{Corr}(r_t, r_{t+k}^2)$ for $k = -10, \ldots, 10$ for the same 10 stocks. Is the leverage effect (negative CCF at $k > 0$) consistently present across sectors?
-
-3. Rank the 10 stocks by excess kurtosis. Does the ranking align with your prior about which sectors have fatter tails?
+2. Compute and plot the cross-correlations $\text{Corr}(r_t, r_{t+k}^2)$ for $k = -10, \ldots, 10$ for the same stocks. Is the leverage effect (negative CCF at $k > 0$) consistent across sectors?
 
 **Naive estimators**
 
-4. Compute rolling standard deviations at $M \in \{21, 63, 126\}$ for all 50 stocks. Find a specific date where the rolling SD jumps despite no unusual return today (the cliff-edge problem). What happened $M$ days earlier?
-
-5. Compute EWMA with $\lambda \in \{0.90, 0.94, 0.97\}$. Compare the implied half-life for each. How does the choice of $\lambda$ affect weekly portfolio turnover? (Hint: compute $\hat w_t^{\text{GMVP}}$ for each $\lambda$ and count daily rebalancing trades.)
+3. Compute rolling SD at $M \in \{21, 63, 126\}$ for all 50 stocks. Find a date where rolling SD jumps despite no unusual return *today*. What happened $M$ days earlier? This is the cliff-edge problem in the data.
 
 **Portfolio evaluation**
 
-6. Construct the GMVP using rolling 21-day SD, rolling 63-day SD, and EWMA(0.94) combined with the sample correlation matrix. Compute annualised out-of-sample portfolio volatility for each. Which estimator gives the lowest realised variance?
+4. Construct the GMVP using rolling 21-day SD, rolling 63-day SD, and EWMA(0.94) combined with the sample correlation matrix. Report annualised out-of-sample portfolio volatility. Which estimator wins, and why does the result match your intuition about the bias-variance tradeoff?
 
-**Key references:** Cont (2001); Pagan & Schwert (1990)
+**Key references:** Cont (2001); Mandelbrot (1963)
