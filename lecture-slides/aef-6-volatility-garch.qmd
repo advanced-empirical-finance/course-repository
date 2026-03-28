@@ -14,15 +14,17 @@ library(future.apply)
 
 ## Where We Are
 
-**Lecture 1 established:** volatility is latent, time-varying, and exhibits clustering, fat tails, leverage, and long memory
+**Lecture 1 established:** volatility is latent, time-varying, and exhibits clustering, fat tails, leverage, and mean reversion — four facts any good model must respect
 
-**The EWMA shortcoming:** it has no mean reversion, the parameter $\lambda$ is not estimated from data, and it is symmetric — it treats positive and negative shocks equally
+**EWMA shortcomings:**
 
-**This lecture:** GARCH models provide a principled, likelihood-based framework for estimating and forecasting $\sigma_{i,t}^2$ from daily returns
+- $\lambda$ is not estimated from data — it is hard-coded at 0.94
+- Symmetric — treats a -3% day and a +3% day identically (ignores the leverage effect)
+- No mean reversion — $\alpha + \beta = 1$ means forecasts stay elevated forever after a shock
 
-**Portfolio goal:** replace the naive $\hat\sigma_{i,t}$ in the covariance matrix with a well-specified, data-driven conditional variance forecast
+**This lecture:** GARCH fixes all three — likelihood-based estimation, asymmetric extensions (GJR), and mean reversion by construction
 
-$$\hat\Sigma_t = \hat D_t \hat C_t \hat D_t, \quad \hat D_t = \text{diag}(\hat\sigma_{1,t|t-1}, \ldots, \hat\sigma_{N,t|t-1})$$
+$$\hat\Sigma_t = \hat D_{t|t-1} \hat C_t \hat D_{t|t-1}, \quad \hat D_{t|t-1} = \text{diag}(\hat\sigma_{1,t|t-1}, \ldots, \hat\sigma_{N,t|t-1})$$
 
 The $\hat\sigma_{i,t|t-1}$ will come from GARCH; handling $\hat C_t$ is the job of Lecture 5 (DCC)
 
@@ -36,68 +38,39 @@ $$r_t = \sigma_t \varepsilon_t, \quad \varepsilon_t \overset{i.i.d.}{\sim} \math
 
 $$\sigma_t^2 = \omega + \alpha r_{t-1}^2 + \beta \sigma_{t-1}^2$$
 
-- $\omega > 0$: intercept (anchors the long-run variance)
+- $\omega > 0$: intercept — anchors the long-run variance
 - $\alpha \geq 0$: **ARCH effect** — how much yesterday's squared return raises today's variance
-- $\beta \geq 0$: **GARCH effect** — how much yesterday's variance persists
-- Stationarity: $\alpha + \beta < 1$
+- $\beta \geq 0$: **GARCH effect** — how much yesterday's variance persists into today
+- Stationarity: $\alpha + \beta < 1$; unconditional variance: $\bar\sigma^2 = \omega / (1 - \alpha - \beta)$
 
-**Unconditional variance:**
+**Persistence:** $\alpha + \beta \approx 0.97$–$0.99$ for most equities — shocks decay slowly but they do decay
 
-$$\bar\sigma^2 = \frac{\omega}{1 - \alpha - \beta}$$
+**Connection to EWMA:** setting $\omega = 0$ and $\alpha + \beta = 1$ gives exactly the EWMA recursion — every time you use EWMA you are implicitly using a non-mean-reverting GARCH with the intercept forced to zero.
 
-**Persistence:** $\alpha + \beta$ measures how quickly a volatility shock decays. For most stocks: $\alpha + \beta \approx 0.97$–$0.99$
+## Capturing the Leverage Effect: GJR-GARCH
 
-**Connection to EWMA:** setting $\omega = 0$ and $\alpha + \beta = 1$ gives exactly the EWMA recursion — so EWMA is a restricted IGARCH(1,1) with no mean reversion
+**Why:** Fact 4 from Lecture 1 — negative shocks raise variance more than positive shocks of the same size
 
-## Asymmetric Extensions
+$$\sigma_t^2 = \omega + (\alpha + \gamma\, \mathbf{1}_{r_{t-1}<0})\, r_{t-1}^2 + \beta\, \sigma_{t-1}^2$$
 
-**Why we need them:** the leverage effect (Fact 4, Lecture 1) — negative shocks increase variance more than positive shocks of equal size
+- $\gamma > 0$: the extra impact when the news is bad
+- Negative shock: total ARCH coefficient is $\alpha + \gamma$
+- Positive shock: total ARCH coefficient is $\alpha$
+- Stationarity: $\alpha + \beta + \gamma/2 < 1$
 
-### GJR-GARCH (Glosten, Jagannathan, Runkle 1993)
+**Hansen & Lunde (2005):** no model systematically beats GARCH(1,1) on symmetric data — but asymmetric models (GJR, EGARCH) consistently beat symmetric GARCH when the leverage effect is present.
 
-$$\sigma_t^2 = \omega + (\alpha + \gamma \mathbf{1}_{r_{t-1}<0}) r_{t-1}^2 + \beta \sigma_{t-1}^2$$
-
-- Additional parameter $\gamma$: the **asymmetry coefficient**
-- Negative shock ($r_{t-1} < 0$): impact is $\alpha + \gamma$ (larger if $\gamma > 0$)
-- Positive shock ($r_{t-1} > 0$): impact is $\alpha$
-- Stationarity: $\alpha + \frac{\gamma}{2} + \beta < 1$
-
-### EGARCH (Nelson 1991)
-
-$$\log \sigma_t^2 = \omega + \beta \log \sigma_{t-1}^2 + \alpha \left|\frac{r_{t-1}}{\sigma_{t-1}}\right| + \gamma \frac{r_{t-1}}{\sigma_{t-1}}$$
-
-- Operates on $\log\sigma_t^2$ — no non-negativity constraints needed
-- Asymmetry via $\gamma < 0$: negative standardised residuals increase variance
-- More flexible functional form for the news impact curve
-
-## The News Impact Curve
-
-The **news impact curve** (NIC) shows $\sigma_t^2$ as a function of $r_{t-1}$ holding $\sigma_{t-1}^2 = \bar\sigma^2$:
-
-:::: {.columns}
-::: {.column width="50%"}
-**GARCH(1,1):**
-
-$$\text{NIC}(r) = \omega + \alpha r^2 + \beta\bar\sigma^2$$
-
-- U-shaped, **symmetric** around zero
-- Equal response to positive and negative shocks
-:::
-::: {.column width="50%"}
-**GJR-GARCH(1,1):**
-
-$$\text{NIC}(r) = \begin{cases} \omega + (\alpha + \gamma) r^2 + \beta\bar\sigma^2 & r < 0 \\ \omega + \alpha r^2 + \beta\bar\sigma^2 & r \geq 0 \end{cases}$$
-
-- U-shaped, **asymmetric**: steeper left arm
-- Negative shocks are more damaging to the portfolio
-:::
-::::
-
-**Portfolio implication:** using a symmetric GARCH when the true process is asymmetric under-estimates the variance spike following a market crash — exactly when accurate estimates matter most
+**This is our default specification for all 50 stocks.**
 
 ## Interactive: Build Your Own News Impact Curve
 
-*Increase γ and watch the left arm of the curve steepen — that is the leverage effect in action*
+*Try these experiments:*
+
+**(1)** Set γ = 0 — you have a symmetric GARCH. The curve should be a U-shape centred on zero.
+
+**(2)** Increase γ to 0.20. What happens to the left arm (bad news) vs the right arm (good news)?
+
+**(3)** Find a setting of (α, γ, β) where the stationarity condition α + β + γ/2 < 1 is violated. What does the model predict for long-run volatility?
 
 ```{ojs}
 //| echo: false
@@ -150,195 +123,28 @@ Plot.plot({
 })
 ```
 
-## Why GARCH(1,1) and GJR-GARCH(1,1) Dominate
+## Mean Reversion in GARCH
 
-Hansen & Lunde (2005): *"A Forecast Comparison of Volatility Models"*
+Multi-step forecasts converge to the unconditional variance:
 
-- Estimated 330 GARCH-type models on daily IBM returns
-- No model significantly outperforms GARCH(1,1) in forecasting variance
-- **Exception:** models that capture the leverage effect (GJR, EGARCH) consistently beat symmetric GARCH
-- Adding higher lags (GARCH(p,q) with $p,q>1$) does not improve forecasts
+$$E(\sigma_{t+h}^2 \mid \mathcal{F}_t) = \bar\sigma^2 + (\alpha + \beta)^{h-1}\bigl(\sigma_{t+1|t}^2 - \bar\sigma^2\bigr)$$
 
-**Practical takeaway for our 50-stock universe:**
+Forecasts converge at the geometric rate $(\alpha + \beta)^h$:
 
-- Default specification: GJR-GARCH(1,1) — captures leverage, parsimonious
-- GARCH(1,1) as benchmark
-- Verify with model confidence sets (MCS) — do not over-specify
+- At $\alpha + \beta = 0.97$: half-life $\approx$ **23 trading days**
+- At $\alpha + \beta = 1.00$ (EWMA): **no convergence** — forecasts remain flat forever
 
-# Practical Estimation
-
-## Distributional Choice
-
-Three options for $\mathcal{D}(0, 1)$:
-
-| Distribution | Parameters | Tail behavior | Portfolio use case |
-|---|---|---|---|
-| Gaussian | — | Light tails | Simple; VaR underestimates tail risk |
-| Student-$t$ | df $\nu$ | Heavy tails | Better VaR; $\nu \approx 5$–8 for stocks |
-| Skewed-$t$ (Hansen 1994) | df $\nu$, skewness $\xi$ | Heavy + asymmetric | Most flexible; recommended for individual stocks |
-
-**QML estimation:** even if the distribution is misspecified (e.g., using Gaussian when returns are Student-$t$), the GARCH parameter estimates $(\omega, \alpha, \beta)$ remain **consistent** — this is quasi-maximum likelihood (QML)
-
-- QML gives consistent $\hat\sigma_t^2$ but incorrect standard errors → use robust sandwich standard errors
-- VaR and ES from the conditional distribution require correct distributional specification — QML is not enough here
-
-## Variance Targeting
-
-**The intercept $\omega$ is often poorly identified** — it is a small number and the optimiser can take a long time to converge
-
-**Variance targeting** (Engle & Mezrich 1996): set $\omega$ from the sample variance
-
-$$\hat\omega = \hat{\bar\sigma}^2 (1 - \alpha - \beta)$$
-
-- Reduces the optimisation to two free parameters $(\alpha, \beta)$ for GARCH(1,1)
-- Dramatically improves numerical stability and convergence speed
-- Slight efficiency loss but negligible in practice
-- Default in `tsgarch`: `variance.targeting = TRUE`
-
-**Boundary solutions:** when the optimised $\hat\alpha + \hat\beta \approx 1$
-
-- Indicates near-integrated variance process
-- Common for individual stocks over long samples
-- Consequence: the implied long-run mean is very large — long-horizon forecasts are unreliable
-- Solution: impose stationarity constraint or use FIGARCH
-
-## Estimation with `tsgarch`
-
-`tsgarch` (Galanos) is the modern successor to `rugarch`, built on the `tsmodels` framework with **automatic differentiation via TMB** (Template Model Builder)
-
-- Analytic gradients and Hessians via TMB → numerical stability, accurate standard errors
-- S3 class system, consistent with `tsmarch` (Lecture 5)
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-library(tsgarch)
-
-# Specify GJR-GARCH(1,1) with Student-t errors and variance targeting
-spec <- garch_modelspec(
-  y = returns[, "AAPL"],
-  model = "gjrgarch",
-  order = c(1, 1),
-  constant = TRUE,
-  distribution = "sstd",   # skewed Student-t
-  variance_targeting = TRUE
-)
-
-# Estimate
-fit <- estimate(spec)
-summary(fit)
-
-# Key output: persistence alpha + beta + gamma/2, unconditional sigma
-```
-
-## Python
-```{python}
-#| eval: false
-from arch import arch_model
-
-# GJR-GARCH(1,1) with Student-t innovations
-model = arch_model(
-    returns["AAPL"],
-    vol="Garch",
-    p=1, o=1, q=1,      # o=1 enables the leverage term (GJR)
-    dist="t",
-    mean="Zero"
-)
-result = model.fit(disp="off")
-print(result.summary())
-```
-:::
-
-## Diagnostics
-
-After estimation, always inspect the standardised residuals $\hat\varepsilon_t = r_t / \hat\sigma_t$:
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# Standardised residuals
-e_hat <- residuals(fit, standardize = TRUE)
-
-# 1. ACF of squared standardised residuals — should be near zero
-acf(e_hat^2, lag.max = 20)
-
-# 2. Ljung-Box test on e_hat^2 — H0: no autocorrelation
-Box.test(e_hat^2, lag = 10, type = "Ljung-Box")
-
-# 3. QQ-plot against specified distribution
-plot(fit, which = "residuals_qq")
-
-# 4. News impact curve
-plot(fit, which = "news_impact")
-```
-
-## Python
-```{python}
-#| eval: false
-from statsmodels.stats.diagnostic import acorr_ljungbox
-import matplotlib.pyplot as plt
-
-std_resid = result.std_resid
-
-# Ljung-Box test on squared standardised residuals
-lb_test = acorr_ljungbox(std_resid**2, lags=[10], return_df=True)
-print(lb_test)
-
-# QQ-plot
-import scipy.stats as stats
-fig, ax = plt.subplots()
-stats.probplot(std_resid, dist="t", sparams=(result.params["nu"],), plot=ax)
-plt.show()
-```
-:::
-
-**Pass criteria:**
-
-- Ljung-Box p-value > 0.05 on $\hat\varepsilon_t^2$ → no remaining ARCH effects
-- Near-normal QQ-plot for the standardised residuals under the assumed distribution
-
-# Forecasting
-
-## One-Step and Multi-Step Forecasts
-
-**One-step-ahead:** directly from the recursion
-
-$$\hat\sigma_{t+1|t}^2 = \hat\omega + \hat\alpha r_t^2 + \hat\beta \hat\sigma_t^2$$
-
-**Multi-step-ahead ($h > 1$):** iterate the recursion, using $E(r_{t+k}^2 \mid \mathcal{F}_t) = \hat\sigma_{t+k|t}^2$
-
-$$\hat\sigma_{t+h|t}^2 = \hat{\bar\sigma}^2 + (\hat\alpha + \hat\beta)^{h-1} (\hat\sigma_{t+1|t}^2 - \hat{\bar\sigma}^2)$$
-
-- Forecasts converge to $\hat{\bar\sigma}^2$ at rate $(\alpha + \beta)^h$ — mean reversion!
-- For $\alpha + \beta \approx 0.98$: half-life $\approx 34$ days
-- EWMA ($\alpha + \beta = 1$): no convergence — forecasts remain at $\hat\sigma_{t+1|t}^2$ forever
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# Rolling one-step-ahead forecasts (re-estimate monthly)
-fc <- predict(fit, n.ahead = 10)  # 10-step ahead
-plot(fc)
-
-# Extract conditional variance path
-sigma2_path <- sigma(fit)^2
-```
-
-## Python
-```{python}
-#| eval: false
-forecasts = result.forecast(horizon=10)
-# variance forecasts
-var_forecasts = forecasts.variance
-```
-:::
+**Portfolio implication:** long-horizon forecasts from GARCH converge to $\bar\sigma^2$; EWMA stays flat at the shocked level. After a crisis, a pension fund using EWMA stays defensively positioned indefinitely — even as actual volatility subsides.
 
 ## Interactive: GARCH Mean Reversion vs EWMA
 
-*Move the shock slider up to simulate a market crash. Move persistence toward 1 to see how EWMA behaviour emerges.*
+*Try these experiments:*
+
+**(1)** Set persistence = 0.970, shock = 3×. At what horizon does the forecast return within 10% of the long-run level?
+
+**(2)** Drag persistence toward 0.999. When does GARCH start to resemble the flat EWMA line?
+
+**(3)** At shock = 3× (vol currently 60% annualised): what does GARCH predict one year from now? What does EWMA predict? Which should a pension fund trust?
 
 ```{ojs}
 //| echo: false
@@ -392,99 +198,64 @@ conv_data = {
 }
 ```
 
-## Forecast Evaluation
+# Practical Estimation
 
-**What do we evaluate against?** $r_t^2$ is a noisy proxy for $\sigma_t^2$ — using it as the target introduces measurement error
+## Fitting GARCH in Practice
 
-**Loss functions robust to proxy noise:**
+`tsgarch` (Galanos) is the modern R package for GARCH estimation, built on **automatic differentiation via TMB** (Template Model Builder) — analytic gradients give numerical stability and accurate standard errors.
 
-| Loss | Formula | Notes |
-|------|---------|-------|
-| MSE | $(r_t^2 - \hat\sigma_t^2)^2$ | Proxy noise biases rankings |
-| QLIKE | $r_t^2/\hat\sigma_t^2 - \log(r_t^2/\hat\sigma_t^2) - 1$ | Consistent under proxy noise |
+Two choices that matter in practice:
 
-Patton (2011): use a **homogeneous** loss function — QLIKE satisfies this; MSE does not
-
-**Mincer-Zarnowitz regression:**
-
-$$r_t^2 = a + b\hat\sigma_t^2 + u_t$$
-
-- Unbiasedness: $H_0: a = 0, b = 1$
-- $R^2$ measures explanatory power (typically 5–20% with daily $r_t^2$ as proxy)
+- **Distribution:** skewed Student-$t$ (Hansen 1994) captures both fat tails and return asymmetry; QML with Gaussian errors gives consistent $(\hat\omega, \hat\alpha, \hat\beta)$ but requires robust standard errors
+- **Variance targeting:** pins $\hat\omega = \hat{\bar\sigma}^2(1 - \alpha - \beta)$ from the sample variance, reducing the optimisation to two free parameters — dramatically improves convergence
 
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
 #| eval: false
-library(sandwich)
-library(lmtest)
+library(tsgarch)
 
-mz_reg <- lm(ret^2 ~ sigma2_hat, data = forecast_df)
-coeftest(mz_reg, vcov = NeweyWest(mz_reg, lag = 5))
+# Specify GJR-GARCH(1,1) with skewed-t errors and variance targeting
+spec <- garch_modelspec(
+  y = returns[, "AAPL"],
+  model = "gjrgarch",
+  order = c(1, 1),
+  constant = TRUE,
+  distribution = "sstd",
+  variance_targeting = TRUE
+)
+
+fit <- estimate(spec)
+summary(fit)
 ```
 
 ## Python
 ```{python}
 #| eval: false
-import statsmodels.formula.api as smf
-from statsmodels.stats.sandwich_covariance import cov_hac
+from arch import arch_model
 
-mz_model = smf.ols("ret_sq ~ sigma2_hat", data=forecast_df).fit()
-print(mz_model.get_robustcov_results(cov_type="HAC", maxlags=5).summary())
+# GJR-GARCH(1,1) with Student-t innovations
+model = arch_model(
+    returns["AAPL"],
+    vol="Garch",
+    p=1, o=1, q=1,   # o=1 enables the GJR leverage term
+    dist="t",
+    mean="Zero"
+)
+result = model.fit(disp="off")
+print(result.summary())
 ```
 :::
 
-## Model Confidence Set (MCS)
+**Diagnostics to check after every fit:**
 
-Hansen, Lunde & Nason (2011): the **Model Confidence Set** provides a set of models that are statistically equivalent given the data
+1. Ljung-Box on $\hat\varepsilon_t^2$ — no remaining ARCH effects (p-value > 0.05)
+2. QQ-plot of $\hat\varepsilon_t$ — distribution assumption adequate?
+3. Persistence $\hat\alpha + \hat\beta + \hat\gamma/2 < 1$ — long-run forecasts are reliable
 
-- Starts with all $M$ candidate models
-- Iteratively eliminates the model with the worst loss using a bootstrap test
-- Returns the set $\mathcal{M}^*_{1-\alpha}$ of models that cannot be distinguished at level $\alpha$
+## What We See in the NASDAQ 50
 
-**Why MCS instead of Diebold-Mariano?**
-
-- Diebold-Mariano is pairwise; MCS handles multiple comparisons simultaneously
-- Controls FWER: no need to adjust for the number of pairwise tests
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# MCSTest from MCS package (or rugarch/tsgarch wrappers)
-library(MCS)
-
-# Collect QLIKE losses for all competing models
-qlike_matrix <- cbind(qlike_garch, qlike_gjr, qlike_egarch, qlike_ewma)
-colnames(qlike_matrix) <- c("GARCH", "GJR", "EGARCH", "EWMA")
-
-mcs_result <- MCSprocedure(
-  Loss = qlike_matrix,
-  alpha = 0.10,
-  B = 5000,
-  statistic = "Tmax"
-)
-show(mcs_result)
-```
-
-## Python
-```{python}
-#| eval: false
-# No direct MCS package in Python — implement manually or use R via rpy2
-# Alternatively: use pairwise DM tests with Holm-Bonferroni correction
-from arch.tests.utility import diebold_mariano
-
-dm_stat, dm_pval = diebold_mariano(
-    e1=losses_garch, e2=losses_gjr, power=1
-)
-```
-:::
-
-# Scaling to 50 Stocks
-
-## Batch Estimation with `tsgarch` + `future`
-
-Estimating GARCH models for 50 stocks individually would be tedious — use `tsgarch`'s **multi-specification** framework with parallel execution:
+Estimate GJR-GARCH(1,1) for all 50 stocks in parallel — `future_lapply` handles the parallelisation:
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -494,10 +265,9 @@ library(tsgarch)
 library(future)
 library(future.apply)
 
-plan(multisession, workers = 8)  # parallelise across 8 cores
+plan(multisession, workers = 8)
 
-# Build a multi-spec: same model family, one per stock
-symbols <- colnames(returns)  # 50 column names
+symbols <- colnames(returns)
 
 multi_spec <- lapply(symbols, function(sym) {
   garch_modelspec(
@@ -509,13 +279,20 @@ multi_spec <- lapply(symbols, function(sym) {
   )
 })
 
-# Estimate all 50 in parallel
 multi_fit <- future_lapply(multi_spec, estimate)
 names(multi_fit) <- symbols
 
-# Extract one-step-ahead conditional variances for each stock
-sigma2_matrix <- do.call(cbind, lapply(multi_fit, sigma))^2
-# sigma2_matrix: T x 50 matrix of sigma_{i,t}^2
+# Extract persistence and leverage for each stock
+params_df <- bind_rows(lapply(symbols, function(sym) {
+  p <- coef(multi_fit[[sym]])
+  tibble(
+    symbol      = sym,
+    alpha       = p["alpha1"],
+    beta        = p["beta1"],
+    gamma       = p["gamma1"],
+    persistence = p["alpha1"] + p["beta1"] + p["gamma1"] / 2
+  )
+}))
 ```
 
 ## Python
@@ -523,6 +300,7 @@ sigma2_matrix <- do.call(cbind, lapply(multi_fit, sigma))^2
 #| eval: false
 from arch import arch_model
 from joblib import Parallel, delayed
+import pandas as pd
 
 def fit_gjr(symbol, returns):
     model = arch_model(returns[symbol], vol="Garch", p=1, o=1, q=1,
@@ -532,48 +310,11 @@ def fit_gjr(symbol, returns):
 results = Parallel(n_jobs=8)(
     delayed(fit_gjr)(sym, returns) for sym in returns.columns
 )
-sigma2_matrix = pd.DataFrame(
-    {sym: res.conditional_volatility**2
-     for sym, res in zip(returns.columns, results)}
-)
-```
-:::
 
-## Cross-Sectional Heterogeneity
-
-Not all 50 stocks need the same specification — inspect the cross-section:
-
-::: {.panel-tabset group="language"}
-## R
-```{r}
-#| eval: false
-# Extract key parameters for all 50 stocks
-params_df <- bind_rows(lapply(symbols, function(sym) {
-  p <- coef(multi_fit[[sym]])
-  tibble(
-    symbol = sym,
-    alpha  = p["alpha1"],
-    beta   = p["beta1"],
-    gamma  = p["gamma1"],   # leverage (GJR)
-    persistence = p["alpha1"] + p["beta1"] + p["gamma1"] / 2
-  )
-}))
-
-# Persistence distribution across the 50 stocks
-ggplot(params_df, aes(x = persistence)) +
-  geom_histogram(bins = 20, fill = "#901A1E", alpha = 0.8) +
-  labs(title = "GARCH persistence across 50 NASDAQ stocks",
-       x = expression(alpha + beta + gamma/2), y = "Count") +
-  theme_minimal()
-```
-
-## Python
-```{python}
-#| eval: false
 params_df = pd.DataFrame([
     {"symbol": sym,
      "alpha": res.params["alpha[1]"],
-     "beta": res.params["beta[1]"],
+     "beta":  res.params["beta[1]"],
      "gamma": res.params.get("gamma[1]", 0),
      "persistence": res.params["alpha[1]"] + res.params["beta[1]"]}
     for sym, res in zip(returns.columns, results)
@@ -581,34 +322,21 @@ params_df = pd.DataFrame([
 ```
 :::
 
-**Expected findings:**
-
-- Persistence $\alpha + \beta \approx 0.96$–$0.99$ across most stocks
-- Leverage $\hat\gamma > 0$ for the majority — asymmetry is the rule, not the exception
-- A few stocks with low persistence (high idiosyncratic volatility) — likely news-driven
-- Sector patterns: tech stocks tend to have higher persistence and stronger leverage
+**Typical findings across the NASDAQ 50:** persistence concentrates in the 0.96–0.99 range; the leverage coefficient $\hat\gamma > 0$ for the majority of stocks — asymmetry is the rule, not the exception; tech stocks tend to show higher persistence and stronger leverage than healthcare names; a handful of stocks exhibit low persistence, consistent with high idiosyncratic, news-driven volatility.
 
 ## From GARCH to Portfolio Weights
 
-With $\hat\sigma_{i,t|t-1}^2$ estimated for all 50 stocks, we can construct a time-varying diagonal covariance matrix:
+With $\hat\sigma_{i,t|t-1}^2$ estimated for all 50 stocks, we form the time-varying diagonal covariance matrix and combine with a constant sample correlation:
 
-$$\hat D_{t|t-1} = \text{diag}(\hat\sigma_{1,t|t-1}, \ldots, \hat\sigma_{50,t|t-1})$$
-
-**Two approaches for combining with correlations:**
-
-| Approach | Correlation | Lecture |
-|----------|-------------|---------|
-| $\hat\Sigma_t = \hat D_t \hat C \hat D_t$ | Constant sample $\hat C$ | This lecture (naive) |
-| $\hat\Sigma_t = \hat D_t \hat C_t \hat D_t$ | Dynamic $\hat C_t$ from DCC | Lecture 5 |
-
-**Preview:** DCC-GARCH in Lecture 5 reuses exactly the univariate estimates from this lecture — the first step of DCC *is* fitting individual GARCH models
+$$\hat\Sigma_t = \hat D_{t|t-1} \hat C \hat D_{t|t-1}$$
 
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
 #| eval: false
-# Compute GMVP weights for each date using GARCH conditional variances
-# + constant sample correlation
+# Extract conditional variance matrix (T x 50)
+sigma2_matrix <- do.call(cbind, lapply(multi_fit, sigma))^2
+
 corr_sample <- cor(returns)
 
 gmvp_garch <- map_dfr(1:nrow(sigma2_matrix), function(t) {
@@ -627,6 +355,11 @@ gmvp_garch <- map_dfr(1:nrow(sigma2_matrix), function(t) {
 #| eval: false
 import numpy as np
 
+sigma2_matrix = pd.DataFrame(
+    {sym: res.conditional_volatility**2
+     for sym, res in zip(returns.columns, results)}
+)
+
 corr_sample = returns.corr().values
 
 gmvp_vars = []
@@ -640,37 +373,26 @@ for t in range(len(sigma2_matrix)):
 ```
 :::
 
+**Limitation:** $\hat C$ is constant — DCC-GARCH (Lecture 5) allows $\hat C_t$ to evolve. Preview: using GARCH-based $\hat D_t$ instead of rolling SD typically reduces out-of-sample GMVP variance by **10–20%** before any improvement to the correlation structure.
+
 # Exercises
 
 ## Exercise Set 2
 
 **Estimation**
 
-1. Using `tsgarch` (R) or `arch` (Python), estimate GARCH(1,1), GJR-GARCH(1,1), and EGARCH(1,1) for a subset of 5 stocks from the NASDAQ universe. For each:
-   - Report $(\hat\omega, \hat\alpha, \hat\beta, \hat\gamma)$ with robust standard errors
-   - Compute persistence and the implied half-life of a volatility shock
-   - Assess whether the leverage coefficient $\hat\gamma$ is statistically significant
+1. Using `tsgarch` (R) or `arch` (Python), estimate GJR-GARCH(1,1) for 5 stocks from the NASDAQ universe. For each: report $(\hat\omega, \hat\alpha, \hat\beta, \hat\gamma)$ with robust standard errors, compute persistence, and assess whether the leverage coefficient $\hat\gamma$ is statistically significant.
 
-2. Plot news impact curves for GARCH vs GJR-GARCH for one stock. How large is the asymmetry?
+2. Check the diagnostics: are the standardised residuals $\hat\varepsilon_t$ free of ARCH effects (Ljung-Box on $\hat\varepsilon_t^2$, $p > 0.05$)? Does the distribution assumption look adequate from the QQ-plot?
 
-3. Check the diagnostics: are the standardised residuals $\hat\varepsilon_t$ free of ARCH effects (Ljung-Box on $\hat\varepsilon_t^2$, $p > 0.05$)? Does the distribution assumption look adequate from the QQ-plot?
+3. Plot news impact curves for symmetric GARCH vs GJR-GARCH for two stocks — one tech and one healthcare. How large is the asymmetry, and does it differ by sector?
 
-**Batch estimation and cross-section**
+**Cross-section**
 
-4. Estimate GJR-GARCH(1,1) for all 50 NASDAQ stocks in parallel using `tsgarch` + `future` (R) or `joblib` (Python).
-   - Plot the cross-sectional distribution of $\hat\alpha + \hat\beta + \hat\gamma/2$ (persistence)
-   - Plot the cross-sectional distribution of the leverage coefficient $\hat\gamma$
-   - Do tech stocks show more leverage than healthcare stocks?
-
-**Forecasting and evaluation**
-
-5. For a rolling estimation window of 5 years:
-   - Produce one-step-ahead out-of-sample variance forecasts for 2 years
-   - Compute QLIKE for GARCH(1,1), GJR-GARCH(1,1), EWMA(0.94), and rolling SD(21) for each stock
-   - Apply the MCS (or pairwise DM tests with corrections) — which models survive?
+4. Estimate GJR-GARCH(1,1) for all 50 stocks in parallel. Plot the cross-sectional distribution of persistence $\hat\alpha + \hat\beta + \hat\gamma/2$ and the leverage coefficient $\hat\gamma$. Do tech stocks show more leverage than healthcare stocks?
 
 **Portfolio evaluation**
 
-6. Construct the GMVP using GARCH conditional variances combined with the sample correlation matrix. Compare out-of-sample portfolio volatility to the Lecture 1 naive estimators. Does time-varying variance alone help?
+5. Construct the GMVP using GARCH conditional variances combined with the sample correlation matrix. Compare out-of-sample portfolio volatility to the naive estimators from Lecture 1 (rolling 21-day SD, EWMA 0.94). Does time-varying GARCH variance alone reduce realised portfolio variance?
 
-**Key references:** Hansen & Lunde (2005); Engle & Patton (2001); Hansen, Lunde & Nason (2011)
+**Key references:** Bollerslev (1986); Glosten, Jagannathan & Runkle (1993); Hansen & Lunde (2005); Engle & Patton (2001)
