@@ -1,0 +1,25 @@
+$schema: https://m.canouil.dev/quarto-wizard/assets/schema/v1/extension-schema.json
+
+classes:
+  chat:
+    description: "Container for a chat conversation. Wrap all messages in this div. Accepts theme, names, self, and avatars attributes."
+  speaker-1:
+    description: "Message from speaker slot 1. The sender by default."
+  speaker-2:
+    description: "Message from speaker slot 2."
+  speaker-3:
+    description: "Message from speaker slot 3."
+  speaker-4:
+    description: "Message from speaker slot 4."
+  bubble-right:
+    description: "Alias for .speaker-1, kept for backwards compatibility."
+  bubble-left:
+    description: "Alias for .speaker-2, kept for backwards compatibility."
+  bubble-left-2:
+    description: "Alias for .speaker-3, kept for backwards compatibility."
+  bubble-left-3:
+    description: "Alias for .speaker-4, kept for backwards compatibility."
+  typing:
+    description: "Show a typing indicator before the text is revealed. Combine with a speaker class and .fragment."
+  reaction:
+    description: "Emoji reaction attached to the preceding message. Shown/hidden as a RevealJS fragment."
