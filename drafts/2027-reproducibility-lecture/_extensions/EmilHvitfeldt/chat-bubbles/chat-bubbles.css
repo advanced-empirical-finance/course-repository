@@ -1,0 +1,540 @@
+/* ==========================================================================
+   Chat Bubbles
+
+   Layered as: shared structure, then one block per theme.
+
+   Authoring markup is normalized by chat-bubbles.js into two attributes that
+   everything below targets:
+
+     [data-chat-theme]  on the container, defaults to "imessage"
+     [data-slot]        on each message, 1-4, plus [data-self] on the sender
+
+   A theme should never need to know about the authoring classes.
+   ========================================================================== */
+
+:root {
+  --bubble-blue:   #1B93FF;
+  --bubble-gray:   #E9E9EB;
+  --bubble-green:  #34C759;
+  --bubble-purple: #AF52DE;
+
+  /* The grey speaker needs a saturated stand-in wherever the slot colour has
+     to read as ink or as a small filled shape rather than as a bubble. */
+  --bubble-slate:  #5A6B7B;
+}
+
+/* ==========================================================================
+   Shared structure
+   ========================================================================== */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--chat-gap, 0.4rem);
+  padding: var(--chat-pad, 1rem);
+  overflow-y: scroll;
+  max-height: 100%;
+  position: relative;
+  scrollbar-width: none;
+}
+
+.chat::-webkit-scrollbar {
+  display: none;
+}
+
+.chat.is-scrolled {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 80px);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 80px);
+}
+
+/* Trailing space so the newest message can scroll clear of the bottom edge */
+.chat::after {
+  content: '';
+  display: block;
+  min-height: 150px;
+  flex-shrink: 0;
+}
+
+/* Per-slot palette.
+     --slot-fill    large surface, e.g. an iMessage bubble
+     --slot-ink     text on that surface
+     --slot-accent  small filled shapes and coloured text (avatars, names),
+                    where a near-white fill would disappear */
+[data-slot="1"] { --slot-fill: var(--bubble-blue);   --slot-ink: #ffffff; --slot-accent: var(--bubble-blue); }
+[data-slot="2"] { --slot-fill: var(--bubble-gray);   --slot-ink: #000000; --slot-accent: var(--bubble-slate); }
+[data-slot="3"] { --slot-fill: var(--bubble-green);  --slot-ink: #ffffff; --slot-accent: var(--bubble-green); }
+[data-slot="4"] { --slot-fill: var(--bubble-purple); --slot-ink: #ffffff; --slot-accent: var(--bubble-purple); }
+
+[data-slot] {
+  position: relative;
+  word-wrap: break-word;
+}
+
+/* Scaffolding is emitted for every message in every theme; themes opt in to
+   the parts they use. Hidden by default so a theme showing nothing extra
+   (iMessage) needs no rules at all. */
+.bubble-avatar,
+.bubble-name {
+  display: none;
+}
+
+.bubble-avatar {
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--slot-accent);
+  background-size: cover;
+  background-position: center;
+  color: #ffffff;
+  font-weight: 600;
+  user-select: none;
+}
+
+.bubble-avatar.has-image {
+  color: transparent;
+}
+
+/* Images inside messages */
+[data-slot] img {
+  display: block;
+  max-width: 100%;
+  border-radius: 0.6em;
+}
+
+/* Strip margins/padding from Quarto cell wrappers and lone <p> tags */
+[data-slot] p:only-child,
+[data-slot] .cell,
+[data-slot] .cell-output-display,
+[data-slot] figure {
+  margin: 0;
+  padding: 0;
+}
+
+/* Fragment animation */
+
+.reveal .slides section .fragment[data-slot] {
+  opacity: 0;
+  visibility: visible;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.reveal .slides section .fragment[data-slot].visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Reactions */
+
+.bubble-reactions {
+  position: absolute;
+  display: flex;
+  flex-direction: row;
+  gap: 3px;
+}
+
+/* The container is emitted for every message; it only takes up space once a
+   reaction has actually been attached to it. */
+[data-slot]:not(.has-reactions) .bubble-reactions {
+  display: none;
+}
+
+@keyframes reaction-in {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes reaction-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.4); }
+}
+
+/* The height of one pill, kept in step with the box below by hand: font-size
+   0.75em at line-height 1, plus 2px padding and 1px border top and bottom.
+   Themes that place reactions in the flow use it to reserve the row. */
+:root {
+  --reaction-pill-height: calc(0.75em + 6px);
+}
+
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 0.75em;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  animation: reaction-in 0.2s ease forwards;
+}
+
+.reaction-pill.is-hiding {
+  animation: reaction-out 0.2s ease forwards;
+}
+
+/* Typing indicator */
+
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
+}
+
+.typing-indicator {
+  display: flex;
+  gap: 0.3em;
+  align-items: center;
+  padding: 0.15em 0;
+}
+
+.typing-indicator span {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+  animation: typing-dot 1.2s infinite ease-in-out;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+/* When typing: show indicator, hide text */
+.is-typing .bubble-text { display: none; }
+.is-typing .typing-indicator { display: flex; }
+
+/* After text is revealed */
+.is-typing.text-revealed .bubble-text { display: block; }
+.is-typing.text-revealed .typing-indicator { display: none; }
+
+/* ==========================================================================
+   Theme: iMessage (default)
+
+   Alternating sides, tailed bubbles, slot colour carried by the bubble fill.
+   ========================================================================== */
+
+[data-chat-theme="imessage"] [data-slot] {
+  max-width: 65%;
+  padding: 0.55em 0.9em;
+  border-radius: 1.2em;
+  font-size: 0.9em;
+  line-height: 1.4;
+  background-color: var(--slot-fill);
+  color: var(--slot-ink);
+}
+
+[data-chat-theme="imessage"] [data-slot]::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 0.5em;
+  height: 0.75em;
+  background-color: var(--slot-fill);
+}
+
+/* Side is decided by `self` on the container, not by the slot number */
+[data-chat-theme="imessage"] [data-self] {
+  align-self: flex-end;
+  border-bottom-right-radius: 0.25em;
+}
+
+[data-chat-theme="imessage"] [data-self]::after {
+  right: -0.45em;
+  clip-path: polygon(0 0, 0% 100%, 100% 100%);
+}
+
+[data-chat-theme="imessage"] [data-slot]:not([data-self]) {
+  align-self: flex-start;
+  border-bottom-left-radius: 0.25em;
+}
+
+[data-chat-theme="imessage"] [data-slot]:not([data-self])::after {
+  left: -0.45em;
+  clip-path: polygon(100% 0, 0% 100%, 100% 100%);
+}
+
+/* Reactions sit in the top corner, overlapping the bubble edge */
+[data-chat-theme="imessage"] [data-slot].has-reactions {
+  margin-top: 1.2em;
+}
+
+[data-chat-theme="imessage"] .bubble-reactions {
+  top: -0.75em;
+}
+
+[data-chat-theme="imessage"] [data-self] .bubble-reactions {
+  left: 6px;
+}
+
+[data-chat-theme="imessage"] [data-slot]:not([data-self]) .bubble-reactions {
+  right: 6px;
+}
+
+/* ==========================================================================
+   Flat-roster layout engine
+
+   Shared by every theme that renders one left-aligned column with an avatar
+   and a name instead of alternating bubbles. Adding another flat theme means
+   adding its selector here and a short block of colours below.
+   ========================================================================== */
+
+[data-chat-theme="slack"] [data-slot],
+[data-chat-theme="discord"] [data-slot] {
+  display: grid;
+  grid-template-columns: var(--avatar-size, 2.4em) 1fr;
+  grid-template-areas:
+    "avatar name"
+    "avatar text"
+    "avatar reactions";
+  column-gap: 0.6em;
+  align-self: stretch;
+  max-width: 100%;
+  line-height: 1.46;
+}
+
+[data-chat-theme="slack"] .bubble-avatar,
+[data-chat-theme="discord"] .bubble-avatar {
+  display: flex;
+  grid-area: avatar;
+  width: var(--avatar-size, 2.4em);
+  height: var(--avatar-size, 2.4em);
+  margin-top: 0.15em;
+  font-size: 0.85em;
+}
+
+[data-chat-theme="slack"] .bubble-name,
+[data-chat-theme="discord"] .bubble-name {
+  display: block;
+  grid-area: name;
+  line-height: 1.3;
+}
+
+[data-chat-theme="slack"] .bubble-text,
+[data-chat-theme="discord"] .bubble-text {
+  grid-area: text;
+}
+
+/* Consecutive messages from the same speaker drop the header. The avatar
+   column keeps its fixed width, so the text stays aligned. */
+[data-chat-theme="slack"] [data-continues],
+[data-chat-theme="discord"] [data-continues] {
+  grid-template-areas:
+    "avatar text"
+    "avatar reactions";
+  margin-top: -0.3rem;
+}
+
+[data-chat-theme="slack"] [data-continues] .bubble-avatar,
+[data-chat-theme="discord"] [data-continues] .bubble-avatar,
+[data-chat-theme="slack"] [data-continues] .bubble-name,
+[data-chat-theme="discord"] [data-continues] .bubble-name {
+  display: none;
+}
+
+/* Reactions sit below the message rather than overlapping a bubble corner.
+   Being in the flow, the row would otherwise contribute no height until the
+   first pill lands in it, growing the whole transcript mid-presentation. The
+   container is only shown on [data-slot].has-reactions, which is set during
+   setup, so reserving one row's worth here costs nothing on messages that
+   never receive a reaction. iMessage reserves the same space with margin. */
+[data-chat-theme="slack"] .bubble-reactions,
+[data-chat-theme="discord"] .bubble-reactions {
+  position: static;
+  grid-area: reactions;
+  margin-top: 0.3em;
+  min-height: var(--reaction-pill-height);
+}
+
+
+/* ==========================================================================
+   Theme: Slack
+   ========================================================================== */
+
+[data-chat-theme="slack"] {
+  --chat-gap: 0.5rem;
+  --chat-pad: 1.1rem 1.3rem;
+  background: #ffffff;
+  border-radius: 0.5em;
+  font-family: Lato, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+[data-chat-theme="slack"] [data-slot] {
+  font-size: 0.78em;
+  color: #1d1c1d;
+}
+
+[data-chat-theme="slack"] .bubble-avatar {
+  border-radius: 0.36em;
+}
+
+[data-chat-theme="slack"] .bubble-name {
+  font-weight: 900;
+  color: #1d1c1d;
+}
+
+
+[data-chat-theme="slack"] .reaction-pill {
+  background: #f6f6f6;
+  border-color: #dddddd;
+  border-radius: 12px;
+  padding: 2px 8px;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   Theme: Discord
+
+   Differs from Slack only in decoration: circular avatars, the slot colour
+   moved onto the name, and a dark surface.
+   ========================================================================== */
+
+[data-chat-theme="discord"] {
+  --chat-gap: 0.55rem;
+  --chat-pad: 1.1rem 1.3rem;
+  --avatar-size: 2.6em;
+  background: #313338;
+  border-radius: 0.5em;
+  font-family: "gg sans", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+
+[data-chat-theme="discord"] [data-slot] {
+  font-size: 0.8em;
+  color: #dbdee1;
+}
+
+[data-chat-theme="discord"] .bubble-avatar {
+  border-radius: 50%;
+}
+
+[data-chat-theme="discord"] .bubble-name {
+  font-weight: 500;
+  color: var(--slot-accent);
+}
+
+/* Slate is too dark to read as a username on the dark surface */
+[data-chat-theme="discord"] [data-slot="2"] {
+  --slot-accent: #949CF7;
+}
+
+[data-chat-theme="discord"] .reaction-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 2px 7px;
+  box-shadow: none;
+  color: #dbdee1;
+}
+
+/* ==========================================================================
+   Theme: Microsoft Teams
+
+   Alternating sides and bubbles like iMessage, but with avatars, names, and
+   grouping like the flat themes. The slot colour lands on the avatar rather
+   than the bubble, which is why --slot-fill is kept separate from the
+   bubble surface.
+   ========================================================================== */
+
+[data-chat-theme="teams"] {
+  --chat-gap: 0.4rem;
+  --chat-pad: 1rem;
+  --avatar-size: 2em;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+[data-chat-theme="teams"] [data-slot] {
+  display: grid;
+  grid-template-columns: var(--avatar-size) minmax(0, 1fr);
+  grid-template-areas:
+    "avatar name"
+    "avatar text"
+    "avatar reactions";
+  column-gap: 0.5em;
+  align-self: flex-start;
+  max-width: 78%;
+  font-size: 0.8em;
+  line-height: 1.45;
+}
+
+[data-chat-theme="teams"] .bubble-avatar {
+  display: flex;
+  grid-area: avatar;
+  align-self: end;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: 50%;
+  font-size: 0.8em;
+}
+
+[data-chat-theme="teams"] .bubble-name {
+  display: block;
+  grid-area: name;
+  margin-bottom: 0.15em;
+  font-size: 0.85em;
+  color: #616161;
+}
+
+/* The bubble surface is the text element here, not the message element */
+[data-chat-theme="teams"] .bubble-text {
+  grid-area: text;
+  padding: 0.5em 0.75em;
+  border: 1px solid #E1DFDD;
+  border-radius: 0.5em;
+  background: #ffffff;
+  color: #242424;
+}
+
+[data-chat-theme="teams"] [data-self] {
+  align-self: flex-end;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "text"
+    "reactions";
+}
+
+[data-chat-theme="teams"] [data-self] .bubble-avatar,
+[data-chat-theme="teams"] [data-self] .bubble-name {
+  display: none;
+}
+
+[data-chat-theme="teams"] [data-self] .bubble-text {
+  background: #E8EBFA;
+  border-color: #E8EBFA;
+}
+
+[data-chat-theme="teams"] [data-continues] {
+  grid-template-areas:
+    "avatar text"
+    "avatar reactions";
+}
+
+[data-chat-theme="teams"] [data-continues] .bubble-name {
+  display: none;
+}
+
+[data-chat-theme="teams"] [data-continues] .bubble-avatar {
+  visibility: hidden;
+}
+
+[data-chat-theme="teams"] .bubble-reactions {
+  position: static;
+  grid-area: reactions;
+  margin-top: 0.25em;
+  min-height: var(--reaction-pill-height);
+}
+
+[data-chat-theme="teams"] [data-self] .bubble-reactions {
+  justify-content: flex-end;
+}
+
+[data-chat-theme="teams"] .reaction-pill {
+  background: #ffffff;
+  border-color: #E1DFDD;
+  border-radius: 10px;
+  padding: 2px 7px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
