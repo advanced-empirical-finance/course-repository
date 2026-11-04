@@ -1,7 +1,7 @@
 [project]
 name = "aef-2026"
 version = "0.1.0"
-description = "Add your description here"
+description = "Python packages for Advanced Empirical Finance"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
