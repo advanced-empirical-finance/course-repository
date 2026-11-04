@@ -7,7 +7,7 @@ This repo initializes the folder structure for the course *Advanced Empirical Fi
 R packages are managed with [uvr](https://github.com/nbafrank/uvr) (`uvr.toml`, `uvr.lock`), Python packages with [uv](https://docs.astral.sh/uv/) (`pyproject.toml`, `uv.lock`). In a terminal, in this folder:
 
 ```sh
-uvr r install 4.6.1   # once: installs R
+uvr r install 4.6.1   # once: installs R 4.6.1, the version the course uses
 uvr sync              # installs every R package of the course into .uvr/
 uv sync               # installs Python and every Python package of the course into .venv/
 ```

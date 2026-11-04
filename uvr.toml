@@ -1,6 +1,6 @@
 [project]
 name = "course-repository"
-r_version = ">=4.5.2"
+r_version = "4.6.1"
 
 [dependencies]
 archive = "*"
