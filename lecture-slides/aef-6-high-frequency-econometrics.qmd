@@ -542,7 +542,7 @@ rv_by_frequency |>
 
 ## Optimal sampling frequency
 
-- Optimal sampling frequency depends on the signal-to-noise ratio $\pi$
+- Optimal sampling frequency depends on $\pi$, the share of the return variance that market microstructure noise causes
 
 ![](./figures/optimal-sampling-frequency.jpg)
 
@@ -631,7 +631,7 @@ $\Gamma_t ^{h}$ is the $h$-lag auto-covariance matrix of refresh-time synchroniz
 
 - Blocked and regularized realized kernel (Hautsch et al., 2012)
 - Idea: gaining efficiency and tractability in high dimensions by blocking
-- Order stocks according to the average of daily mid-quotes
+- Order stocks by liquidity, measured by the average number of daily mid-quote observations
 - 4 equal-sized groups result in $b=10$ covariance blocks
 - Compute realized kernel for each covariance block: $K_t^b$
 

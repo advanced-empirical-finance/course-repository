@@ -147,9 +147,9 @@ E(\hat{\varepsilon}^2)&=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varepsilo
 
 ## Over-fitting example 
 
-- 100 monthly manufacturing industry excess returns
-- Estimate a polynomial regression $$r_{t} = \alpha + \sum\limits_{p=1}^P \beta_pt^p $$ where $t$ is a time index, ranging from $1$ to $60$
-- Evaluate the performance in-sample and out-of-sample for $P = 1, 2, 3, 5, 20$
+- The 40 most recent monthly returns of the manufacturing industry
+- Estimate a polynomial regression $$r_{t} = \alpha + \sum\limits_{p=1}^P \beta_pt^p $$ where $t$ is a (standardized) time index, on the first 20 months
+- Evaluate the performance in-sample (first 20 months) and out-of-sample (last 20 months) for $P = 1, 2, 5, 10, 19$
 
 ```{r}
 #| echo: false
@@ -817,7 +817,7 @@ hidden layers into an outcome prediction
 
 - 4 input units
 - One hidden layer with five neurons
-- Each neuron receives information from each input layer
+- Each neuron receives information from each input unit
 - The output layer finally aggregates the results from each neuron, $x_k^1 = f\left(\theta_k ^0 + \sum\limits_{j=1}^4 z_j\theta_{k,j}^0\right)$, into one output forecast
 $$\theta_0^1 + \sum\limits_{j=1}^5x_j^1\theta_j^1 $$
 
@@ -892,7 +892,7 @@ deep_nnet_model <- mlp(
   epochs = 500,
   dropout = 0.6,
   hidden_units = c(64, 16),
-  activation = "sigmoid"
+  activation = "relu"
 ) |>
   set_mode("regression") |>
   set_engine("brulee", verbose = FALSE)
@@ -906,7 +906,7 @@ deep_nnet_model <- mlp(
 
 deepnnet_model = MLPRegressor(
   hidden_layer_sizes=(64, 16),
-  activation="sigmoid", 
+  activation="relu",
   solver="lbfgs",
   max_iter=500, 
   random_state=42 # seed
@@ -1023,7 +1023,7 @@ $$
      d_2 &= d_1 - \sigma\sqrt{T - t} \\
 \end{aligned}
 $$
-- $V$ is the price of the option as a function of stock price $S$ and time $t$, $r$ is the risk-free interest rate, and $\sigma$ is the volatility of the stock. $N(\cdot)$ is the standard normal cumulative distribution function.
+- $C$ is the price of the option as a function of stock price $S$ and time $t$, $r$ is the risk-free interest rate, and $\sigma$ is the volatility of the stock. $N(\cdot)$ is the standard normal cumulative distribution function.
 
 - Can machine learning methods **learn** the Black-Scholes equation after observing different specifications and corresponding prices?
 

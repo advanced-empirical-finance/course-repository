@@ -516,7 +516,7 @@ where $p_t({r}_{t+1}|\mathcal{M}):=p_t({r}_{t+1}|\mathcal{M}, \mathcal{F}_t)$ de
 $$\begin{aligned}
 \omega_{t+1} ^* & = \arg\max_{\omega \in \mathbb{R}^N,  \iota'\omega = 1} \omega'\mu - \nu_t \left(\omega\right) - \frac{\gamma}{2}\omega'\Sigma\omega.
 \end{aligned}$$
-- We assume **quadratic** transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch et al. 2019 show that we can treat the $L_1$ case similarly):
+- We assume **quadratic** transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch and Voigt (2019) show that we can treat the $L_1$ case similarly):
 $$\begin{aligned}
 \nu\left(\omega_{t+1},\omega_{t^+}, \beta\right) = \frac{\beta}{2} \left(\omega_{t+1} - \omega_{t^+}\right)'\left(\omega_{t+1}- \omega_{t^+}\right),
 \end{aligned}$$
@@ -524,7 +524,7 @@ with cost parameter $\beta>0$
 - The pre-rebalancing weights $\omega_{t^+}$ are *not* the same as yesterday's target weights $\omega_t$: even if the investor does nothing, prices move during the day and drift the portfolio away from $\omega_t$. Concretely:
 $$\omega_{t^+} := \frac{\omega_t \circ (1 + r_{t})}{\iota' (\omega_t \circ (1 + r_{t}))}$$
 
-## Optimization problem^[You can find all proofs in Hautsch et al (2020)]
+## Optimization problem^[You can find all proofs in Hautsch and Voigt (2019)]
 - We leave the proof as an exercise
 $$\begin{aligned}
 \omega_{t+1} ^* :=&  \arg\max_{\omega \in \mathbb{R}^N,  \iota'\omega = 1} \omega'\mu - \nu_t (\omega,\omega_{t^+}, \beta) - \frac{\gamma}{2}\omega'\Sigma\omega \\

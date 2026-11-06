@@ -28,11 +28,10 @@ Data Science buzzwords: big data, machine learning, AI
 - Risk premia and factor selection
 - Machine learning toolbox for financial forecasting
 - Risk management and volatility estimation
-- High-frequency econometrics
 
 At the end of the course, you should
 
-- Understand the current state of research in empirical asset pricing matters
+- Understand the current state of research in empirical asset pricing
 - Recognize the value of reproducible research (and know how to conduct a reproducible analysis)
 - Have your own ready-to-use state-of-the-art toolbox for empirical analysis
 
@@ -105,7 +104,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 2. mandatory assignment starts **April 12th**
 3. mandatory assignment starts **May 3rd**
 
-- We will always upload the assignments (and data, eventually) on Absalon
+- We will always upload the assignments (and data, where needed) on Absalon
 - Deadline: One week to work on your solutions
 - **Minimum requirement to get feedback:** Attempt to solve every task. Document your struggles if you do not finish an exercise. The code needs to run without any error or interruption so that your peers can focus on the content instead of fixing your bugs
 

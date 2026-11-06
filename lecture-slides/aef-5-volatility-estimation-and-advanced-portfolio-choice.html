@@ -1490,7 +1490,7 @@ Figure 1
 <li>We can solve it by maximizing the certainty equivalent <span class="math display">\[\begin{aligned}
 \omega_{t+1} ^* &amp; = \arg\max_{\omega \in \mathbb{R}^N,  \iota&#39;\omega = 1} \omega&#39;\mu - \nu_t \left(\omega\right) - \frac{\gamma}{2}\omega&#39;\Sigma\omega.
 \end{aligned}\]</span></li>
-<li>We assume <strong>quadratic</strong> transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch et al. 2019 show that we can treat the <span class="math inline">\(L_1\)</span> case similarly): <span class="math display">\[\begin{aligned}
+<li>We assume <strong>quadratic</strong> transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch and Voigt (2019) show that we can treat the <span class="math inline">\(L_1\)</span> case similarly): <span class="math display">\[\begin{aligned}
 \nu\left(\omega_{t+1},\omega_{t^+}, \beta\right) = \frac{\beta}{2} \left(\omega_{t+1} - \omega_{t^+}\right)&#39;\left(\omega_{t+1}- \omega_{t^+}\right),
 \end{aligned}\]</span> with cost parameter <span class="math inline">\(\beta&gt;0\)</span></li>
 <li>The pre-rebalancing weights <span class="math inline">\(\omega_{t^+}\)</span> are <em>not</em> the same as yesterday’s target weights <span class="math inline">\(\omega_t\)</span>: even if the investor does nothing, prices move during the day and drift the portfolio away from <span class="math inline">\(\omega_t\)</span>. Concretely: <span class="math display">\[\omega_{t^+} := \frac{\omega_t \circ (1 + r_{t})}{\iota&#39; (\omega_t \circ (1 + r_{t}))}\]</span></li>
@@ -1509,7 +1509,7 @@ Figure 1
 <li>As a result: <span class="math display">\[\begin{aligned}
 \omega^*_{t+1} &amp; = \frac{1}{\gamma}\left(\Sigma^{*-1} - \frac{1}{\iota&#39; \Sigma^{*-1}\iota }\Sigma^{*-1}\iota\iota&#39; \Sigma^{*-1} \right) \mu^*  + \frac{1}{\iota&#39; \Sigma^{*-1} \iota }\Sigma^{*-1} \iota\end{aligned}\]</span></li>
 </ul>
-<aside><ol class="aside-footnotes"><li id="fn2"><p>You can find all proofs in Hautsch et al (2020)</p></li></ol></aside></section>
+<aside><ol class="aside-footnotes"><li id="fn2"><p>You can find all proofs in Hautsch and Voigt (2019)</p></li></ol></aside></section>
 <section id="what-happens-if-betarightarrow-infty" class="slide level2">
 <h2>What happens if <span class="math inline">\(\beta\rightarrow \infty\)</span>?</h2>
 <ul>

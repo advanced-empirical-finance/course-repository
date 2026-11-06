@@ -4345,9 +4345,9 @@ E(\hat{\varepsilon}^2)&amp;=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varep
 <section id="over-fitting-example" class="slide level2">
 <h2>Over-fitting example</h2>
 <ul>
-<li>100 monthly manufacturing industry excess returns</li>
-<li>Estimate a polynomial regression <span class="math display">\[r_{t} = \alpha + \sum\limits_{p=1}^P \beta_pt^p \]</span> where <span class="math inline">\(t\)</span> is a time index, ranging from <span class="math inline">\(1\)</span> to <span class="math inline">\(60\)</span></li>
-<li>Evaluate the performance in-sample and out-of-sample for <span class="math inline">\(P = 1, 2, 3, 5, 20\)</span></li>
+<li>The 40 most recent monthly returns of the manufacturing industry</li>
+<li>Estimate a polynomial regression <span class="math display">\[r_{t} = \alpha + \sum\limits_{p=1}^P \beta_pt^p \]</span> where <span class="math inline">\(t\)</span> is a (standardized) time index, on the first 20 months</li>
+<li>Evaluate the performance in-sample (first 20 months) and out-of-sample (last 20 months) for <span class="math inline">\(P = 1, 2, 5, 10, 19\)</span></li>
 </ul>
 <div class="cell" data-layout-align="center">
 <div class="cell-output-display">
@@ -4946,7 +4946,7 @@ R_1(j,s) = \{\mathbf{x} \mid x_j &lt; s\} \mbox{  and  } R_2(j,s) = \{\mathbf{x}
 <ul>
 <li>4 input units</li>
 <li>One hidden layer with five neurons</li>
-<li>Each neuron receives information from each input layer</li>
+<li>Each neuron receives information from each input unit</li>
 <li>The output layer finally aggregates the results from each neuron, <span class="math inline">\(x_k^1 = f\left(\theta_k ^0 + \sum\limits_{j=1}^4 z_j\theta_{k,j}^0\right)\)</span>, into one output forecast <span class="math display">\[\theta_0^1 + \sum\limits_{j=1}^5x_j^1\theta_j^1 \]</span></li>
 </ul>
 </section>
@@ -5008,7 +5008,7 @@ R_1(j,s) = \{\mathbf{x} \mid x_j &lt; s\} \mbox{  and  } R_2(j,s) = \{\mathbf{x}
 <span id="cb18-5"><a href aria-label="5"></a>  <span class="at">epochs =</span> <span class="dv">500</span>,</span>
 <span id="cb18-6"><a href aria-label="6"></a>  <span class="at">dropout =</span> <span class="fl">0.6</span>,</span>
 <span id="cb18-7"><a href aria-label="7"></a>  <span class="at">hidden_units =</span> <span class="fu">c</span>(<span class="dv">64</span>, <span class="dv">16</span>),</span>
-<span id="cb18-8"><a href aria-label="8"></a>  <span class="at">activation =</span> <span class="st">&quot;sigmoid&quot;</span></span>
+<span id="cb18-8"><a href aria-label="8"></a>  <span class="at">activation =</span> <span class="st">&quot;relu&quot;</span></span>
 <span id="cb18-9"><a href aria-label="9"></a>) <span class="sc">|&gt;</span></span>
 <span id="cb18-10"><a href aria-label="10"></a>  <span class="fu">set_mode</span>(<span class="st">&quot;regression&quot;</span>) <span class="sc">|&gt;</span></span>
 <span id="cb18-11"><a href aria-label="11"></a>  <span class="fu">set_engine</span>(<span class="st">&quot;brulee&quot;</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -5019,7 +5019,7 @@ R_1(j,s) = \{\mathbf{x} \mid x_j &lt; s\} \mbox{  and  } R_2(j,s) = \{\mathbf{x}
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode numberSource python number-lines code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href aria-label="1"></a>deepnnet_model <span class="op">=</span> MLPRegressor(</span>
 <span id="cb19-2"><a href aria-label="2"></a>  hidden_layer_sizes<span class="op">=</span>(<span class="dv">64</span>, <span class="dv">16</span>),</span>
-<span id="cb19-3"><a href aria-label="3"></a>  activation<span class="op">=</span><span class="st">&quot;sigmoid&quot;</span>, </span>
+<span id="cb19-3"><a href aria-label="3"></a>  activation<span class="op">=</span><span class="st">&quot;relu&quot;</span>,</span>
 <span id="cb19-4"><a href aria-label="4"></a>  solver<span class="op">=</span><span class="st">&quot;lbfgs&quot;</span>,</span>
 <span id="cb19-5"><a href aria-label="5"></a>  max_iter<span class="op">=</span><span class="dv">500</span>, </span>
 <span id="cb19-6"><a href aria-label="6"></a>  random_state<span class="op">=</span><span class="dv">42</span> <span class="co"># seed</span></span>
@@ -5249,7 +5249,7 @@ C(S_t, t) &amp;= N(d_1)S_t - N(d_2)Ke^{-r(T - t)} \\
    d_2 &amp;= d_1 - \sigma\sqrt{T - t} \\
 \end{aligned}
 \]</span></p></li>
-<li><p><span class="math inline">\(V\)</span> is the price of the option as a function of stock price <span class="math inline">\(S\)</span> and time <span class="math inline">\(t\)</span>, <span class="math inline">\(r\)</span> is the risk-free interest rate, and <span class="math inline">\(\sigma\)</span> is the volatility of the stock. <span class="math inline">\(N(\cdot)\)</span> is the standard normal cumulative distribution function.</p></li>
+<li><p><span class="math inline">\(C\)</span> is the price of the option as a function of stock price <span class="math inline">\(S\)</span> and time <span class="math inline">\(t\)</span>, <span class="math inline">\(r\)</span> is the risk-free interest rate, and <span class="math inline">\(\sigma\)</span> is the volatility of the stock. <span class="math inline">\(N(\cdot)\)</span> is the standard normal cumulative distribution function.</p></li>
 <li><p>Can machine learning methods <strong>learn</strong> the Black-Scholes equation after observing different specifications and corresponding prices?</p></li>
 </ul>
 <p>Start with simulated data</p>

@@ -31,7 +31,7 @@ alternative to the Capital Asset Pricing Model
 |---|---|---|
 | Betting against beta | $\alpha$ declining in $\beta$ across many asset classes | Frazzini & Pedersen (2014) |
 | Size | Small stocks outperform large stocks | Banz (1981); FF (1992) |
-| Value | High book-to-price stocks outperform growth stocks | Basu (1983); FF (1992) |
+| Value | High book-to-price stocks outperform growth stocks | Rosenberg, Reid & Lanstein (1985); FF (1992) |
 | Momentum | Intermediate-term winners outperform losers | Jegadeesh & Titman (1993); Carhart (1997) |
 | Time-series momentum | Assets trending up (down) continue to do so | Moskowitz, Ooi & Pedersen (2012) |
 | Liquidity | Illiquid stocks earn a return premium | Pastor & Stambaugh (2003) |
@@ -113,7 +113,7 @@ where $\hat\Omega$ is the sample variance-covariance matrix of the returns
 - Theoretical approach: identify variables that capture systematic economy-wide risks
   - *Macro variables*: interest rates, default spreads, inflation — proxies for systematic risk sources
   - *Firm characteristics*: size, book-to-market, momentum — proxies for differential risk exposure; sort stocks into portfolios accordingly
-- For more information, consider Chapter 5 of "Econometrics of Financial Markets"
+- For more information, consider Chapter 6 of "The Econometrics of Financial Markets" (Campbell, Lo & MacKinlay, 1997)
 
 ## Bayesian mindset: don't compromise on a single model
 

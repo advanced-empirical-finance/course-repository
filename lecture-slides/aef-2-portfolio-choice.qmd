@@ -1224,7 +1224,7 @@ $$
 \min(-\mu' \omega + 1/2 \omega' \Sigma \omega) \text{ s.t. } A' \omega >= b_0
 $$
 
-- $A$ for $\omega_\text{no short}$ is $(N +1 \times N)$ and of the form (`meq` = 1)
+- $A$ for $\omega_\text{no short}$ is $(N \times (N+1))$ and of the form (`meq` = 1)
 
 $$
 \begin{aligned}A = \begin{pmatrix}1 & 1& \ldots&1 \\1 & 0 &\ldots&0\\0 & 1 &\ldots&0\\\vdots&&\ddots&\vdots\\0&0&\ldots&1\end{pmatrix}'\qquad b_0 = \begin{pmatrix}1\\0\\0\\\vdots\\0\end{pmatrix}\end{aligned}
