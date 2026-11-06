@@ -1,10 +1,14 @@
+---
+subtitle: Introduction
+---
+
 # Welcome!
 
 ## Kicking off Advanced Empirical Finance (AEF)
 
 - What is this course about?
 - How do we organize this course?
-- Set-up R, Python, and Positron
+- Set up R, Python, Quarto, and Positron
 - Tidy coding principles
 
 ## What is empirical finance? Data science?
@@ -45,8 +49,8 @@ Guided coding assignments
 
 The lecture builds on very recent academic papers
 
-- We discuss and criticize multifactor asset pricing, portfolio choice, and high-frequency econometrics
-- The reading list is available on the [course homepage](https://advanced-empirical-finance.github.io/AEF-2026-course-homepage/slides-index.html)
+- We discuss and criticize multifactor asset pricing, portfolio choice, and machine learning in asset pricing
+- The reading list is available on the [course homepage](https://aef-course.ku.dk/slides-index.html)
 - Be prepared to discuss the literature during the lecture
 
 ## This course within the KU curriculum
@@ -95,7 +99,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 - 7-day long coding assignments in which we transfer the theory into practice
 - You can write the assignments individually or in **groups of a maximum of three students** (you can sign up on the Absalon discussion board if you search for group members)
 - You should hand in one (!) .qmd (Quarto) script with commented source code and one (!) .pdf report in which you describe your methods and results (e.g., with figures, tables, equations, etc.)
-- **Handed-in report: max. 7 pages for .pdf file in total** (font size 12pt, use [these (click here)](https://github.com/advanced-empirical-finance/course_environment_AEF/tree/main/mandatory_assignments) templates)
+- **Handed-in report: max. 7 pages for .pdf file in total** (font size 12pt, use [these (click here)](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments) templates)
 - Answer all parts in English
 
 ## Mark the dates: Mandatory Assignments
@@ -134,7 +138,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 2. Coding experience (General, R, Python, tidyverse)?
 3. General interest in finance? Data science? Skills for your future career?
 
-# Introducing R, Python, and Quarto
+# Set up R, Python, Quarto, and Positron
 
 ## Language-agnostic coding
 
@@ -164,22 +168,6 @@ Stick to R, Python (or Julia) because:
 - Typically **less critical** in academia: **execution speed** in interactive sessions
 
 
-## Python & R
-
-| Python                                 | R                                      |
-|----------------------------------------|----------------------------------------|
-| General language                       | Specialized language                   |
-| Computer scientists developed it       | Statisticians developed it             |
-| Object-oriented programming            | Functional programming                 |
-| Obsessed with efficiency               | Lazy about efficiency                  |
-| Obsessed with namespacing              | Lazy about namespacing                 |
-| Small, medium, and large data          | Small and medium data                  |
-| Machine learning and deep learning     | Data wrangling and visualization       |
-| Spacing is part of the syntax          | Spacing is for convenience             |
-| Indices start with 0                   | Indices start with 1                   |
-
-See details [here](https://occasionaldivergences.com/posts/python-intro/) 
-
 ## What is Quarto?
 
 - R and Python are languages and environments for statistical computing
@@ -195,15 +183,6 @@ See details [here](https://occasionaldivergences.com/posts/python-intro/)
 - Advanced embedding of version control (Github) and AI tools
 - You can use either Python or R and process your code with Quarto (there will be an asynchronous lecture on how to use Quarto)
 - We will all work in the same environment to ensure your peers can reproduce your results
-
-## Getting started with Positron
-
-- In case you did not set your environment up yet, follow [Exercise 0](https://advanced-empirical-finance.github.io/AEF-2026-course-homepage/exercises/technical-prerequisites.html)
-
-- If you have never used R, Chapters 1-3 of this book are an excellent starting point: [**Basic introduction to R**](https://rstudio-education.github.io/hopr/basics.html)
-- Sign up for a [free account at DataCamp](https://www.datacamp.com/groups/shared_links/a41b35fa93b016f13feb030feaa8513f946215a05f5bc2e285fd1da193d2d115) (only with econ.ku.dk or alumni.ku.dk address)
-
-![](figures/r-learning-curve.png){width=60% fig-align="center"}
 
 ## Data science workflow: tidyverse and polars
 
@@ -366,18 +345,6 @@ prices.group_by("symbol").len().sort("symbol")
 - Tidy data is a standard way of mapping the meaning of a dataset to its structure
 - Each variable forms a column. Each observation forms a row. Each cell is a single measurement
 
-## Tidy coding principles in a nutshell
-
-- Great code is very subjective but the aim should be to make it human-readable
-- In this course I want you to think and reflect about *what* makes code useful?
-
-**Core principles to make code readable**
-
-1. chaining ( `|>` or `.`)
-1. intuitive naming conventions (`trading_volume_usd` instead of `tmp_Var_2`)
-1. Tidy data principles with a clear data structure
-1. Embed code directly into the analysis with `Quarto`
-
 ## Language-agnostic tidy coding principles
 
 ::::{.columns}
@@ -406,6 +373,18 @@ returns.head(10)
 ```
 :::
 ::::
+
+## Tidy coding principles in a nutshell
+
+- Great code is very subjective but the aim should be to make it human-readable
+- In this course I want you to think and reflect about *what* makes code useful?
+
+**Core principles to make code readable**
+
+1. chaining ( `|>` or `.`)
+1. intuitive naming conventions (`trading_volume_usd` instead of `tmp_Var_2`)
+1. Tidy data principles with a clear data structure
+1. Embed code directly into the analysis with `Quarto`
 
 ## The grammar of graphics
 
