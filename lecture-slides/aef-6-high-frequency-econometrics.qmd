@@ -322,7 +322,7 @@ $$IV(t-k, k) = \int\limits_{t-k}^t \sigma_s^2 ds $$
 
 ```{r}
 #| label: fig-sp500-realized-variance
-read_csv("../data-r/rv-data.csv", show_col_types = FALSE) |>
+read_csv("../data/rv-data.csv", show_col_types = FALSE) |>
   ggplot(aes(x = Date, y = `Realized Variance (1-min)`)) +
   geom_line() +
   theme_bw()
@@ -569,7 +569,7 @@ where $\bar n_K$ is the average number of returns per sparse grid.
 #| echo: false
 #| label: fig-tsrv-example
 rv_data <- read_csv(
-  "../data-r/realized_variance_stocks.csv",
+  "../data/realized_variance_stocks.csv",
   show_col_types = FALSE
 )
 

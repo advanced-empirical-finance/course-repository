@@ -157,7 +157,7 @@ E(\hat{\varepsilon}^2)&=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varepsilo
 library(nanoparquet)
 library(tidyverse)
 
-data <- read_parquet("../data-r/industries_ff_monthly.parquet") |> 
+data <- read_parquet("../data/industries_ff_monthly.parquet") |> 
     select(date, returns = manuf) |> 
     tail(40) |>
     mutate(time = as.integer(date),
@@ -283,7 +283,7 @@ $$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1} \un
 ```{r}
 #| echo: false
 
-factors_ff3_monthly <- read_parquet("../data-r/factors_ff3_monthly.parquet") |>
+factors_ff3_monthly <- read_parquet("../data/factors_ff3_monthly.parquet") |>
   rename_with(~ str_c("factor_ff_", .), -date)
 
 factors_q_monthly <- tidyfinance::download_data(
@@ -292,11 +292,11 @@ factors_q_monthly <- tidyfinance::download_data(
 ) |>
   rename_with(~ str_c("factor_q_", .), -date)
 
-macro_predictors <- read_parquet("../data-r/macro_predictors.parquet") |>
+macro_predictors <- read_parquet("../data/macro_predictors.parquet") |>
   rename_with(~ str_c("macro_", .), -date) |>
   select(-macro_rp_div)
 
-industries_ff_monthly <- read_parquet("../data-r/industries_ff_monthly.parquet") |> 
+industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |> 
   pivot_longer(-date,
     names_to = "industry", values_to = "ret"
   ) |>
@@ -308,7 +308,7 @@ data <- industries_ff_monthly |>
   left_join(factors_q_monthly, join_by(date)) |>
   left_join(macro_predictors, join_by(date)) |>
   mutate(
-    ret = ret - factor_ff_rf
+    ret = ret - factor_ff_risk_free
   ) |>
   select(date, industry, ret_excess = ret, everything()) |>
   drop_na()

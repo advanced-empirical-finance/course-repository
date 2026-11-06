@@ -10,7 +10,7 @@ date-format: "MMMM YYYY"
 format:
   revealjs:
     theme: ku_clean.scss
-    css: custom.css
+    css: aef-reproducibility.css
     pdf-separate-fragments: false
     slide-number: true
     lightbox: true
@@ -148,12 +148,12 @@ Hypothesis 1: market efficiency improves over time. Please send me your t-statis
 library(tidyfinance)
 
 dj30 <- download_data(
-  domain = "constituents",
+  domain = "Index Constituents",
   index = "Dow Jones Industrial Average"
 )
 
 volume <- download_data(
-  domain = "stock_prices",
+  domain = "Stock Prices",
   symbols = dj30$symbol,
   start_date = "1995-01-01",
   end_date = "2025-12-31"
@@ -164,13 +164,13 @@ volume <- download_data(
 import tidyfinance as tf
 
 dj30 = tf.download_data(
-    domain="constituents",
+    domain="Index Constituents",
     index="Dow Jones Industrial Average",
 )
 
 volume = tf.download_data(
-    domain="stock_prices",
-    symbols=dj30["symbol"].tolist(),
+    domain="Stock Prices",
+    symbols=dj30["symbol"].to_list(),
     start_date="1995-01-01",
     end_date="2025-12-31",
 )

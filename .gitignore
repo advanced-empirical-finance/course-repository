@@ -3,16 +3,12 @@
 /submissions/
 /.quarto/
 **/*.quarto_ipynb
-data-r/beta.parquet
-data-r/compustat.parquet
-data-r/crsp_monthly.parquet
-data-r/fisd.parquet
 mandatory-assignments/MA_1_portfolio_choice_2026.qmd
 .claude/settings.local.json
-data-r/stock_characteristics_monthly.parquet
-data-r/stock_characteristics_monthly.parquet
 .Renviron
-data-r/realized_covariance_stocks.csv
-data-r/realized_variance_stocks.csv
 /.uvr/library/
 /.uvr/activate*
+
+# data/ is filled locally: public data via tidyfinance, proprietary files from Absalon
+data/*
+!data/.gitkeep
