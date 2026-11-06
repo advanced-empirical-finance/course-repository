@@ -33,7 +33,7 @@ Quarto enables you to weave together content and executable code into a finished
 1. Download daily adjusted prices for all constituents of three stocks: AAPL, MSFT, and BA for the period from January 1st, 2000 until December 31st, 2025 from Yahoo!Finance. Explicitly include the code you use to download the data into your report. Compute the daily returns for each of the tickers.
 
 ```{python}
-import pandas as pd
+import polars as pl
 import numpy as np
 import tidyfinance as tf
 from plotnine import *
@@ -46,16 +46,17 @@ from mizani.formatters import percent_format
 
 ticker = ["AAPL", "MSFT", "BA"]
 prices = tf.download_data(
-  domain="stock_prices", 
+  domain="Stock Prices", 
   symbols=ticker,
   start_date="2000-01-01", 
   end_date="2025-12-31"
 )
 
 returns = (prices
-  .assign(ret=lambda x: x.groupby("symbol")["adjusted_close"].pct_change())
-  .get(["symbol", "date", "ret"])
-  .dropna(subset="ret")
+  .sort("symbol", "date")
+  .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
+  .select("symbol", "date", "ret")
+  .drop_nulls("ret")
 )
 ```
 
@@ -85,18 +86,18 @@ Which of the individual assets delivered the highest Sharpe ratio (assume the ri
 The estimated moments may later be used for the construction of optimal portfolios (@Markowitz1952; @Merton1972)
 
 ```{python}
-returns_matrix = (prices
-  .pivot(columns="symbol", 
-         values="adjusted_close", 
+returns_matrix = (returns
+  .pivot(on="symbol", 
+         values="ret", 
          index="date")
-  .pct_change()
-  .dropna()
+  .drop("date")
+  .drop_nulls()
 )
 
-mu = np.array(returns_matrix.mean()).T
-sigma = np.array(returns_matrix.cov())
+mu = np.mean(returns_matrix.to_numpy(), axis=0)
+sigma = np.cov(returns_matrix.to_numpy(), rowvar=False)
 
-sharpe_ratio = pd.DataFrame({"ticker": ticker,
+sharpe_ratio = pl.DataFrame({"ticker": returns_matrix.columns,
   "Sharpe": np.sqrt(250) * mu / np.sqrt(np.diag(sigma))})
 ```
 
@@ -105,7 +106,7 @@ $$
 \sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i},
 $$
 
-where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{python} sharpe_ratio.loc[sharpe_ratio['Sharpe'] == sharpe_ratio['Sharpe'].max(), 'ticker'].iloc[0]` with an annualized Sharpe-ratio of `{python} round(sharpe_ratio['Sharpe'].max(), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
+where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{python} sharpe_ratio.filter(pl.col("Sharpe") == pl.col("Sharpe").max())["ticker"].item()` with an annualized Sharpe-ratio of `{python} round(sharpe_ratio["Sharpe"].max(), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
 
 ```{python}
 #| tbl-cap: Historical annualized Sharpe-ratios
