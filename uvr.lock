@@ -1,4 +1,4 @@
-manifest_fingerprint = "sha256:d9ef149c31f78029eb33422284227eb1cb116d61b0b92a0455cecf8af0b84f6c"
+manifest_fingerprint = "sha256:78bfbbf69221516a388404ff86ac575f8e00cdf93940851d6ce6b72a3d4bc2f6"
 
 [r]
 version = "4.6.1"
@@ -283,8 +283,8 @@ requires = [
 name = "aefsim"
 version = "0.3.1"
 source = "github"
-url = "https://api.github.com/repos/advanced-empirical-finance/aefsim/tarball/c93d920dc2e480a2340abfb26c9ff27b858e4242"
-checksum = "git:c93d920dc2e480a2340abfb26c9ff27b858e4242"
+url = "https://api.github.com/repos/advanced-empirical-finance/aefsim/tarball/7c6ce44851e3255ebec649bf63f44402700c2a25"
+checksum = "git:7c6ce44851e3255ebec649bf63f44402700c2a25"
 subdirectory = "r"
 requires = [
     "httr2",
@@ -2143,6 +2143,20 @@ requires = [
     "textshaping",
     "systemfonts",
     "textshaping",
+]
+
+[[package]]
+name = "ranger"
+version = "0.18.0"
+source = "cran"
+raw_version = "0.18.0"
+url = "https://cran.r-project.org/src/contrib/ranger_0.18.0.tar.gz"
+checksum = "md5:80c4eb70911401c9dc1528dc66cab4b3"
+requires = [
+    "Rcpp",
+    "Matrix",
+    "Rcpp",
+    "RcppEigen",
 ]
 
 [[package]]
