@@ -4,7 +4,7 @@ This repo initializes the folder structure for the course *Advanced Empirical Fi
 
 ## Setting up the R and Python packages
 
-R packages are managed with [uvr](https://github.com/nbafrank/uvr) (`uvr.toml`, `uvr.lock`), Python packages with [uv](https://docs.astral.sh/uv/) (`pyproject.toml`, `uv.lock`). In a terminal, in this folder:
+R packages are managed with [uvr](https://github.com/nbafrank/uvr) (`uvr.toml`, `uvr.lock`), Python packages with [uv](https://docs.astral.sh/uv/) (`pyproject.toml`, `uv.lock`). Both include `aefsim`, the client for the trading game. You need uvr 0.4.8 or later (`uvr upgrade` updates it). In a terminal, in this folder:
 
 ```sh
 uvr r install 4.6.1   # once: installs R 4.6.1, the version the course uses

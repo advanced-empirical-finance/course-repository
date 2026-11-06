@@ -1,4 +1,4 @@
-manifest_fingerprint = "sha256:2a1f48972376b0a5e12c5bb683fb62fb73c9e3b328ecf0e1d1f14e9ab0ec6331"
+manifest_fingerprint = "sha256:1c8385645845d6b2d0413df5437a9c4e6dcb04ba0b58408106a6b5091793fccf"
 
 [r]
 version = "4.6.1"
@@ -277,6 +277,18 @@ requires = [
     "jsonlite",
     "curl",
     "Rcpp",
+]
+
+[[package]]
+name = "aefsim"
+version = "0.3.1"
+source = "github"
+url = "https://api.github.com/repos/advanced-empirical-finance/aefsim/tarball/c93d920dc2e480a2340abfb26c9ff27b858e4242"
+checksum = "git:c93d920dc2e480a2340abfb26c9ff27b858e4242"
+subdirectory = "r"
+requires = [
+    "httr2",
+    "tibble",
 ]
 
 [[package]]
@@ -1013,11 +1025,11 @@ requires = [
 
 [[package]]
 name = "gdtools"
-version = "0.5.2"
+version = "0.5.3"
 source = "cran"
-raw_version = "0.5.2"
-url = "https://cran.r-project.org/src/contrib/gdtools_0.5.2.tar.gz"
-checksum = "md5:e907a613c135c7ab52adfbe1173972d5"
+raw_version = "0.5.3"
+url = "https://cran.r-project.org/src/contrib/gdtools_0.5.3.tar.gz"
+checksum = "md5:a013d03fb7f73640b0ef5aebd3b26e2e"
 requires = [
     "fontquiver",
     "htmltools",
