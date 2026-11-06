@@ -1,5 +1,7 @@
 ---
 subtitle: Introduction
+filters:
+  - timeline
 ---
 
 # Welcome!
@@ -11,19 +13,100 @@ subtitle: Introduction
 - Set up R, Python, Quarto, and Positron
 - Tidy coding principles
 
-## What is empirical finance? Data science?
+## What AEF is about
+
+**This course is about doing empirical finance: working with real data, from start to finish.**
+
+:::: {.columns}
+::: {.column width="33%"}
+**Theory**
+
+What should hold
+:::
+::: {.column width="33%"}
+**Econometrics**
+
+How to test it
+:::
+::: {.column width="33%"}
+**Data & code**
+
+What we actually find
+:::
+::::
+
+- AEF lives where the three meet: most results depend on choices made between the raw data and the final table
+- Empirical finance is finance measured against reality, and financial markets provide vast data to inform financial decisions
 
 **(How) can state-of-the-art methods improve financial decision making?**
 
-Empirical finance is finance measured against reality
+## Why I teach this course
 
-- Financial markets provide vast data to inform financial decisions
-- Can we predict investment risks? What determines asset prices?
+:::: {.columns}
+::: {.column width="33%"}
+**Decisions with large data**
 
-Data Science buzzwords: big data, machine learning, AI
+Portfolio choice for thousands of assets under transaction costs and estimation error (Hautsch & Voigt, 2019)
 
-- The less intriguing reality: How to extract knowledge from typically very large or unstructured data?
-- We incorporate skills from computer science, statistics, and information visualization and project them on economics theory
+Lectures 2 and 5 build on it
+:::
+::: {.column width="33%"}
+**Reproducibility**
+
+How the choices researchers make change their results: non-standard errors (Gruber, Kastner, Voigt & Weiss, 2026; Voigt & Scheuch, 2026)
+
+The reproducibility lecture builds on it
+:::
+::: {.column width="33%"}
+**Tidy Finance**
+
+The open-source book with R and Python side by side that this course builds on: [tidy-finance.org](https://www.tidy-finance.org)
+:::
+::::
+
+## Finance meets data science: how we learn
+
+You can do tech without statistics but you cannot do it without coding
+
+- The same tools all semester: tidy data, Quarto documents, R or Python
+- Room to experiment, in class and at home:
+  - weekly exercises, discussed in the exercise classes
+  - the trading game: your team manages a portfolio of US stocks, all semester long
+  - three mandatory assignments, each followed by peer feedback
+- Mistakes are part of the process: ask early, on Absalon or in office hours
+
+## Your roadmap
+
+<!-- Placeholder dates from spring 2026: update them for 2027 (also on "Mark the dates" and "Final Exam") -->
+
+::: timeline
+::: {.event data-label="8 Feb"}
+**Kick-off**
+
+Setup, data folder, trading game opens
+:::
+::: {.event data-label="1 Mar"}
+**Assignment 1**
+
+Trading costs start in the trading game
+:::
+::: {.event data-label="12 Apr"}
+**Assignment 2**
+:::
+::: {.event data-label="3 May"}
+**Assignment 3**
+:::
+::: {.event data-label="14 May"}
+**Trading game closes**
+:::
+::: {.event data-label="24–26 Jun"}
+**Exam**
+
+48 hours, written
+:::
+:::
+
+Every week: lectures, exercises, office hours. After each assignment: peer feedback.
 
 ## Topics of this course
 
@@ -82,9 +165,6 @@ Related courses to consider
 - I record all lectures (no guarantee that things always work, and the ultimate priority is the crowd on campus)
 
 ## This is how the course works
-
-
-You can do tech without statistics but you cannot do it without coding
 
 - Lectures on Monday (even weeks) and every Thursday ([see timetable](https://kurser.ku.dk/course/a%C3%98kk08407u/)): state-of-the-art methods and theory
 - Lecture plan contains weekly coding assignments
