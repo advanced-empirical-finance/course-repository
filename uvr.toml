@@ -41,3 +41,4 @@ tseries = "*"
 tsgarch = "*"
 usethis = "*"
 xts = "*"
+aefsim = { git = "advanced-empirical-finance/aefsim", subdirectory = "r" }
