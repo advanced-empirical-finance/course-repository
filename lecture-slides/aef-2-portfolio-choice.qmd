@@ -609,6 +609,12 @@ factors_ff_monthly |>
     footnote = "All values are annualized.")
 ```
 
+```{python}
+#| echo: false
+#| eval: false
+factors_ff_monthly = pl.read_parquet("../data-python/factors_ff3_monthly.parquet")
+```
+
 ## CAPM regression specification
 
 $$
@@ -809,6 +815,15 @@ beta |> group_by(industry, permno) |> summarise(beta = mean(beta), na.rm = TRUE,
   )
 ```
 
+```{python}
+#| echo: false
+#| eval: false
+beta = (pl.read_parquet("../data-python/beta.parquet")
+  .join(crsp_monthly, how="inner", on=["date", "permno"])
+  .filter(pl.col("return_type") == "monthly")
+)
+```
+
 ## Portfolio sorts with rolling windows for CRSP
 
 - **Discuss:** What does the CAPM imply?
@@ -855,8 +870,9 @@ beta_portfolios = (beta
 
 long_short = (beta_portfolios
   .pivot(on="portfolio", index="date", values="ret")
-  .sort("date")
   .with_columns(long_short=pl.col("high") - pl.col("low"))
+  .join(factors_ff_monthly, how="left", on="date")
+  .sort("date")
 )
 
 ```
