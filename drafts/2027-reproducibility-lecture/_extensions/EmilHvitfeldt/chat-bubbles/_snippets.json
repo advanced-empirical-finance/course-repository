@@ -1,0 +1,57 @@
+{
+  "Chat Conversation": {
+    "prefix": "chat",
+    "body": [
+      "::: {.chat names=\"${1:Alice,Bob}\"}",
+      "::: {.speaker-1}",
+      "${2:Message}",
+      ":::",
+      "",
+      "::: {.fragment .speaker-2}",
+      "${3:Reply}",
+      ":::",
+      ":::"
+    ],
+    "description": "Insert a basic two-speaker chat conversation."
+  },
+  "Chat Conversation (themed)": {
+    "prefix": "chat-theme",
+    "body": [
+      "::: {.chat theme=\"${1|imessage,slack,discord,teams|}\" names=\"${2:Alice,Bob}\"}",
+      "::: {.speaker-1}",
+      "${3:Message}",
+      ":::",
+      "",
+      "::: {.fragment .speaker-2}",
+      "${4:Reply}",
+      ":::",
+      ":::"
+    ],
+    "description": "Insert a chat conversation using a specific platform theme."
+  },
+  "Chat Message": {
+    "prefix": "chat-message",
+    "body": [
+      "::: {.fragment .speaker-${1|1,2,3,4|}}",
+      "${2:Message}",
+      ":::"
+    ],
+    "description": "Insert a chat message fragment for a given speaker slot."
+  },
+  "Chat Typing Message": {
+    "prefix": "chat-typing",
+    "body": [
+      "::: {.fragment .speaker-${1|1,2,3,4|} .typing}",
+      "${2:Message}",
+      ":::"
+    ],
+    "description": "Insert a chat message with typing indicator animation."
+  },
+  "Chat Reaction": {
+    "prefix": "chat-reaction",
+    "body": [
+      "[${1:👍}]{.fragment .reaction}"
+    ],
+    "description": "Insert an emoji reaction attached to the preceding message."
+  }
+}
