@@ -28,7 +28,7 @@ subtitle: Machine learning
 
 Challenges (Israel, Kelly, Moskowitz, 2019)
 
-- Limited data (left-hand side limited by $T$)
+- Limited data ($T$ limits the left-hand side)
 - Markets evolve and thus even lower effective sample size
 - By market efficiency: small signal-to-noise ratio (limited predictability)
 - Data potentially unstructured (company announcements)
@@ -72,7 +72,7 @@ of measuring asset risk premiums
 - Large set of macroeconomic predictors 
 - Hundreds of predictive firm and economic characteristics
 - You should study Gu et al. (2020) in depth!
-- **Exercises:** Prepare the dataset as explained in Section 2.1 of Gu et al. (2020)
+- **Exercises:** Prepare the dataset as Gu et al. (2020) explain in Section 2.1
 
 ## ML in Finance: Where are we now?
 
@@ -102,12 +102,12 @@ $$E_t\left(r_{i, t+1}\right) = g^\star(x_{i, t}) \overset{??}{=} \beta'x_{i,t} $
 Biased estimators? 
 
 - *Shrinkage* methods: the variance of the OLS estimator can be high as OLS coefficients are unregulated
-- If judged by Mean Squared Error (MSPE), biased estimators could be more attractive if they produce substantially smaller variance than OLS
+- If we judge by Mean Squared Prediction Error (MSPE), biased estimators could be more attractive if they produce substantially smaller variance than OLS
 
 ## Shortcomings of OLS
 
 - Let $\beta$ denote the true regression coefficient and let $\hat\beta = \left(D\right)^{-1}X'y$, where $D:= X'X$, $X$ is a $(T \times N)$ matrix of explanatory variables
-- Then, the variance of the (unbiased) OLS estimate $\hat\beta$ is given by 
+- Then, the variance of the (unbiased) OLS estimate $\hat\beta$ equals
 $$
 \begin{aligned}
 Var\left(\hat\beta\right) &= E\left(\left(\hat\beta-\beta\right)\left(\hat\beta - \beta\right)'\right)\\
@@ -210,7 +210,7 @@ ggplot(data |> mutate(time = as.Date(time)),
 
 
 ## Ridge Regression
-- Introduced by Hoerl and Kennard (1970a, 1970b)
+- Hoerl and Kennard (1970a, 1970b) introduced Ridge regression
 - Impose a penalty on the $L_2$ norm of the parameters $\hat\beta$ such that for $c\geq 0$ the estimator is 
 $$\hat\beta^\text{ridge} = \arg\min_\beta \left(y - X\beta\right)'\left(y - X\beta\right)\text{ s.t. } \beta'\beta \leq c$$
 - Standard optimization procedure yields
@@ -218,7 +218,7 @@ $$\hat\beta^\text{ridge} = \left(D + \lambda I\right)^{-1}X'y$$
 - Hyper parameter $\lambda$ $(c)$ controls the amount of regularization
 - Note that $\hat\beta^\text{ridge} = \hat\beta^\text{ols}$ for $\lambda = 0$ $(c\rightarrow \infty)$ and $\hat\beta^\text{ridge} \rightarrow 0$ for $\lambda\rightarrow \infty$ $(c\rightarrow 0)$
 - $\left(D + \lambda I\right)$ is non-singular even if $D$ is
-- *Note:* Usually, the intercept is not penalized (in practice: demean $y$)
+- *Note:* Usually, we do not penalize the intercept (in practice: demean $y$)
 
 ## Ridge Regression: Bias-Variance Properties
 $$
@@ -269,8 +269,8 @@ ggplot(values, aes(x = lambda,
 
 ## A case study: Predicting industry returns
 
-- Data for case study: macroeconomic predictors from the paper "A Comprehensive Look at The Empirical Performance of Equity Premium Prediction" (Goyal, 2008)
-- Monthly variables that have been suggested as good predictors for the equity premium: Dividend Price Ratio, Earnings Price Ratio, Stock Variance, Net Equity Expansion, Treasury Bill rate, and inflation
+- Data for case study: macroeconomic predictors from the paper "A Comprehensive Look at The Empirical Performance of Equity Premium Prediction" (Welch and Goyal, 2008)
+- Monthly variables that the literature has proposed as good predictors for the equity premium: Dividend Price Ratio, Earnings Price Ratio, Stock Variance, Net Equity Expansion, Treasury Bill rate, and inflation
 - Monthly Fama-French 3-factor returns (market, small-minus-big, and high-minus-low book-to-market valuation sorts)
 - Monthly q-factor returns from Hou, Xue, and Zhang (2015)
 - Monthly portfolio returns from 10 different industries according to the definition from Kenneth French's homepage
@@ -383,13 +383,13 @@ broom::tidy(fit_lasso) |>
 
 ![](figures/lasso.jpg){width=50% fig-align="center"}
 
-- Ridge can be interpreted as a Bayesian posterior mean with a **Normal** prior on $\beta$
-- Lasso can be interpreted as a Bayesian posterior mean with a **Laplace** prior on $\beta$
+- We can interpret Ridge as a Bayesian posterior mean with a **Normal** prior on $\beta$
+- We can interpret Lasso as a Bayesian posterior mode with a **Laplace** prior on $\beta$
 $$
 \beta^\text{Ridge} \propto \exp\left(-\frac{\lambda\beta^2}{\sigma}\right) \qquad \beta^\text{Lasso} \propto \frac{\lambda}{2\sigma}\exp\left(-\frac{\lambda|\beta|}{\sigma}\right)
 $$
 
-- Next step: Elastic net (Zhou & Hastie, 2005) combines $L_1$ and $L_2$ penalization
+- Next step: Elastic net (Zou & Hastie, 2005) combines $L_1$ and $L_2$ penalization
 - Encourages a grouping effect, where strongly correlated predictors tend to
 be in or out of the model together.
 $$\hat\beta^\text{EN} = \arg\min_\beta \left(Y - X\beta\right)'\left(Y - X\beta\right) + \lambda(1-\rho)\sum\limits_{k=1}^K|\beta_k| +\frac{1}{2}\lambda\rho\sum\limits_{k=1}^K\beta_k^2$$
@@ -413,12 +413,12 @@ $$
 
 ## Cross-validation
 - Cross-validation is a technique that permits us to alleviate both these problems
-- Think of the true MSPE as the average of many apparent errors obtained by applying the algorithm to $B$ new random samples of the data, none of them used to train the algorithm
+- Think of the true MSPE as the average of many apparent errors that we obtain by applying the algorithm to $B$ new random samples of the data, none of which we use to train the algorithm
 $$
 \frac{1}{B} \sum_{b=1}^B \frac{1}{N}\sum_{i=1}^N \left(\hat{y}_i^b - y_i^b\right)^2 
 $$
 
-- Idea: randomly generate smaller datasets that are not used for training and instead used to estimate the true error
+- Idea: randomly generate smaller datasets that we do not use for training and instead use to estimate the true error
 - Recall: The goal is to choose hyperparameters $\lambda$ to obtain the smallest MSPE
 
 ## Sample split
@@ -432,7 +432,7 @@ $$
 ## Validation sample
 
 - To choose from the set of hyperparameters, we further divide our training sample without using our test sample!
-- For each set of algorithm parameters being considered, we want an estimate of the MSPE, and then we will choose the parameters with the smallest MSPE
+- For each set of algorithm parameters we consider, we want an estimate of the MSPE, and then we will choose the parameters with the smallest MSPE
 
 1. Prespecify a grid of hyperparameters
 2. Obtain predictors $\hat{y}_i(\lambda)$ to denote the predictors for the used parameters $\lambda$
@@ -479,7 +479,7 @@ Considerations for selecting $K$
 Two alternatives that respect the time ordering:
 
 1. **Expanding window**: training set grows over time, validation is always the next period
-   - Pro: uses all available history; Con: early and late models trained on very different sample sizes
+   - Pro: uses all available history; Con: trains early and late models on very different sample sizes
 2. **Rolling window**: fixed-length training window slides forward
    - Pro: adapts to structural change; Con: discards early data
 
@@ -549,7 +549,7 @@ rec <- recipe(ret_excess ~ ., data = training(split)) |>
 ## Scikit-learn recipes
 
 - Scikit-learn offers a similar range of preprocessing (`recipe`) steps
-- Interaction terms have to be built manually
+- You have to build interaction terms manually
 
 ```{python}
 #| eval: false
@@ -566,7 +566,7 @@ preprocessor = ColumnTransformer(
 
 ## Build a model with tidymodels
 
-- Makes use of a range of packages combined in `tidymodels`
+- Makes use of a range of packages that `tidymodels` combines
 
 ```{r}
 lm_model <- linear_reg(
@@ -585,7 +585,7 @@ lm_fit <- workflow() |>
   add_model(lm_model)
 ```
 
-- `workflow` ends with combining everything necessary for the (serious) data science workflow: a recipe and a model. So now we are ready to use `fit.`
+- `workflow` ends with combining everything necessary for the (serious) data science workflow: a recipe and a model. So now we are ready to use `fit`.
 
 ```{r}
 #| eval: false
@@ -745,7 +745,7 @@ Growing a forest
 
 - Build $B$ decision trees $T_1, \ldots, T_B$ using the training sample
 - The bootstrap: Create a bootstrap training set by sampling $N$   observations from the training set with replacement
-- Also: randomly selecting features to be included in the building of each tree
+- Also: randomly selecting features to include in the building of each tree
 - For each observation in the test set, form a prediction $\hat{y} = \frac{1}{B}\sum\limits_{i=1}^B\hat{y}_{T_i}$
 
 ## Hyperparameter tuning for random forests (R)
@@ -795,7 +795,7 @@ rf_pipeline = Pipeline([
 Three major takeaways from the biological neuron
 
 1. The neuron only generates a signal if a sufficient number of input signals enter the neuron's dendrites (all or nothing)
-2. Neurons receive inputs from many adjacent neurons upstream and can transmit signals to many adjacent signals downstream (cumulative inputs)
+2. Neurons receive inputs from many adjacent neurons upstream and can transmit signals to many adjacent neurons downstream (cumulative inputs)
 3. Each neuron has its threshold for activation (synaptic weight)
 
 ![](figures/neural_network_one_unit.png){width=70% fig-align="center"}
@@ -818,7 +818,7 @@ hidden layers into an outcome prediction
 - 4 input units
 - One hidden layer with five neurons
 - Each neuron receives information from each input layer
-- The results from each neuron, $x_k^1 = f\left(\theta_k ^0 + \sum\limits_{j=1}^4 z_j\theta_{k,j}^0\right)$ are finally aggregated into one output forecast
+- The output layer finally aggregates the results from each neuron, $x_k^1 = f\left(\theta_k ^0 + \sum\limits_{j=1}^4 z_j\theta_{k,j}^0\right)$, into one output forecast
 $$\theta_0^1 + \sum\limits_{j=1}^5x_j^1\theta_j^1 $$
 
 
@@ -869,7 +869,7 @@ Plenty of decisions
 - For given weights $w$, we run the neural network and receive output $\tilde y$ as a function of the input values $X$ (as well as the network architecture and the current weights)
 - Compute the loss $\mathcal{L}\left(\tilde y, y\right)$, e.g. MSPE
 - The aim is to choose $w$ to minimize the Loss
-- $\Rightarrow$ Differentiate with respect to $w$ and move in the direction of the negative gradient (step size is a hyperparameter, often called learning rate) 
+- $\Rightarrow$ Differentiate with respect to $w$ and move in the direction of the negative gradient (step size is a hyperparameter, which we often call the learning rate) 
 
 $$\Delta \vec{w} = r\cdot\left(\frac{\partial P}{\partial w_0},\frac{\partial P}{\partial w_1}, ... ,\frac{\partial P}{\partial w_q}\right)$$
 
@@ -881,7 +881,7 @@ $$\Delta \vec{w} = r\cdot\left(\frac{\partial P}{\partial w_0},\frac{\partial P}
 - `torch` provides a helpful interface to create and train a deep neural network
 - The example below generates a sequential model with 21 input units, two hidden layers with 64 and 16 neurons, respectively, and ReLu activation functions
 - Dropout and $L_2$ regularization is easy to include
-- Output is a single neuron with linear (default) activation function which can be used for predictions
+- Output is a single neuron with linear (default) activation function which we can use for predictions
 
 ```{r}
 #| eval: false
@@ -932,11 +932,11 @@ deepnnet_pipeline = Pipeline([
 | Generative adversarial networks (GAN) | Learn the data-generating process | SDF estimation (Chen, Pelger & Zhu 2024) |
 
 - Key trend: architectures that embed economic structure (no-arbitrage, factor models) outperform generic off-the-shelf networks
-- Practical implication: start simple (penalized linear models), add complexity only when justified by out-of-sample gains
+- Practical implication: start simple (penalized linear models), add complexity only when out-of-sample gains justify it
 
 ## Empirical Asset Pricing via Machine Learning
 
-- Now you are equipped with everything needed to follow Gu et al. (2020): Methods, Data, Procedure
+- Now you have everything you need to follow Gu et al. (2020): Methods, Data, Procedure
 
  Hyperparameter tuning
 - Consult the Online Appendix
@@ -1034,8 +1034,8 @@ Start with simulated data
 
 ## "Learning" Black-Scholes
 
-- Implementation left to you
-- Considered models: Deep Neural Network, Lasso (based on a polynomial expansion of all inputs), Random Forests, and a single-layer neural network
+- We leave the implementation to you
+- Models we consider: Deep Neural Network, Lasso (based on a polynomial expansion of all inputs), Random Forests, and a single-layer neural network
 - Below: Out-of-sample prediction error for different strike prices
 
 ![](figures/option_pricing_case_study.png){width=50% fig-align="center"}
@@ -1047,8 +1047,8 @@ Start with simulated data
 
 ![](figures/price_charts.jpg){width=50% fig-align="center"}
 
-- Charts can be represented as vectors with length 
+- We can represent charts as vectors with length 
 *horizon $\times$ resolution*
 - Convolutional neural network: cross-parameter restrictions that dramatically reduce parameterization relative to standard feed-forward neural networks
-- Replication code available on [tidy-finance.org](www.tidy-finance.org)
+- Replication code available on [tidy-finance.org](https://www.tidy-finance.org)
 

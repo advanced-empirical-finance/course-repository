@@ -39,7 +39,7 @@ execute:
 ::: {.fragment}
 **Reproducible** means: someone else can regenerate every table and figure from the raw data and the code, without asking the authors
 
-Before we ask whether a result is *right*, we ask whether it can be *recomputed*
+Before we ask whether a result is *right*, we ask whether someone else can *recompute* it
 :::
 
 ::: {.fragment}
@@ -55,8 +55,8 @@ Before we ask whether a result is *right*, we ask whether it can be *recomputed*
 
 ![](figures/welcome-code-sharing-timeline.png){width=60% fig-align="center"}
 
-- **Code**: required for empirical work, simulations, numerical computations and experimental studies
-- **Data**: if actual data cannot be shared, authors must provide pseudo-data
+- **Code**: journals require it for empirical work, simulations, numerical computations and experimental studies
+- **Data**: if authors cannot share the actual data, they must provide pseudo-data
 
 ## What makes reproducibility hard?
 
@@ -103,7 +103,7 @@ Before we ask whether a result is *right*, we ask whether it can be *recomputed*
 
 # Non-standard errors
 
-## Suppose reproducibility is solved. Are we done?
+## Suppose we have solved reproducibility. Are we done?
 
 :::::{.columns}
 
@@ -260,7 +260,7 @@ $$E(r_i) = \beta(z_i)\,\lambda$$
 
 ![](figures/factor-zoo-cumulative.png){width=72% fig-align="center"}
 
-- Any characteristic that predicts returns can be turned into a factor. Hence the zoo
+- We can turn any characteristic that predicts returns into a factor. Hence the zoo
 - Cochrane (2011): "Now we have a zoo of new factors"
 - Do we really believe in 500+ risk factors? See [this sheet](https://docs.google.com/spreadsheets/d/1mws1bU56ZAc8aK7Dvz696LknM0Vp4Rojc3n61q2-keY/edit?gid=0#gid=0) for the census
 
@@ -275,7 +275,7 @@ $$E(r_i) = \beta(z_i)\,\lambda$$
 - A **factor** is the top portfolio minus the bottom portfolio
 
 ::: {.fragment fragment-index=5}
-**Every step is a choice**: which stocks enter, how many portfolios, how stocks are weighted, how old the characteristic may be
+**Every step is a choice**: which stocks enter, how many portfolios, how we weight stocks, how old the characteristic may be
 :::
 
 :::
@@ -318,7 +318,7 @@ Book-to-market, January 2002, CRSP and Compustat via the course data. Step 1: th
 :::
 ::: {.column width="48%"}
 
-- 176 concepts from the Open Source Asset Pricing library, each constructed along 23,040 paths (Voigt and Scheuch, 2026). Two of 13 themes shown
+- Voigt and Scheuch (2026) construct 176 concepts from the Open Source Asset Pricing library, each along 23,040 paths. The figure shows two of 13 themes
 - Within one concept, the alphas of different paths spread over several percent per year, about as wide as the typical alpha itself. The published path is often far from the median
 
 :::
