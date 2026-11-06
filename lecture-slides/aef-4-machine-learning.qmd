@@ -154,7 +154,7 @@ E(\hat{\varepsilon}^2)&=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varepsilo
 ```{r}
 #| echo: false
 #| fig-align: center
-library(arrow)
+library(nanoparquet)
 library(tidyverse)
 
 data <- read_parquet("../data-r/industries_ff_monthly.parquet") |> 

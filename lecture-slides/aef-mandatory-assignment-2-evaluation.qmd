@@ -17,9 +17,9 @@ library(forcats)
 library(pdftools)
 
 results <- bind_rows(
-  arrow::read_parquet("../submissions/ma-1-evaluation_results.parquet") |>
+  nanoparquet::read_parquet("../submissions/ma-1-evaluation_results.parquet") |>
     mutate(assignment = "MA 1"),
-  arrow::read_parquet("../submissions/ma-2-evaluation_results.parquet") |>
+  nanoparquet::read_parquet("../submissions/ma-2-evaluation_results.parquet") |>
     mutate(assignment = "MA 2")
 )
 

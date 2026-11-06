@@ -13,9 +13,9 @@ library(tidyr)
 library(ggplot2)
 library(stringr)
 library(forcats)
-library(arrow)
+library(nanoparquet)
 
-results <- arrow::read_parquet("../submissions/ma-1-evaluation_results.parquet")
+results <- nanoparquet::read_parquet("../submissions/ma-1-evaluation_results.parquet")
 # Visualization
 # Replace separate category_map / category_order / category_colors with one metadata table
 criteria_meta <- tibble(
