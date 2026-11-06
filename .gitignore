@@ -1,4 +1,3 @@
-renv/
 .venv/
 
 /submissions/
@@ -15,3 +14,5 @@ data-r/stock_characteristics_monthly.parquet
 .Renviron
 data-r/realized_covariance_stocks.csv
 data-r/realized_variance_stocks.csv
+/.uvr/library/
+/.uvr/activate*

@@ -1,6 +1,20 @@
 # The course repository for Advanced Empirical Finance 2026
 
-This repo initializes the folder structure for the course *Advanced Empirical Finance: Topics and Data Science* so that you can start working immediately. We will work with R *and* Python to write code in this course. We will use Quarto, an open-source technical publishing system, to create beautiful articles, slides, blogs, and more to communicate our results. Follow the few installation steps in [Exercise 0](https://advanced-empirical-finance.github.io/AEF-2026-course-homepage/exercises/technical-prerequisites.html) to ensure you have a running version of all the required software.
+This repo initializes the folder structure for the course *Advanced Empirical Finance: Topics and Data Science* so that you can start working immediately. We will work with R *and* Python to write code in this course. We will use Quarto, an open-source technical publishing system, to create beautiful articles, slides, blogs, and more to communicate our results. Follow the few installation steps in [Exercise 0](https://aef-course.ku.dk/exercises/technical-prerequisites.html) to ensure you have a running version of all the required software.
+
+## Setting up the R and Python packages
+
+R packages are managed with [uvr](https://github.com/nbafrank/uvr) (`uvr.toml`, `uvr.lock`), Python packages with [uv](https://docs.astral.sh/uv/) (`pyproject.toml`, `uv.lock`). In a terminal, in this folder:
+
+```sh
+uvr r install 4.6.1   # once: installs R 4.6.1, the version the course uses
+uvr sync              # installs every R package of the course into .uvr/
+uv sync               # installs Python and every Python package of the course into .venv/
+```
+
+Add a package with `uvr add tidymodels` or `uv add polars`, and commit `uvr.toml`, `uvr.lock`, `pyproject.toml` and `uv.lock`: your teammates then run `uvr sync` and `uv sync` to get exactly the same packages.
+
+To render a Quarto file that uses both languages from a terminal, activate the R environment and run Quarto through uv: `source .uvr/activate` (Windows: `.uvr\activate.ps1`), then `uv run quarto render file.qmd`.
 
 ## Content of the repository
 
