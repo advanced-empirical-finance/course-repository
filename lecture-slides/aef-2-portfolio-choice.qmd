@@ -177,7 +177,7 @@ E(r^{pf}_{t}) = \omega'\mu \qquad (\sigma^{pf})^2 &= E\left(\omega'(r_t - \mu)(r
 $$
 
 ## Minimum variance portfolio
-- The minimum variance portfolio weights are given by the solution to 
+- The solution to the following problem gives the minimum variance portfolio weights
 $$
 \omega_\text{mvp} = \arg\min \omega'\Sigma \omega \text{ s.t. } \iota'\omega= 1
 $$
@@ -284,7 +284,7 @@ $$
 
 ## The efficient frontier
 
-- Assume you computed $\omega_\text{eff}(\bar\mu)$ and $\omega_\text{eff}(\tilde\mu)$ for $\bar\mu > \tilde \mu \geq D/C$, then any linear combination with $c\in\mathbb{R}_+$ can be represented as  
+- Assume you computed $\omega_\text{eff}(\bar\mu)$ and $\omega_\text{eff}(\tilde\mu)$ for $\bar\mu > \tilde \mu \geq D/C$, then you can write any linear combination with $c\in\mathbb{R}_+$ as
 $$
 \omega^* = c\omega_\text{eff}(\bar\mu) + (1-c)\omega_\text{eff}(\tilde\mu) = \omega_\text{mvp} + \frac{\lambda^*}{2}\left(\Sigma^{-1}\mu -\frac{D}{C}\Sigma^{-1}\iota \right)
 $$ 
@@ -378,20 +378,20 @@ summaries |>
 ## The efficient frontier with a risk-free rate
 
 - portfolio weight vector $\omega\in\mathbb{R}^N$ which denotes investments into the available $N$ risky assets. 
-- **Now: ** Instead of $\sum_{i=1}^N \omega_i=1$, assume that all the remaining wealth, $1-\iota'\omega$, is invested in a risk-free asset which pays a constant interest $r_f > 0$
+- **Now: ** Instead of $\sum_{i=1}^N \omega_i=1$, assume that the investor invests all the remaining wealth, $1-\iota'\omega$, in a risk-free asset which pays a constant interest $r_f > 0$
 - The expected portfolio return for the portfolio of risky assets $\omega$ is then
 $$
 \mu_\omega = \omega^{\prime}\mu + (1-\iota^{\prime}\omega)r_f = r_f + \omega^{\prime}\underbrace{(\mu-r_f)}_{\tilde\mu}
 $$
 
 - We refer to $\tilde\mu$ as the vector of expected *excess* returns. 
-- the volatility of the portfolio is given by
+- the volatility of the portfolio is
 $$
 \sigma_\omega = \sqrt{\omega^{\prime}\Sigma\omega}
 $$
 
 ## Optimal decision problem
-- earn a desired level of expected portfolio (excess) returns ($\bar\mu-r_f$) with the lowest possible variance leads to
+- Earning a desired level of expected portfolio (excess) returns ($\bar\mu-r_f$) with the lowest possible variance leads to
 $$
 \min_\omega Z(\omega) = \min_\omega \omega^{\prime}\Sigma\omega - \lambda \left(\omega^{\prime}\tilde\mu-\bar\mu\right).
 $$
@@ -407,7 +407,7 @@ $$
 \Rightarrow \lambda = \frac{2\bar\mu}{\tilde\mu^{\prime}\Sigma^{-1}\tilde\mu}.
 $$
 
-- the optimal portfolio weights are given by 
+- the optimal portfolio weights are
 $$
 \omega^* = \frac{\bar\mu}{\tilde\mu^{\prime}\Sigma^{-1}\tilde\mu}\Sigma^{-1}\tilde\mu \Rightarrow \omega_\text{tan} := \frac{\omega^*}{\iota'\omega^*}= \frac{\Sigma^{-1}(\mu-r_f)}{\iota^{\prime}\Sigma^{-1}(\mu-r_f)}.
 $$
@@ -540,7 +540,7 @@ Calculating the **tangency portfolio** can be **cumbersome**
 In the CAPM: **market portfolio = tangency portfolio**
 
 - Skip calculation of tangency portfolio weights
-- Use portfolios weighted by market capitalization
+- Use portfolios that weight assets by market capitalization
 
 ## Capital asset pricing model
 
@@ -557,7 +557,7 @@ $$
 E(r_i) - r_f = \underbrace{\frac{Cov(r_i, r_m)}{\text{Var}(r_m)}}_{\beta_i} E(r_m - r_f)
 $$
 
-- Expected returns are entirely determined by the price of risk (market risk premium) and the comovement of asset $i$ with the market, $\beta_i$.
+- The price of risk (market risk premium) and the comovement of asset $i$ with the market, $\beta_i$, entirely determine expected returns.
 
 ## Assumptions behind CAPM
 
@@ -589,8 +589,8 @@ $$\beta_i = \frac{\sigma_{im}}{\sigma_m^2}$$
 
 - The market risk premium is the market excess return $z_t = r_{m,t} - r_{f,t}$ 
 - We proxy for the market as the value-weighted portfolio of all US-based common stocks in CRSP 
-- This aggregation is already provided by Kenneth French on his homepage
-- Sharpe ratio is computed as $\frac{\hat{\mu}_z}{\hat{\sigma}_z}$
+- Kenneth French already provides this aggregation on his homepage
+- We compute the Sharpe ratio as $\frac{\hat{\mu}_z}{\hat{\sigma}_z}$
 
 ```{r}
 #| echo: false
@@ -622,7 +622,7 @@ r_{i,t} - r_{f,t} = \alpha_i + \underbrace{\frac{Cov(r_i, r_m)}{\text{Var}(r_m)}
 $$
 
 - For the econometric analysis of the model, we assume that innovations $\varepsilon_{i, t}$ are independently and identically distributed (IID) through time and jointly multivariate normal
-- Expected returns are entirely determined by the price of risk (market risk premium) and the co-movement of asset $i$ with the market, $\beta_i$
+- The price of risk (market risk premium) and the co-movement of asset $i$ with the market, $\beta_i$, entirely determine expected returns
 - To determine whether the portfolio/asset generates abnormal returns relative to the CAPM risk model, we evaluate whether the fitted intercept coefficient $\alpha_i$, which serves as the estimate of the average abnormal return per period, is statistically distinguishable from zero
 - [Discuss:]{style="color: red;"} What are the questionable assumptions behind the baseline regression framework?
 
@@ -699,10 +699,10 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
 ## The US Stock market
 
 - Large parts of the academic literature focus on US stock markets
-- Stocks are listed on US exchanges (NYSE, AMEX, NASDAQ, and some smaller ones)
-- Extensive data on prices and trading activity is provided by the Center for Research in Security Prices (CRSP), maintained by the University of Chicago, Booth School of Business
-- Full sample starts from December 1925 and is continuously updated
--  A large part of the following computations is based on the textbook [*Empirical Asset Pricing: The Cross Section of Stock Returns*](https://www.wiley.com/en-dk/Empirical+Asset+Pricing:+The+Cross+Section+of+Stock+Returns-p-9781118095041) (available via library from reading list in Absalon)
+- Firms list their stocks on US exchanges (NYSE, AMEX, NASDAQ, and some smaller ones)
+- The Center for Research in Security Prices (CRSP), which the University of Chicago Booth School of Business maintains, provides extensive data on prices and trading activity
+- Full sample starts from December 1925, and CRSP updates it continuously
+-  A large part of the following computations follows the textbook [*Empirical Asset Pricing: The Cross Section of Stock Returns*](https://www.wiley.com/en-dk/Empirical+Asset+Pricing:+The+Cross+Section+of+Stock+Returns-p-9781118095041) (available via library from reading list in Absalon)
 
 **How to get the data**
 
@@ -732,7 +732,7 @@ crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
 
 ## Industry classification
 
-- We adjust the market capitalization values for inflation using the [Consumer Price Index](www.bls.gov/cpi/data.htm) (CPI, All Urban Consumer series) from the Bureau of Labor Statistics website.
+- We adjust the market capitalization values for inflation using the [Consumer Price Index](https://www.bls.gov/cpi/data.htm) (CPI, All Urban Consumer series) from the Bureau of Labor Statistics website.
 
 ```{r}
 #| echo: false
@@ -755,7 +755,7 @@ crsp_monthly |>
 
 ## Computing beta for the CRSP universe
 
-- Market beta for month $t$ is estimated with data from prior to and including $t$, e.g. 5 years of monthly data 
+- We estimate market beta for month $t$ with data from prior to and including $t$, e.g. 5 years of monthly data 
 - Rolling-window regressions are straightforward from a methodological perspective but tricky to implement  
 - Exercises: conduct rolling window regression of beta for the entire CRSP universe
 
@@ -894,7 +894,7 @@ $$
 \end{aligned}
 $$
 
-- If $\Sigma_\varepsilon$ is a diagonal matrix, estimation of $\Sigma$ requires only $2N + 1$ instead of $N(N-1)/2$ parameters
+- If $\Sigma_\varepsilon$ is a diagonal matrix, estimation of $\Sigma$ requires only $2N + 1$ instead of $N(N+1)/2$ parameters
 - Practical recipe for portfolio optimization with general factor structure:
 1. Estimate $\beta_i$ for each asset
 1. Estimate market risk premium $E(r_m - r_f)$
@@ -903,7 +903,7 @@ $$
 \hat\varepsilon_{i,t} = r_{t,i} - r_f - \hat\beta_i(r_{m,t} - r_f)
 $$
 
-4. Replace sample estimates $\hat\mu$ and $\hat\Sigma$ with the theoretically implied values computed above to choose
+4. Replace sample estimates $\hat\mu$ and $\hat\Sigma$ with the theoretically implied values we computed above to choose
 $$
 \omega = \arg\max \hat\mu'\omega - \frac{\gamma}{2}\omega'\hat\Sigma\omega
 $$
@@ -940,7 +940,7 @@ $$
 
 where $\hat\Sigma = Cov(\hat\varepsilon)$ and $\hat\sigma$ is the standard deviation of the market excess returns.
 
-- Under the null hypothesis, $J$ is unconditionally distributed central $F$ with
+- Under the null hypothesis, $J$ unconditionally follows a central $F$ distribution with
 $N$ degrees of freedom in the numerator and $(T-N-1)$ degrees of freedom
 in the denominator
 - For more information, see Chapter 4 of *The Econometrics of Financial Markets*
@@ -948,7 +948,7 @@ in the denominator
 ## Fama-MacBeth regressions
 - Instead of focusing on the mean-variance efficiency of the market portfolio, the CAPM also implies a linear relationship between expected returns and market betas which completely explains the cross-section of expected returns
 - Portfolio sorts already revealed that this may not be the case
-- These implications can also be tested using a cross-sectional regression methodology (Fama and MacBeth, 1973)
+- We can also test these implications using a cross-sectional regression methodology (Fama and MacBeth, 1973)
 - Basic idea:
 For each cross-section of returns (e.g., each month), project asset returns on factor exposures or characteristics that resemble exposure to a risk factor and then aggregate the estimates in the time dimension
 - E.g., first, for each month $t$, estimate
@@ -965,12 +965,12 @@ $$
 - Gibbons, Ross, and Shanken's test focuses on the mean-variance efficiency of the market portfolio
 - Most tests use a value- or equal-weighted basket of NYSE and AMEX stocks as the
 market proxy, whereas theoretically, the market portfolio contains all assets
-- Roll (1977) emphasizes that tests of the CAPM only reject the mean-variance efficiency of the proxy and that the model might not be rejected if the return on the true market portfolio were used
+- Roll (1977) emphasizes that tests of the CAPM only reject the mean-variance efficiency of the proxy and that we might not reject the model if we used the return on the true market portfolio
 
 Implications of the overwhelming evidence against the CAPM?
 
 - Replace CAPM with multifactor models with several sources of risk
-- Maybe the evidence against the CAPM is overstated because of mismeasurement of the market portfolio, improper neglect of
+- Maybe researchers overstate the evidence against the CAPM because of mismeasurement of the market portfolio, improper neglect of
 conditioning information, data-snooping, or sample-selection bias
 - What if no risk-based model can explain the anomalies of the stock market
 behavior (behavioral finance)?
@@ -978,7 +978,7 @@ behavior (behavioral finance)?
 ## Theoretical drawbacks of the CAPM
 
 - The CAPM assumes that the average investor cares only about the performance of the investment portfolio but wealth could emerge from other sources and higher-order risks could play a role
-- The CAPM assumes a static one-period model. In Merton's (1973) ICAPM, the demand for risky assets is attributed not only to the mean-variance component, as in the CAPM, but also to hedging against unfavorable shifts in the investment opportunity set
+- The CAPM assumes a static one-period model. Merton's (1973) ICAPM attributes the demand for risky assets not only to the mean-variance component, as in the CAPM, but also to hedging against unfavorable shifts in the investment opportunity set
 - Empirically, the poor performance of the single factor CAPM motivated a search for multifactor models
 
 ## Empirical problems (Discussion)
@@ -991,7 +991,7 @@ Let's move from theory to practice:
 
 ## Portfolio backtesting
 
-- Portfolio backtesting is often perceived as a quest to find the best strategy or at least a solidly profitable one (downside: data snooping, **p**-hacking)
+- People often perceive portfolio backtesting as a quest to find the best strategy or at least a solidly profitable one (downside: data snooping, **p**-hacking)
 - Out-of-sample test to analyze the (hypothetical) performance of a strategy
 
 **Procedure**
@@ -1002,16 +1002,16 @@ Let's move from theory to practice:
 1. At the end of each period store the portfolio performance (e.g. return)
 1. Compare different strategies by evaluating the average out-of-sample performance
 
-![Rolling estimation window of size $h$; portfolio weights are recomputed each period and performance is measured out-of-sample.](figures/backtestoos.png)
+![Rolling estimation window of size $h$; we recompute portfolio weights each period and measure performance out-of-sample.](figures/backtestoos.png)
 
 ## Evaluation metrics
 
-- Typical metrics are the out-of-sample portfolio return (eventually risk-adjusted)
+- Typical metrics are the out-of-sample portfolio return (possibly risk-adjusted)
 $$
 \hat E(r^{pf}) = \frac{1}{T-h}\sum\limits_{t=h+1}^T r^{pf}_t
 $$
 
-- Note that $r_t^{pf} = \omega_{t-1}'r_t$ where $\omega_{t-1}$ denotes weights formed using information available up to time $t-1$
+- Note that $r_t^{pf} = \omega_{t-1}'r_t$ where $\omega_{t-1}$ denotes weights we form using information available up to time $t-1$
 
 - Portfolio volatility $\sqrt{\hat\sigma^2\left(r^{pf}\right)}$
 - Later we will also consider transaction costs which depend on rebalancing from $\omega_{t-1}$ to $\omega_{t}$
@@ -1083,25 +1083,25 @@ weight_history |>
 - As a result: Inefficient wealth allocation
 
 ## How important is parameter uncertainty?
-- Certainty equivalent loss is defined as 
+- We define the certainty equivalent loss as
 $$
 CEL = CE(\omega_\gamma(\mu, \Sigma)) - E\left(CE(\omega_\gamma(\hat\mu, \hat\Sigma))\right) \geq 0
 $$
 
-- Writing $\hat\omega := \omega_\gamma(\hat\mu, \hat\Sigma)$ for the plug-in portfolio, the loss can be approximated by
+- Writing $\hat\omega := \omega_\gamma(\hat\mu, \hat\Sigma)$ for the plug-in portfolio, we can approximate the loss by
 $$
 CEL \approx \frac{\gamma}{2}\times tr\left(\text{Var}(\hat\omega)\,\hat\Sigma\right)
 $$
 
 - Depends on the risk-aversion $\gamma$, the $(N\times N)$ sampling variance of $\hat\omega$, and the return covariance
 - Kan and Zhou (2007) and DeMiguel, Garlappi, and Uppal (2009) consider different portfolio weights that reduce the certainty equivalent loss
-- It can be shown that the naive portfolio $\frac{1}{N}\iota$ can be optimal if estimation (and model) uncertainty is huge
+- We can show that the naive portfolio $\frac{1}{N}\iota$ can be optimal if estimation (and model) uncertainty is huge
 
 ## Efficient frontier uncertainty: a bootstrap view
 
 - Plug-in estimates $\hat\mu$ and $\hat\Sigma$ imply a *single* frontier — but it is just one noisy estimate
 - Resample the return data and compute the efficient frontier for each bootstrap draw
-- Each bootstrapped frontier, when evaluated at the *true* (full-sample) parameters, shows how much the frontier moves with sampling variation
+- Evaluating each bootstrapped frontier at the *true* (full-sample) parameters shows how much the frontier moves with sampling variation
 - The in-sample frontier is the best-looking one by construction — a severe form of overfitting (Michaud, 1998)
 
 ```{r}
@@ -1202,13 +1202,13 @@ $$
 \end{aligned}
 $$
 
-- What is so special about $\tilde\Sigma$ instead of $\Sigma$? Consider the (unconstrained) first-order condition again. If stock $i$'s marginal contribution to the portfolio variance is large, the weights $\omega_i$ are reduced (become negative)
+- What is so special about $\tilde\Sigma$ instead of $\Sigma$? Consider the (unconstrained) first-order condition again. If stock $i$'s marginal contribution to the portfolio variance is large, the weights $\omega_i$ decrease (become negative)
 
 $$
 \Sigma\omega = \lambda_0\iota \Leftrightarrow \sum\limits_{j=1}^N\omega_j\Sigma_{i,j} = \lambda_0 \forall i
 $$
 
-- With $\tilde\Sigma$, assets which would imply negative weights are treated as if the variance is reduced by $2\lambda_i$ and covariance with asset $j$ is reduced by $\lambda_i + \lambda_j$
+- With $\tilde\Sigma$, the optimizer treats assets which would imply negative weights as if their variance were $2\lambda_i$ lower and their covariance with asset $j$ were $\lambda_i + \lambda_j$ lower
 
 ## How imposing restrictions helps 
 
@@ -1224,7 +1224,7 @@ $$
 \min(-\mu' \omega + 1/2 \omega' \Sigma \omega) \text{ s.t. } A' \omega >= b_0
 $$
 
-- $A$ for $\omega_\text{no short}$ is $(N +1 \times N)$ and of the form (`meq` = 1)
+- $A$ for $\omega_\text{no short}$ is $(N \times (N+1))$ and of the form (`meq` = 1)
 
 $$
 \begin{aligned}A = \begin{pmatrix}1 & 1& \ldots&1 \\1 & 0 &\ldots&0\\0 & 1 &\ldots&0\\\vdots&&\ddots&\vdots\\0&0&\ldots&1\end{pmatrix}'\qquad b_0 = \begin{pmatrix}1\\0\\0\\\vdots\\0\end{pmatrix}\end{aligned}
@@ -1292,5 +1292,5 @@ $$
 $$
 
   - $F$: structured target (e.g., scaled identity, single-factor model, constant-correlation matrix)
-  - $\delta$: optimal shrinkage intensity chosen analytically or with cross-validation
+  - $\delta$: optimal shrinkage intensity, which we choose analytically or with cross-validation
   - Better-conditioned $\hat\Sigma_\delta$ $\Rightarrow$ more stable weights $\Rightarrow$ lower out-of-sample losses

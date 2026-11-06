@@ -14,7 +14,7 @@ execute:
 
 - So far, we have focused on quarterly, monthly, or daily price observations
 - But: There is much more under the surface!
-- High-frequency trading is a type of algorithmic financial trading characterized by high speeds, turnover rates, and order-to-trade ratios that leverages high-frequency financial data and electronic trading tools
+- High-frequency trading is a type of algorithmic financial trading with high speeds, turnover rates, and order-to-trade ratios that leverages high-frequency financial data and electronic trading tools
 
 **Relevance for asset pricing**
 
@@ -199,7 +199,7 @@ wget -bqc -P destination_folder ftp://username:password@lobsterdata.com/user_id/
 
 ## HFT: Approaching continuous time finance
 
-- Does it help to use data sampled at a high frequency to estimate $\mu_t$ and $\sigma_t^2$?
+- Does sampling at a high frequency help us estimate $\mu_t$ and $\sigma_t^2$?
 - Continuous-time finance helps
 - Well-known example: Geometric Brownian motion (stock price movements are additive on the log scale)
 $$
@@ -292,14 +292,14 @@ p_main + p_marg + plot_layout(widths = c(5, 1))
 
 - The natural estimator for $\hat\mu$ is $$\hat\mu_n = \frac{1}{n\Delta t_n}\sum\limits_{i = 0}^{n-1}\Delta X_{t_n, i+1} = (X_1 - X_0)$$
 - (Maybe) surprising: $\hat\mu_n$ does not depend on the sampling frequency. Consistent estimation requires $t\rightarrow \infty$
-- (Maybe) more surprising: $\hat\sigma^2$ *can* be estimated consistently as $n\rightarrow \infty$!
+- (Maybe) more surprising: we *can* estimate $\hat\sigma^2$ consistently as $n\rightarrow \infty$!
 - Set $U_{n,i+1} = \Delta X_{t_n,i+1}/(\sigma\Delta t_n^{1/2}) \sim N\left(\frac{\mu}{\sigma}\Delta t_n^{1/2}, 1\right)$ and define the sample mean $\bar U_n = \frac{1}{n}\sum\limits_{i = 0}^{n-1} U_{n,i+1}$
 - Then $$\begin{aligned}\hat\sigma_n^2 &= \frac{1}{(n-1)\Delta t_n}\sum\limits_{i = 0}^{n-1}\left(\Delta X_{t_n, i+1} - \bar{\Delta X_{t_n}}\right)^2 \\&= \frac{\sigma^2\Delta t_n}{(n-1)\Delta t_n}\sum\limits_{i = 0}^{n-1}\left(U_{n, i+1} - \bar U_n\right)^2 \stackrel{\mathcal{L}}{=} \sigma^2\frac{\chi^2_{n-1}}{n-1}\end{aligned}$$
 - It follows that $E\left(\hat\sigma_n^2\right) = \sigma^2$ and $\text{Var}\left(\hat\sigma_n^2\right) = \frac{2\sigma^4}{n-1}$
 
 ## Non-centered estimator
 
-- For high-frequency data, the mean $\bar{\Delta X_{t_n}}$ is often **not** removed in estimation
+- For high-frequency data, we often do **not** remove the mean $\bar{\Delta X_{t_n}}$ in estimation
 - Instead, consider $$\hat\sigma^2_{n,\text{nocenter}} = \frac{1}{n\Delta t_n}\sum\limits_{i=0}^{n-1}\left(\Delta X_{t_{n, i +1}}\right)^2 = \frac{n-1}{n}\hat\sigma_n^2 + \Delta t_n\hat\mu_n^2 = \frac{n-1}{n}\hat\sigma_n^2 + \frac{1}{n}\hat\mu_n^2 $$
 - Since $\hat\mu_n$ does not depend on $n$, it follows that $\hat\sigma^2_{n,\text{nocenter}}$ is also consistent
 
@@ -308,7 +308,7 @@ p_main + p_marg + plot_layout(widths = c(5, 1))
 - Assume $\mu_t$ and $\sigma_t>0$ are predictable processes of finite variation driving the diffusion $$dX_t = \mu_t dt + \sigma_t dW_t.$$
 - Then the continuously compounded return over $[t-k, t]$ is
 $$r(t,k) = X_t - X_{t-k} = \int\limits_{t-k}^t \mu_s ds + \int\limits_{t-k}^t \sigma_s dW_s$$
-- The diffusive sample path variation is called the integrated variance
+- We call the diffusive sample path variation the integrated variance
 $$IV(t-k, k) = \int\limits_{t-k}^t \sigma_s^2 ds $$
 - Define the **realized variance** as $RV^{(n)} := \sum\limits_{i=0}^{n-1}r_{i,n}^2$
 - As long as there are no jumps, $RV^{(n)} \rightarrow IV(0, 1)$ as $n\rightarrow\infty$
@@ -369,7 +369,7 @@ $$\begin{aligned}Y_{\tau_i} &= \tilde X_{\tau_i} - \tilde X_{\tau_{i-1}} \\&= \l
 #| warning: false
 #| echo: false
 #| fig-align: center
-#| fig-cap: "A simulated bid-ask bounce example. The left panel shows the volatility signature plot: realized variance is inflated at very high sampling frequencies because observed prices contain microstructure noise. The right panel shows that bid-ask bounce induces negative first-order autocovariance in observed returns."
+#| fig-cap: "A simulated bid-ask bounce example. The left panel shows the volatility signature plot: microstructure noise in observed prices inflates realized variance at very high sampling frequencies. The right panel shows that bid-ask bounce induces negative first-order autocovariance in observed returns."
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -457,7 +457,7 @@ p_signature + p_autocovariance + plot_layout(widths = c(2, 1))
 #| echo: false
 #| cache: true
 #| fig-align: center
-#| fig-cap: "Volatility signature plot for S&P 500 high-frequency midquotes. Each point reports the average daily realized variance computed at a different calendar-time sampling interval; higher estimates at very fine intervals indicate the influence of market microstructure noise."
+#| fig-cap: "Volatility signature plot for S&P 500 high-frequency midquotes. Each point reports the average daily realized variance at a different calendar-time sampling interval; higher estimates at very fine intervals indicate the influence of market microstructure noise."
 library(dplyr)
 library(ggplot2)
 library(lubridate)
@@ -542,14 +542,14 @@ rv_by_frequency |>
 
 ## Optimal sampling frequency
 
-- Optimal sampling frequency depends on the signal-to-noise ratio $\pi$
+- Optimal sampling frequency depends on $\pi$, the share of the return variance that market microstructure noise causes
 
 ![](./figures/optimal-sampling-frequency.jpg)
 
 ## Two-scale realized variance
 
 - Sparse sampling reduces noise bias but lowers efficiency: we throw away data
-- Zhang, Mykland, and Ait-Sahalia (2005) propose a two-scale realized variance estimator based on
+- Zhang, Mykland, and Ait-Sahalia (2005) propose a two-scale realized variance estimator that combines
   1. sub-sampling
   2. averaging
   3. bias correction
@@ -588,7 +588,7 @@ rv_data |>
 
 - Similar in spirit -- the efficient log-price process follows an $N$-dimensional Brownian semimartingale
 $$X_t = \int\limits_{0}^t a_u du + \int\limits_{0}^t \sigma_u dW_u$$ where $a$ is a predictable locally bounded drift process, $\sigma_u$ is a volatility matrix process, and $W$ is a vector of independent Brownian motions
-- If $X_t$ is discretely observed, a natural estimator for the quadratic covariation is
+- If we observe $X_t$ discretely, a natural estimator for the quadratic covariation is
 $$RC_n = \sum\limits_{i=1}^n\left(X_{i/n} - X_{(i-1)/n}\right)\left(X_{i/n} - X_{(i-1)/n}\right)'$$
 - Similar concept for realized betas $$R\beta_i = \frac{RC_{ip,n}}{RC_{pp,n}}$$ where $p$ corresponds to the market portfolio
 
@@ -608,7 +608,7 @@ $$RC_n = \sum\limits_{i=1}^n\left(X_{i/n} - X_{(i-1)/n}\right)\left(X_{i/n} - X_
 
 - Definition: Refresh time for $t\in[0,1]$. Define the first refresh time as $\tau_1 = \max\left(t_1^{(1)}, \ldots, t_1^{(N)}\right)$. For each asset $i$, let $N_j^{(i)} = \min\left\{k: t_k^{(i)} > \tau_j\right\}$ be the next observation after $\tau_j$; then define iteratively
 $$\tau_{j+1} = \max\left(t_{N_j^{(1)}}^{(1)}, \ldots, t_{N_j^{(N)}}^{(N)}\right) $$
-- Compute synchronized returns based on $\left\{\tau\right\}$
+- Compute synchronized returns from $\left\{\tau\right\}$
 
 ## High-frequency-based covariance matrix estimation
 
@@ -625,13 +625,13 @@ $$\begin{aligned}
 			2(1-x)^{3} &  1/2 \leq x \leq 1\\
 			0 & x > 1
 			\end{array}\right.\end{aligned}$$
-$\Gamma_t ^{h}$ is the $h$-lag auto-covariance matrix based on refresh-time synchronized returns, and $H_t$ is a block-specific bandwidth.
+$\Gamma_t ^{h}$ is the $h$-lag auto-covariance matrix of refresh-time synchronized returns, and $H_t$ is a block-specific bandwidth.
 
 ## Blocked Realized Kernels
 
 - Blocked and regularized realized kernel (Hautsch et al., 2012)
 - Idea: gaining efficiency and tractability in high dimensions by blocking
-- Stocks ordered according to the average of daily mid-quotes
+- Order stocks by liquidity, measured by the average number of daily mid-quote observations
 - 4 equal-sized groups result in $b=10$ covariance blocks
 - Compute realized kernel for each covariance block: $K_t^b$
 

@@ -3,7 +3,7 @@
 ## Kicking off Advanced Empirical Finance (AEF)
 
 - What is this course about?
-- How is this course organized?
+- How do we organize this course?
 - Set-up R, Python, and Positron
 - Tidy coding principles
 
@@ -19,7 +19,7 @@ Empirical finance is finance measured against reality
 Data Science buzzwords: big data, machine learning, AI
 
 - The less intriguing reality: How to extract knowledge from typically very large or unstructured data?
-- We incorporate skills from computer science, statistics, and information visualization, projected on economics theory
+- We incorporate skills from computer science, statistics, and information visualization and project them on economics theory
 
 ## Topics of this course
 
@@ -28,11 +28,10 @@ Data Science buzzwords: big data, machine learning, AI
 - Risk premia and factor selection
 - Machine learning toolbox for financial forecasting
 - Risk management and volatility estimation
-- High-frequency econometrics
 
 At the end of the course, you should
 
-- Understand the current state of research in empirical asset pricing matters
+- Understand the current state of research in empirical asset pricing
 - Recognize the value of reproducible research (and know how to conduct a reproducible analysis)
 - Have your own ready-to-use state-of-the-art toolbox for empirical analysis
 
@@ -44,7 +43,7 @@ Guided coding assignments
 - Master and carry through relevant asset pricing models and solutions in new, unpredictable, and complex contexts
 - In plain words: *Learn how to use R or Python for empirical projects by conducting your own research!*
 
-The lecture is based on very recent academic papers
+The lecture builds on very recent academic papers
 
 - We discuss and criticize multifactor asset pricing, portfolio choice, and high-frequency econometrics
 - The reading list is available on the [course homepage](https://advanced-empirical-finance.github.io/AEF-2026-course-homepage/slides-index.html)
@@ -61,16 +60,16 @@ Related courses to consider
 
 - Introduction to Programming and Numerical Analysis
 - Various seminars in (applied) finance
-- Master thesis in our finance track (empirical finance? [Check my homepage](https://https://www.voigtstefan.me/blog/blog-thesis-supervision.html) and get in touch *early*)
+- Master thesis in our finance track (empirical finance? [Check my homepage](https://www.voigtstefan.me/blog/blog-thesis-supervision.html) and get in touch *early*)
 
 # Administration
 
 ## Team and communication
 
-- Stefan ([stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk), [www.voigtstefan.me](www.voigtstefan.me))
+- Stefan ([stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk), [www.voigtstefan.me](https://www.voigtstefan.me))
 - Weekly office hours - a chance to ask questions (Thursdays, 11.00 - 12.00)
 - Show up to my office or online: [669 9264 2905 (password: 687063)](https://ucph-ku.zoom.us/j/66992642905?pwd=TjViN1VURXlUaUo1SEN5RndOQ1VOUT09)
-- Teaching assistants: Jacob ([jacob.wiberg.larsen@econ.ku.dk](mailto::jacob.wiberg.larsen@econ.ku.dk)) and Gabriel ([lmk109@econ.ku.dk](mailto:lmk109@econ.ku.dk))
+- Teaching assistants: Jacob ([jacob.wiberg.larsen@econ.ku.dk](mailto:jacob.wiberg.larsen@econ.ku.dk)) and Gabriel ([lmk109@econ.ku.dk](mailto:lmk109@econ.ku.dk))
 - Jacob and Gabriel moderate Absalon discussions and exercise classes, but it is *your* responsibility to actively engage in the exchange of ideas, code, and knowledge
 - We provide all exercises, slides, data, and other documents via Github / Absalon
 - **Rest of the team**: all the peers around you - connect and help each other out!
@@ -85,7 +84,7 @@ You can do tech without statistics but you cannot do it without coding
 
 - Lectures on Monday (even weeks) and every Thursday ([see timetable](https://kurser.ku.dk/course/a%C3%98kk08407u/)): state-of-the-art methods and theory
 - Lecture plan contains weekly coding assignments
-- I provide detailed solutions - but you are *strongly recommended* to solve everything on your own
+- I provide detailed solutions - but I *strongly recommend* that you solve everything on your own
 - If you alert me in due time, I will address some exercises or discuss the solutions
 - The exercise classes are in the style of open office-hours. The TAs are there to help you - but it is your responsibility to ask in advance if you have questions
 
@@ -94,10 +93,10 @@ The learning curve is very steep, remember to reach out in case something is unc
 ## Mandatory Assignments
 
 - 7-day long coding assignments in which we transfer the theory into practice
-- The assignments can be written individually or by **groups of a maximum of three students** (you can sign up on the Absalon discussion board if you search for group members)
-- You are supposed to hand in one (!) .qmd (Quarto) script with commented source code and one (!) .pdf report in which you describe your methods and results (e.g., with figures, tables, equations, etc.)
+- You can write the assignments individually or in **groups of a maximum of three students** (you can sign up on the Absalon discussion board if you search for group members)
+- You should hand in one (!) .qmd (Quarto) script with commented source code and one (!) .pdf report in which you describe your methods and results (e.g., with figures, tables, equations, etc.)
 - **Handed-in report: max. 7 pages for .pdf file in total** (font size 12pt, use [these (click here)](https://github.com/advanced-empirical-finance/course_environment_AEF/tree/main/mandatory_assignments) templates)
-- All parts must be answered in English
+- Answer all parts in English
 
 ## Mark the dates: Mandatory Assignments
 
@@ -105,7 +104,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 2. mandatory assignment starts **April 12th**
 3. mandatory assignment starts **May 3rd**
 
-- The assignments (and data, eventually) will always be uploaded on Absalon
+- We will always upload the assignments (and data, where needed) on Absalon
 - Deadline: One week to work on your solutions
 - **Minimum requirement to get feedback:** Attempt to solve every task. Document your struggles if you do not finish an exercise. The code needs to run without any error or interruption so that your peers can focus on the content instead of fixing your bugs
 
@@ -114,7 +113,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 - Peer feedback opens two days after the submission
 - Everybody provides feedback for **two** peer assignments individually (this is *one of the most critical steps towards success* - reserve time to give helpful feedback and learn from the answers of your peers)
 - The peer feedback period is open for seven days
-- If you receive feedback you feel needs to be drafted more carefully, flag it. I will be very strict in discarding useless submissions and comments
+- If you receive feedback that you feel the reviewer should have drafted more carefully, flag it. I will be very strict in discarding useless submissions and comments
 
 ##	Final Exam
 
@@ -143,7 +142,7 @@ The learning curve is very steep, remember to reach out in case something is unc
 :::: {.columns}
 ::: {.column width="60%"}
 -	Focus on **tidy coding**, not just language proficiency
-- Clean, reproducible code can be achieved using Python *and* R
+- You can write clean, reproducible code in Python *and* R
 - Follow standard ground rules and irrespective of your preferences, code will be readable, understandable, and intuitive 
 
 - You will give feedback on Python and R submissions - stick to tidy coding principles, and you will be able to understand what the code of your peers is doing even if you are not an expert in their chosen language
@@ -170,7 +169,7 @@ Stick to R, Python (or Julia) because:
 | Python                                 | R                                      |
 |----------------------------------------|----------------------------------------|
 | General language                       | Specialized language                   |
-| Developed by computer scientists       | Developed by statisticians             |
+| Computer scientists developed it       | Statisticians developed it             |
 | Object-oriented programming            | Functional programming                 |
 | Obsessed with efficiency               | Lazy about efficiency                  |
 | Obsessed with namespacing              | Lazy about namespacing                 |
@@ -212,7 +211,7 @@ See details [here](https://occasionaldivergences.com/posts/python-intro/)
 
 - In R we work almost exclusively with tidyverse packages: ggplot, dplyr, readr, ...
 - The tidyverse is "a framework [...] that aims at doing the cleaning and preparing steps much easier"
-- [Wickhams and Grolemunds book *R for Data Science*](https://r4ds.hadley.nz/) explains everything we need
+- [Wickham's and Grolemund's book *R for Data Science*](https://r4ds.hadley.nz/) explains everything we need
 - During this semester, we cover almost every topic from their book
 - Python library equivalents: `polars`, `numpy`, `plotnine`
 
@@ -258,7 +257,7 @@ prices = tf.download_data(
 
 ## Give your code some air with `|>` and `.`
 
-- `verb(subject, complement)` is replaced by `subject |> verb(complement)` (R) or `subject.verb(complement)` (Python)
+- We replace `verb(subject, complement)` with `subject |> verb(complement)` (R) or `subject.verb(complement)` (Python)
 - No need to name unimportant variables
 - Clear readability
 
@@ -272,7 +271,7 @@ prices <- prices |>
   mutate(volume_usd = traded_shares * close / 1000000) # Volume in million USD
 ```
 
-- Do not get confused. Some teaching ressources (and LLM) use (outdated) `%>%` instead of `|>` in R!
+- Do not get confused. Some teaching resources (and LLMs) use (outdated) `%>%` instead of `|>` in R!
 
 ## Python
 
@@ -410,7 +409,7 @@ returns.head(10)
 
 ## The grammar of graphics
 
-- `ggplot2`: *G*rammar of *g*raphics differentiates between the data and the representation: i) Data (data frame being plotted), ii) Geometrics (geometric shape that represents the data, e.g. point, boxplot, histogram), iii) Aesthetics (color, size, shape)
+- `ggplot2`: *G*rammar of *g*raphics differentiates between the data and the representation: i) Data (data frame we plot), ii) Geometrics (geometric shape that represents the data, e.g. point, boxplot, histogram), iii) Aesthetics (color, size, shape)
 - Virtually unlimited possibilities, see [Cedric Scherer's blog](https://cedricscherer.netlify.app/top/dataviz/)
 
 :::{.panel-tabset  group="language"}
@@ -464,7 +463,7 @@ Stick to the following roadmap if you encounter problems
 1. If you do not know what a command, e.g., `download_data()` is doing, type `?download_data` (R) or `?tf.download_data` (Python) in the console
 1. ChatGPT or the LLM of your choice will be able to help
 1. Check out the [tidyverse cheatsheets](https://www.rstudio.com/resources/cheatsheets/)
-1. Use the discussion board in Absalon (you are also *very* welcome to provide answers to your questions after they have been solved)
+1. Use the discussion board in Absalon (you are also *very* welcome to provide answers to your questions after you have solved them)
 
 ChatGPT and Github Copilot
 

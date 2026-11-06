@@ -1616,7 +1616,7 @@ Stefan Voigt <a href="https://orcid.org/0000-0001-5619-3161" class="quarto-title
 </div><div class="column" style="width:62%;">
 <div class="fragment">
 <p><strong>Reproducible</strong> means: someone else can regenerate every table and figure from the raw data and the code, without asking the authors</p>
-<p>Before we ask whether a result is <em>right</em>, we ask whether it can be <em>recomputed</em></p>
+<p>Before we ask whether a result is <em>right</em>, we ask whether someone else can <em>recompute</em> it</p>
 </div>
 <div class="fragment">
 <p><strong>This lecture.</strong> We look at what breaks reproducibility in practice, run a small research experiment, and build a factor from a portfolio sort step by step</p>
@@ -1632,8 +1632,8 @@ Stefan Voigt <a href="https://orcid.org/0000-0001-5619-3161" class="quarto-title
 </figure>
 </div>
 <ul>
-<li><strong>Code</strong>: required for empirical work, simulations, numerical computations and experimental studies</li>
-<li><strong>Data</strong>: if actual data cannot be shared, authors must provide pseudo-data</li>
+<li><strong>Code</strong>: journals require it for empirical work, simulations, numerical computations and experimental studies</li>
+<li><strong>Data</strong>: if authors cannot share the actual data, they must provide pseudo-data</li>
 </ul>
 </section>
 <section id="what-makes-reproducibility-hard" class="slide level2">
@@ -1692,8 +1692,8 @@ Stefan Voigt <a href="https://orcid.org/0000-0001-5619-3161" class="quarto-title
 <h1>Non-standard errors</h1>
 
 </section>
-<section id="suppose-reproducibility-is-solved.-are-we-done" class="slide level2">
-<h2>Suppose reproducibility is solved. Are we done?</h2>
+<section id="suppose-we-have-solved-reproducibility.-are-we-done" class="slide level2">
+<h2>Suppose we have solved reproducibility. Are we done?</h2>
 <div class="columns">
 <div class="column" style="width:37%;">
 <div class="chat" data-theme="imessage" data-names="You,Albert">
@@ -1846,7 +1846,7 @@ Stefan Voigt <a href="https://orcid.org/0000-0001-5619-3161" class="quarto-title
 </figure>
 </div>
 <ul>
-<li>Any characteristic that predicts returns can be turned into a factor. Hence the zoo</li>
+<li>We can turn any characteristic that predicts returns into a factor. Hence the zoo</li>
 <li>Cochrane (2011): “Now we have a zoo of new factors”</li>
 <li>Do we really believe in 500+ risk factors? See <a href="https://docs.google.com/spreadsheets/d/1mws1bU56ZAc8aK7Dvz696LknM0Vp4Rojc3n61q2-keY/edit?gid=0#gid=0">this sheet</a> for the census</li>
 </ul>
@@ -1861,7 +1861,7 @@ Stefan Voigt <a href="https://orcid.org/0000-0001-5619-3161" class="quarto-title
 <li>A <strong>factor</strong> is the top portfolio minus the bottom portfolio</li>
 </ul>
 <div class="fragment" data-fragment-index="5">
-<p><strong>Every step is a choice</strong>: which stocks enter, how many portfolios, how stocks are weighted, how old the characteristic may be</p>
+<p><strong>Every step is a choice</strong>: which stocks enter, how many portfolios, how we weight stocks, how old the characteristic may be</p>
 </div>
 </div><div class="column" style="width:66%;">
 <div class="r-stack">
@@ -1915,7 +1915,7 @@ display:block!important;
 </div>
 </div><div class="column" style="width:48%;">
 <ul>
-<li>176 concepts from the Open Source Asset Pricing library, each constructed along 23,040 paths (Voigt and Scheuch, 2026). Two of 13 themes shown</li>
+<li>Voigt and Scheuch (2026) construct 176 concepts from the Open Source Asset Pricing library, each along 23,040 paths. The figure shows two of 13 themes</li>
 <li>Within one concept, the alphas of different paths spread over several percent per year, about as wide as the typical alpha itself. The published path is often far from the median</li>
 </ul>
 </div></div>

@@ -14,7 +14,7 @@ $$0 = E(m\,r)$$
 
 ## Multifactor asset pricing models
 
-- FF (1992, 1993) have shown that parts of the cross-sectional variation in expected returns can be captured using the following factors:
+- FF (1992, 1993) have shown that the following factors capture parts of the cross-sectional variation in expected returns:
 
 1. the return on the market portfolio in excess of the risk-free rate of return
 2. a zero net investment (spread) portfolio long in small firm stocks and short in large firm stocks (SMB)
@@ -22,7 +22,7 @@ $$0 = E(m\,r)$$
 
 - Basic CAPM risk-return trade-off: high risk comes along with a high expected return
 - Conditional versions: risk and risk premium could vary with macro economy variables such as the default spread
-- The Arbitrage Pricing Theory (APT) was introduced by Ross (1976) as an
+- Ross (1976) introduced the Arbitrage Pricing Theory (APT) as an
 alternative to the Capital Asset Pricing Model
 
 ## Market anomalies
@@ -31,7 +31,7 @@ alternative to the Capital Asset Pricing Model
 |---|---|---|
 | Betting against beta | $\alpha$ declining in $\beta$ across many asset classes | Frazzini & Pedersen (2014) |
 | Size | Small stocks outperform large stocks | Banz (1981); FF (1992) |
-| Value | High book-to-price stocks outperform growth stocks | Basu (1983); FF (1992) |
+| Value | High book-to-price stocks outperform growth stocks | Rosenberg, Reid & Lanstein (1985); FF (1992) |
 | Momentum | Intermediate-term winners outperform losers | Jegadeesh & Titman (1993); Carhart (1997) |
 | Time-series momentum | Assets trending up (down) continue to do so | Moskowitz, Ooi & Pedersen (2012) |
 | Liquidity | Illiquid stocks earn a return premium | Pastor & Stambaugh (2003) |
@@ -47,7 +47,7 @@ flowchart TD
 
 ```
 
-- Cochrane (2011): any arbitrage-free data can be rationalized $0 = E_t(m_{t+1} r_{t+1})$ 
+- Cochrane (2011): we can rationalize any arbitrage-free data with $0 = E_t(m_{t+1} r_{t+1})$ 
 - but a model only gets its bite by restricting $m$ or distorted expectations, ideally tied to other data
 
 ## Arbitrage Pricing Theory
@@ -82,7 +82,7 @@ where $Z_t$ are excess returns
 - All the exact factor pricing models allow one to estimate the expected return on a given asset
 - One needs measures of the factor sensitivity matrix $B$, the risk-free rate or the
 zero-beta expected return, and the factor risk premia $\lambda_k$
-- In the case where the factors are the excess returns on traded portfolios, the risk premia can be estimated directly from the sample means of the excess returns on the portfolios
+- In the case where the factors are the excess returns on traded portfolios, we can estimate the risk premia directly from the sample means of the excess returns on the portfolios
 
 ## Open question: How to choose the factors?
 
@@ -95,7 +95,7 @@ asset returns in the future (you can always add another factor to increase in-sa
 ## Factor selection: Principal Components
 
 - Well-known statistical procedure: Principal components
-- Principal components is a technique to reduce the number of variables being studied
+- Principal components is a technique to reduce the number of variables we study
 without losing too much information in the covariance matrix
 - The principal components serve as the factors. The first principal component is the (normalized) linear combination of asset
 returns with maximum variance
@@ -113,20 +113,20 @@ where $\hat\Omega$ is the sample variance-covariance matrix of the returns
 - Theoretical approach: identify variables that capture systematic economy-wide risks
   - *Macro variables*: interest rates, default spreads, inflation — proxies for systematic risk sources
   - *Firm characteristics*: size, book-to-market, momentum — proxies for differential risk exposure; sort stocks into portfolios accordingly
-- For more information, consider Chapter 5 of "Econometrics of Financial Markets"
+- For more information, consider Chapter 6 of "The Econometrics of Financial Markets" (Campbell, Lo & MacKinlay, 1997)
 
 ## Bayesian mindset: don't compromise on a single model
 
 - Assess the probability that a candidate model generates the observed dynamics of asset returns
-- Integrate over factor models weighted by their posterior probabilities 
+- Integrate over factor models, weighting them by their posterior probabilities
 - Approach follows directly from the Bayes rule: integrated factor model summarizes the uncertainties about the joint dynamics of stock returns
 
 **"Integrating Factor Models", Avramov et al. (2023) and "Bayesian Solutions to the Factor Zoo", Bryzgalova et al. (2023)**
 
 - Flexible to consider models with time-varying parameters 
-- Prior beliefs about the entire parameter space are economically interpretable and weighted against model mispricing and the inclusion of macro predictors
-- Posterior probability is weighted against deviations from the unconditional CAPM
-- Penalize model complexity, i.e., an incremental factor, beyond the market, or macro predictor is retained only if it considerably improves model pricing abilities
+- Prior beliefs about the entire parameter space are economically interpretable and weigh against model mispricing and the inclusion of macro predictors
+- Posterior probability weighs against deviations from the unconditional CAPM
+- Penalize model complexity, i.e., an incremental factor, beyond the market, or macro predictor stays in the model only if it considerably improves model pricing abilities
 
 ## Integrating Factor Models
 
@@ -173,17 +173,17 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 **Minimum requirements for reproducibility**
 
 1. A set of files with the raw data and code. It is possible to create the tables and any data-derived charts/graphics/visualizations by running the code
-1. Details about the system being used to run the analysis: operating system, patches, random number seeds (`set.seed(3010)`), and specific versions of all software/packages/libraries are listed
-1. Open/transparent. All the data and materials are available (as opposed to "available upon request") -- e.g., posted on GitHub
-1. Code is written in a way that can be readily understood 
+1. Details about the system that runs the analysis: you list the operating system, patches, random number seeds (`set.seed(3010)`), and specific versions of all software/packages/libraries
+1. Open/transparent. All the data and materials are available (as opposed to "available upon request") -- e.g., you post them on GitHub
+1. You write code that others can readily understand
 
 
 ## Code & data sharing policies in top journals
 
 ![](figures/welcome-code-sharing-timeline.png){width=90%}
 
-- **Code**: required for empirical work, simulations, numerical computations and experimental studies
-- **Data**: if actual data cannot be shared (due to legal/confidentiality issues), authors must provide pseudo-data
+- **Code**: journals require it for empirical work, simulations, numerical computations and experimental studies
+- **Data**: if authors cannot share actual data (due to legal/confidentiality issues), they must provide pseudo-data
 
 ## Reproducibility also important in industry
 
@@ -217,14 +217,14 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 
 - Create a **separate project** for each data analysis
 - Save & organize scripts with **descriptive names**
-- Regularly **restart your session** to ensure all work is captured in scripts
+- Regularly **restart your session** to ensure your scripts capture all work
 - Always use **relative paths**, never absolute paths
 - Avoid **manual steps** as much as possible
 
 :::
 ::: {.column width="50%"}
 
-![Research code quality assesment of Harvard Dataverse between 2010-2020. Source: @trisovic2022](figures/projects-reproducibility-study.png){fig-align="center"}
+![Research code quality assessment of Harvard Dataverse between 2010-2020. Source: @trisovic2022](figures/projects-reproducibility-study.png){fig-align="center"}
 :::
 ::::
 
@@ -260,7 +260,7 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 
 ## Related: Non-standard errors
 
-- Large research project, led by Albert J. Menkveld ([Paper available here](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3961574))
+- Albert J. Menkveld led a large research project ([Paper available here](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3961574))
 - Uncertainty from the **evidence generating process** (EGP)
 - EGP variation across researchers adds uncertainty: non-standard errors
 - 164 teams test six hypotheses on the same sample
@@ -270,7 +270,7 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 ## Related: Non-standard errors
 
 - Non-standard errors are sizeable, on par with standard errors
-- Their size (i) co-varies only weakly with team merits, reproducibility, or peer rating, (ii) declines significantly after peer feedback, and (iii) is heavily underestimated by participants
+- Their size (i) co-varies only weakly with team merits, reproducibility, or peer rating, (ii) declines significantly after peer feedback, and (iii) far exceeds what participants expect
 
 ![](figures/fincap_t_stats.png){width=70% fig-align="center"}
 
@@ -279,7 +279,7 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 
 - Sample construction: exclusions based on market equity, industry, firm-months with negative book equity or negative earnings, stock-age or stock price
 - Portfolio construction: lag of the sorting variables, portfolio rebalancing frequency, the number of portfolios, listing exchanges for breakpoints, weighting scheme
-- Color saturation indicates how often the 109 papers analyzed by Hou et al. (2020) implemented each choice.
+- Color saturation indicates how often the 109 papers that Hou et al. (2020) analyzed implemented each choice.
 
 ## Uncertainty everywhere
 
@@ -292,7 +292,7 @@ $$f_{t+1} = \alpha_f + a_F z_t + u_{f,t+1}, u_{f,t+1}\sim N\left (0,\Sigma_{FF}\
 
 #### A simple example
 
-- Suppose the SDF is linear in the market and 50 other risky factors ($\color{red}f$ is fixed)
+- Suppose the SDF is linear in the market and 50 other risky factors (we fix $\color{red}f$)
 - Now: The *idea* of a risk factor remains the same, but the *data preprocessing choices* ($\color{red}{\mathcal{D}}$) vary
 - We consider 3,840 plausible alternatives for portfolio sorts for *each* sorting variable
 - Plethora of different ways to represent an otherwise identical SDF

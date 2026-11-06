@@ -4,7 +4,7 @@ subtitle: Volatility estimation
 
 ## Why do we care about volatility?
 
-- Any time series can be decomposed into a predictable part and an unpredictable part
+- We can decompose any time series into a predictable part and an unpredictable part
 $$r_t = E\left(r_t|\mathcal{F}_{t-1}\right) + \varepsilon_t$$
 where $\mathcal{F}_{t-1}$ denotes all information available at the end of day $t-1$
 
@@ -14,7 +14,7 @@ $$\sigma_t^2 = \text{Var}\left(r_t|\mathcal{F}_{t-1}\right) = E\left(\varepsilon
 
 - $\hat\sigma_t^2$ is a crucial component for *option pricing* - recall Black-Scholes
 - $\hat\Sigma_t$ is relevant for the *portfolio choice problem*
-- The core issue: $\sigma_t^2$ is not observable — at each date we only see one realization $r_t$, not the distribution it was drawn from
+- The core issue: $\sigma_t^2$ is not observable — at each date we only see one realization $r_t$, not the distribution that generated it
 
 ## What do we know about $\sigma_t^2$?
 
@@ -91,7 +91,7 @@ The **RiskMetrics** estimator (J.P. Morgan 1994) with smoothing parameter $\lamb
 
 $$\hat\sigma_t^2 = (1 - \lambda)\, r_{t-1}^2 + \lambda\, \hat\sigma_{t-1}^2$$
 
-- No cliff-edge: all past returns are included with exponentially declining weights
+- No cliff-edge: RiskMetrics includes all past returns with exponentially declining weights
 
 ## Naive estimators
 ```{r}
@@ -155,21 +155,21 @@ $$\varepsilon_t = \sigma_t z_t \qquad \sigma_t^2 = \alpha_0 + \alpha_1 \varepsil
 
 **Parameter considerations:**
 
-- The sequence of parameters $\alpha_i$ must satisfy some conditions to guarantee positivity of $\sigma_t^2$: $\alpha_0 \geq0$, and $\alpha_i >0 \forall i> 0$ 
+- The sequence of parameters $\alpha_i$ must satisfy some conditions to guarantee positivity of $\sigma_t^2$: $\alpha_0 >0$, and $\alpha_i \geq0 \forall i> 0$ 
 - The coefficients $\alpha_i$ must satisfy some regularity conditions to ensure that the unconditional
 variance of $\varepsilon_t$ is finite / $\sigma_t^2$ is stationary (all roots in $k$ of $1 - \alpha_1 k - \ldots - \alpha_m k^m = 0$ lie outside the unit circle)
-- The unconditional variance is given by $\sigma_\varepsilon^2 = \frac{\alpha_0}{1 - \sum_{i=1}^m\alpha_i}$ 
+- The unconditional variance equals $\sigma_\varepsilon^2 = \frac{\alpha_0}{1 - \sum_{i=1}^m\alpha_i}$ 
 
 ## The GARCH model (Bollerslev, 1986)
 
 - Problem of the ARCH model: typical financial time series often require highly parameterized ARCH models
-- The GARCH(p,q) model is given by 
+- We define the GARCH(p,q) model as
 $$\varepsilon_t  = \sigma_t z_t \qquad \sigma_t^2 = \alpha_0 + \sum\limits_{j=1}^p\alpha_j \varepsilon_{t-j}^2 + \mathbf{\sum\limits_{i=1}^q\beta_i \sigma_{t-i}^2}$$
-- Any stationary GARCH(p,q) model can be written as an ARCH($\infty$) model
+- We can write any stationary GARCH(p,q) model as an ARCH($\infty$) model
 
 **Parameter considerations:**
 
-- Positive $\sigma_t^2$ is ensured by $\alpha_0\geq 0, \alpha_j\geq0, \beta_i\geq0$
+- The conditions $\alpha_0\geq 0, \alpha_j\geq0, \beta_i\geq0$ ensure positive $\sigma_t^2$
 - Similar conditions for stationarity as for ARCH: all roots in $k$ of $1 - \alpha_1 k - \ldots - \alpha_p k^p - \beta_1 k - \ldots - \beta_q k^q = 0$ lie outside the unit circle
 
 ## Forecasting
@@ -227,14 +227,14 @@ ggplot(paths, aes(x = l, y = sqrt(sigma2), color = start)) +
 
 - Log likelihood function under the normality assumption for $\varepsilon_t$
 $$\begin{aligned}\log \mathcal{L}\left(\theta\right) &= \log f\left(r_1|\theta\right) + \log f\left(r_2|r_1, \theta\right) + \ldots + \log f\left(r_T|r_{t-1}, \ldots, r_1, \theta\right)\\ &=-\frac{T}{2}\log(2\pi)-\sum\limits_{t=1}^T\left(\log(\sigma_t^2) + \frac{(r_t - \mu_t)^2}{2\sigma_t^2}\right)\end{aligned}$$
-where $\sigma_t^2$ and $\mu_t$ are computed recursively
-- Similar of course for different likelihood specifications, e.g. student $t$ (consult Tsay (2010) for specific estimation issues)
+where we compute $\sigma_t^2$ and $\mu_t$ recursively
+- Similar of course for different likelihood specifications, e.g. Student $t$ (consult Tsay (2010) for specific estimation issues)
 
 - Consult the exercises for hands-on examples 
 
 1. Define (negative) log-likelihood function 
-2. Use `optim` (R) or `minimize` (Python) to find maximum likelihood estimator (in some cases, constrained optimization is required)
-3. Retrieve information matrix (`hessian = TRUE` (R) or (`hess_inv` (Python))
+2. Use `optim` (R) or `minimize` (Python) to find maximum likelihood estimator (in some cases, you need constrained optimization)
+3. Retrieve information matrix (`hessian = TRUE` (R) or `hess_inv` (Python))
 4. Compute standard errors 
 ```{r}
 #| label: mle-standard-errors-snippet
@@ -289,8 +289,8 @@ print(result.summary())
 
 ## Value-at-risk: definition
 
-- The VaR (Value-at-risk) of a financial position over a given time horizon $l$ with tail
-probability $p$ is defined by $$p = \text{Pr}\left(L(l) \geq VaR\right) = 1 - \text{Pr}\left(L(l) \leq VaR\right)$$
+- We define the VaR (Value-at-risk) of a financial position over a given time horizon $l$ with tail
+probability $p$ by $$p = \text{Pr}\left(L(l) \geq VaR\right) = 1 - \text{Pr}\left(L(l) \leq VaR\right)$$
 where $L$ is a loss function, e.g. in terms of USD
 - Intuition: the probability that the position holder would encounter a loss greater than or equal to VaR over the time horizon $l$ is at most $p$
 
@@ -354,7 +354,7 @@ tibble(
 ## General Framework
 
 - We consider the $N$-dimensional return series
-$$r_t = E\left(r_t|\mathcal{F}_t\right) + \varepsilon_t$$
+$$r_t = E\left(r_t|\mathcal{F}_{t-1}\right) + \varepsilon_t$$
 where $\varepsilon_t$ is a $(N\times 1)$ vector of error terms with (conditional) covariance matrix $\Sigma_t$
 - Exploiting the symmetry property of $\Sigma_t$ we can write 
 $$\Sigma_t = D_tQ_tD_t$$
@@ -370,23 +370,23 @@ where $Q_t$ is the $(N\times N)$ conditional correlation matrix of $\varepsilon_
 - This implies that $R'R$ is singular for $N\geq T$ and thus
 $$\exists w\in\mathbb{R}^N: w'Sw = 0$$
 - In other words, $S$ is not invertible and there is no unique efficient portfolio
-- More structure is required to overcome this issue (e.g. based on factor structure)
+- We need more structure to overcome this issue (e.g. based on factor structure)
 
 ## Linear shrinkage (Ledoit Wolf, 2003, 2004)
 
 - The sample covariance matrix is unbiased and the maximum likelihood estimator under normality
-- In the context of mean estimation, Stein (1956) showed that a better estimator than the sample mean can be constructed by
+- In the context of mean estimation, Stein (1956) showed that we can construct a better estimator than the sample mean by
 shrinking the sample mean to a target vector, that is, by using a linear combination of the
 sample mean and the target vector
 - Better in the sense of the mean squared error (MSE) — a little bias in exchange for a large reduction in variance
 - Ledoit and Wolf (2003, 2004) apply the same thinking to $\Sigma$
-- They suggest a linear combination of some target matrix $F$ (identity, single factor, or equicorrelation matrix) and the sample variance-covariance matrix $\hat\Sigma$, controlled by the *shrinkage intensity* $\alpha$:
+- They suggest a linear combination of some target matrix $F$ (identity, single factor, or equicorrelation matrix) and the sample variance-covariance matrix $\hat\Sigma$, where the *shrinkage intensity* $\alpha$ controls the weights:
 $$\hat\Sigma^{LW} = \alpha F + (1-\alpha) \hat\Sigma \text{ for } 0\leq\alpha\leq1$$
 
 The shrinkage target (Ledoit Wolf, 2004)
 
 - We already discussed (multi) factor models
-- Constant correlation model: all the (pairwise) correlations are assumed identical. 
+- Constant correlation model: we assume that all the (pairwise) correlations are identical.
 - Estimator of the common constant correlation: average of all the sample correlations 
 
 
@@ -398,8 +398,8 @@ The shrinkage target (Ledoit Wolf, 2004)
 knitr::include_graphics('figures/ledoit_wolf_2003_fig_1.jpg')
 ```
 
-- The optimal linear combination depends on unknown population quantities and must, therefore, be thought of as an ideal (or “oracle”) but infeasible estimator
-- Ledoit and Wolf derive feasible estimators (in an exercise you are asked to implement the estimator)
+- The optimal linear combination depends on unknown population quantities and, therefore, we must think of it as an ideal (or “oracle”) but infeasible estimator
+- Ledoit and Wolf derive feasible estimators (an exercise asks you to implement the estimator)
 
 ## The optimal shrinkage intensity (Ledoit-Wolf 2003, 2004)
 
@@ -407,7 +407,7 @@ knitr::include_graphics('figures/ledoit_wolf_2003_fig_1.jpg')
 $$||A||^2_F = {<A, A>} := \frac{1}{N}\sum\limits_{i=1}^N\sum\limits_{j=1}^N A_{i,j}^2 = \frac{1}{N}tr(A'A)$$
 - The scaled mean squared error is
 $$E\left(||\Sigma^{LW} - \Sigma||_F^2\right) \text{ where } \Sigma^{LW} = \alpha F + (1-\alpha) \hat\Sigma$$
- - Let $\pi$ be the sum of asymptotic variances of the entries of the sample covariance matrix scaled by $\sqrt{T}$, $\rho$ the scaled asymptotic covariances of the entries of the single-index covariance, and $\psi$ the bias (misspecification) of the target
+ - Let $\pi$ be the sum of asymptotic variances of the $\sqrt{T}$-scaled entries of the sample covariance matrix, $\rho$ the scaled asymptotic covariances of the entries of the single-index covariance, and $\psi$ the bias (misspecification) of the target
  $$\alpha^* = \frac{1}{T}\frac{\pi - \rho}{\psi}$$
 
 - **Interpretation:** shrink *more* when sample noise $\pi$ is large (high-dimensional, short sample) and *less* when the target is badly misspecified ($\psi$ large). The factor $1/T$ ensures that as the sample grows, the optimal shrinkage vanishes and the estimator collapses to $\hat\Sigma$
@@ -415,25 +415,25 @@ $$E\left(||\Sigma^{LW} - \Sigma||_F^2\right) \text{ where } \Sigma^{LW} = \alpha
 ## Dynamic multivariate models
 
 - The generalization of univariate GARCH models to the multivariate domain is conceptually simple
-- The literature on the dynamics governing $\Sigma_t$ may be broadly divided into direct multivariate extensions, factor models, linear combinations of univariate GARCH models (Generalized Orthogonal GARCH), and nonlinear combinations of univariate GARCH models (the broader class of Dynamic Correlation models)
+- We can broadly divide the literature on the dynamics governing $\Sigma_t$ into direct multivariate extensions, factor models, linear combinations of univariate GARCH models (Generalized Orthogonal GARCH), and nonlinear combinations of univariate GARCH models (the broader class of Dynamic Correlation models)
 - The need to invert the covariance matrix in many MGARCH parameterizations introduces estimation problems for large systems, as the eigenvalues of the covariance matrix decrease exponentially fast toward zero, even when the covariance is not singular
 
 ## Constant conditional correlation (CCC)
 
 - Bollerslev (1990)
-- In the constant conditional correlation (CCC) model of Bollerslev (1990), the covariance matrix can be decomposed
+- In the constant conditional correlation (CCC) model of Bollerslev (1990), we can decompose the covariance matrix
 into
-$$\Sigma_t = D_tRD_t = \rho_{ij}\sqrt{h_{ijt}h_{ijt}}$$
+$$\Sigma_t = D_tRD_t = \rho_{ij}\sqrt{h_{iit}h_{jjt}}$$
 where $D_t = \text{diag}(\sqrt{h_{11t}}, \ldots, \sqrt{h_{NNt}})$ and $R$ is a positive definite correlation matrix
 - Maximum likelihood estimation possible in the multivariate normal case (see Eq. 50 in Boudt et al., 2019)
 
 ## Obvious extension: DCC
 - Covariance Targeting (Engle (2002))
-$$\Sigma_t = D_t\mathbf{R_t}D_t = \rho_{ij}\sqrt{h_{ijt}h_{ijt}}$$
+$$\Sigma_t = D_t\mathbf{R_t}D_t = \rho_{ij}\sqrt{h_{iit}h_{jjt}}$$
 - DCC is a **two-step estimator**: (i) fit a univariate GARCH to each asset to obtain $D_t$ and the standardized residuals $z_t = D_t^{-1}\varepsilon_t$; (ii) model the dynamics of the correlation matrix using a proxy process $Q_t$:
 $$Q_t = \bar{Q} + \alpha\left(z_tz_t' - \bar{Q}\right) + \beta\left({Q}_{t-1} - \bar{Q} \right)$$
 where $\bar Q$ is the sample covariance of the $z_t$ and $(\alpha, \beta)$ are scalar parameters governing the correlation dynamics
-- The correlation matrix $R_t$ is then obtained as
+- We then obtain the correlation matrix $R_t$ as
 $$R_t = \text{diag}(Q_t)^{-1/2}Q_t\text{diag}(Q_t)^{-1/2}$$
 
 # Large-scale portfolio allocation under model uncertainty and transaction costs
@@ -457,8 +457,8 @@ $$\begin{aligned}
 
 - Noisy estimates of $\mu_t$ over short horizons
 - Solution (?): Fixing $\mu_t$ (e.g. $\mu_t=0$) or using long horizons
-- ($N \times N$) matrix $\Sigma_t$ contains $N(N-1)/2$ distinct elements $\Rightarrow$ Estimation error
-- For $N=500$: 124,750 elements
+- ($N \times N$) matrix $\Sigma_t$ contains $N(N+1)/2$ distinct elements $\Rightarrow$ Estimation error
+- For $N=500$: 125,250 elements
 - Sample covariance only positive definite if $T\ge N$
 
 $\Rightarrow$ Plugging in sample estimates $\hat \mu_t$ and $\hat \Sigma_t$ performs badly!
@@ -496,7 +496,7 @@ where $S_t$ is the sample variance-covariance matrix and $F_t$ denotes the equi-
 - Model ambiguity
 - Predictive ability of models is time-varying!
 
-- De Miguel et al (2009): Out of sample, the $1/N$ portfolio cannot be outperformed in high dimensions!
+- De Miguel et al (2009): Out of sample, no strategy can outperform the $1/N$ portfolio in high dimensions!
 
 ## Portfolio optimization under transaction costs
 
@@ -512,11 +512,11 @@ where $p_t({r}_{t+1}|\mathcal{M}):=p_t({r}_{t+1}|\mathcal{M}, \mathcal{F}_t)$ de
 ## A closed-form solution for Gaussian returns and quadratic transaction costs
 
 - Initial Markowitz (1952) approach with Gaussian returns: $p_t({r}_{t+1}|\mathcal{M})=N(\mu,\Sigma)$
-- Can be solved by maximizing the certainty equivalent
+- We can solve it by maximizing the certainty equivalent
 $$\begin{aligned}
 \omega_{t+1} ^* & = \arg\max_{\omega \in \mathbb{R}^N,  \iota'\omega = 1} \omega'\mu - \nu_t \left(\omega\right) - \frac{\gamma}{2}\omega'\Sigma\omega.
 \end{aligned}$$
-- We assume **quadratic** transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch et al. 2019 show that the $L_1$ case can be treated similarly):
+- We assume **quadratic** transaction costs — mainly because they yield a closed-form solution that is directly comparable to the classical Markowitz problem (Hautsch and Voigt (2019) show that we can treat the $L_1$ case similarly):
 $$\begin{aligned}
 \nu\left(\omega_{t+1},\omega_{t^+}, \beta\right) = \frac{\beta}{2} \left(\omega_{t+1} - \omega_{t^+}\right)'\left(\omega_{t+1}- \omega_{t^+}\right),
 \end{aligned}$$
@@ -524,8 +524,8 @@ with cost parameter $\beta>0$
 - The pre-rebalancing weights $\omega_{t^+}$ are *not* the same as yesterday's target weights $\omega_t$: even if the investor does nothing, prices move during the day and drift the portfolio away from $\omega_t$. Concretely:
 $$\omega_{t^+} := \frac{\omega_t \circ (1 + r_{t})}{\iota' (\omega_t \circ (1 + r_{t}))}$$
 
-## Optimization problem^[All proofs can be found in Hautsch et al (2020)]
-- Proof left for exercise
+## Optimization problem^[You can find all proofs in Hautsch and Voigt (2019)]
+- We leave the proof as an exercise
 $$\begin{aligned}
 \omega_{t+1} ^* :=&  \arg\max_{\omega \in \mathbb{R}^N,  \iota'\omega = 1} \omega'\mu - \nu_t (\omega,\omega_{t^+}, \beta) - \frac{\gamma}{2}\omega'\Sigma\omega \\
 =&\arg\max_{\omega\in\mathbb{R}^N,\text{ }  \iota'\omega=1}
@@ -561,7 +561,7 @@ $$\begin{aligned}
 \sum_{i=0}^{T}\left( \frac{\beta}{\gamma}A(\Sigma^*)\right) ^i \rightarrow  \left(I_N - \frac{\beta}{\gamma}A(\Sigma^*)\right)^{-1}
 \end{aligned}$$
 and $\lim_{i\rightarrow\infty}\left( \frac{\beta}{\gamma}A(\Sigma^*)\right) ^i = 0$.
-- Proposition. For $T\rightarrow \infty$ and $\beta < \beta^{*}$ the series $\omega_T$ converges to a unique fix-point given by
+- Proposition. For $T\rightarrow \infty$ and $\beta < \beta^{*}$ the series $\omega_T$ converges to a unique fixed point
 $$\begin{aligned}
 \omega_\infty & = \left(I_N - \frac{\beta}{\gamma}A(\Sigma^*)\right)^{-1} \omega(\mu,\Sigma^*) = \omega(\mu, \Sigma)
 \end{aligned}$$
@@ -569,20 +569,20 @@ $$\begin{aligned}
 ## Intuition behind shrinkage
 - For asset-specific transaction costs
 $$\left(\omega_{t+1} - \omega_{t^+}\right)'B\left(\omega_{t+1}- \omega_{t^+}\right)$$
-	where $B$ is positive definite, the linear shrinkage estimator for $\Sigma$ of Ledoit and Wolf (2003, 2004) can be reconciled.
+	where $B$ is positive definite, we can reconcile the linear shrinkage estimator for $\Sigma$ of Ledoit and Wolf (2003, 2004).
 - Lemma. Assume a regime of high volatility with $\Sigma^h = (1 + h)\Sigma$, where $h > 0$ and $\Sigma$ is the asset return covariance matrix during calm periods. Assume $\mu=0$. Then, the optimal weight $\omega_{t+1}^*$  is
 	equivalent to the optimal portfolio based on $\Sigma$ and (reduced) transaction costs $\frac{\beta}{1+h} < \beta.$
 
 ## Empirical Illustration
 
 - $N=308$ assets; 06/2007 - 03/2017 with daily readjustments
-- $\Sigma_t$ estimated by
+- We estimate $\Sigma_t$ with
 
   1. Sample covariance
   1. Ledoit/Wolf (2004) shrinkage estimator
   1. Rolling window of length $h = 500$ days
 
-- $\mu_t$ is fixed to zero. Initial portfolio weights: $\frac{1}{N}\iota$. $\gamma=4$.
+- We fix $\mu_t$ to zero. Initial portfolio weights: $\frac{1}{N}\iota$. $\gamma=4$.
 - Yields realized portfolio returns net of transaction costs
 $$\begin{aligned}
 r^\beta_t - \beta \left(\omega^\beta_{t+1} - \omega^\beta_{t^+}\right)^\prime\left(\omega^\beta_{t+1} - \omega^\beta_{t^+}\right)
@@ -625,7 +625,7 @@ $$\begin{aligned}
 
 
 ## What about parameter uncertainty? 
-- Recall that the optimal portfolio (for now: $\nu = 0$) is computed as the solution to $$\begin{aligned}\small
+- Recall that we compute the optimal portfolio (for now: $\nu = 0$) as the solution to $$\begin{aligned}\small
 \omega_{t+1} ^* :=&\arg\max_{\iota'\omega=1} E\left(U_\gamma\left(\omega ' \left(1 + {r}_{t+1}\right)\right)|\mathcal{M},\mathcal{F}_t\right) \\
 =&  \arg\max_{\iota'\omega=1} \int U_\gamma\left(\omega '\left(1 + {r}_{t+1}\right) \right) p_t ({r}_{t+1}|\mathcal{M})\,\text{d}{r}_{t+1}\\
 =&  \arg\max_{\iota'\omega=1} \int\int_\mu\int_\Sigma U_\gamma\left(\omega '\left(1 + {r}_{t+1}\right)\right)p_t ({r}_{t+1}|\mu, \Sigma, \mathcal{M})\,\text{d}\mu\,\text{d}\Sigma\,\text{d}{r}_{t+1},
@@ -651,7 +651,7 @@ $$\max_\omega = E\left(U(\omega)|\theta = \hat\theta\right)$$
 - Specify the prior distribution of the parameters as diffuse  
 $$\pi(\theta) = p(\mu_t|\Sigma_t) \times \pi(\Sigma_t) \propto |\Sigma_t|^{-\frac{N+1}{2}}$$
 - Then, assuming that the returns are jointly normally distributed, 
-the posterior distribution is given by $$p(\mu_t|\Sigma_t, \mathcal{D}_t) \propto |\Sigma_t|^{-1/2}\exp\left(-\frac{1}{2}tr\left(T(\mu_t - \hat\mu_t)\right)(\mu_t - \hat\mu_t)'\Sigma_t^{-1}\right)$$ and
+we obtain the posterior distribution $$p(\mu_t|\Sigma_t, \mathcal{D}_t) \propto |\Sigma_t|^{-1/2}\exp\left(-\frac{1}{2}tr\left(T(\mu_t - \hat\mu_t)\right)(\mu_t - \hat\mu_t)'\Sigma_t^{-1}\right)$$ and
 $$\pi(\Sigma_t) \propto |\Sigma_t|^{-(T+N)/2}\exp\left(-\frac{1}{2}tr\Sigma_t^{-1}\left(T\hat\Sigma_t\right)\right)$$
 - The predictive distribution corresponds to a multivariate $t$ distribution with $T - N$ degrees of freedom
 - Under the diffuse prior the mean-variance efficient portfolio is
@@ -660,9 +660,9 @@ $$\omega^\text{Bayes} = \frac{1}{\gamma}\left(\frac{T - N - 2}{T + 1}\right)\hat
  
 ## Extensions and takeaways
 - Bayesian computation allows us to sample from (almost) arbitrary posterior predictive distributions
-- Optimal allocation can be derived numerically
+- We can derive the optimal allocation numerically
 - Turnover regularization is closely related to parameter shrinkage
-- Optimal portfolios are shifted towards current holdings
+- Transaction costs shift optimal portfolios towards current holdings
 - This effect is different from *statistical* approaches: Shrinkage intensity is an exogenous parameter!
 
 ## Application: Hautsch and Voigt (2019)
@@ -676,11 +676,11 @@ $$\omega^\text{Bayes} = \frac{1}{\gamma}\left(\frac{T - N - 2}{T + 1}\right)\hat
 
 - Idea: parametrize weights as a function of the characteristics such that we maximize expected utility
 - feasible for large portfolio dimensions (such as the entire CRSP universe)
-- proposed by Brandt et al. (2009) in their influential paper *Parametric Portfolio Policies: Exploiting Characteristics in the Cross Section of Equity Returns*.
+- Brandt et al. (2009) proposed it in their influential paper *Parametric Portfolio Policies: Exploiting Characteristics in the Cross Section of Equity Returns*.
 
 **Basic idea:**
 
-- At each date $t$ we have $N_t$ stocks in the investment universe, where each stock $i$ has return $r_{i, t+1}$ and is associated with a vector of firm characteristics $x_{i, t}$ such as time-series momentum or market capitalization
+- At each date $t$ we have $N_t$ stocks in the investment universe, where each stock $i$ has return $r_{i, t+1}$ and a vector of firm characteristics $x_{i, t}$ such as time-series momentum or market capitalization
 - The investor's problem is to choose portfolio weights $w_{i,t}$ to maximize the expected utility of the portfolio return
 $$\begin{aligned}
 \max_{w} E_t\left(U(r_{p, t+1})\right) = E_t\left[U\left(\sum\limits_{i=1}^{N_t}w_{i,t}r_{i,t+1}\right)\right]
@@ -690,8 +690,8 @@ $$\begin{aligned}
 
 - Parametrize the optimal portfolio weights as a function of $x_{i,t}$ with the following linear specification for the portfolio weights:
 $$w_{i,t} = \bar{w}_{i,t} + \frac{1}{N_t}\theta'\hat{x}_{i,t}$$ 
-- here, $\bar{w}_{i,t}$ is the weight of a benchmark portfolio (value-weighted or naive portfolio), $\theta$ is a vector of coefficients which we are going to estimate, and $\hat{x}_{i,t}$ are the characteristics of stock $i$, cross-sectionally standardized to have zero mean and unit standard deviation. **Note on notation:** the hat on $\hat{x}_{i,t}$ denotes *standardization*, not an estimator — an unusual convention borrowed from Brandt et al. (2009)
-- Think of the portfolio strategy as a form of active portfolio management relative to a performance benchmark: Deviations from the benchmark portfolio are derived from the individual stock characteristics 
+- here, $\bar{w}_{i,t}$ is the weight of a benchmark portfolio (value-weighted or naive portfolio), $\theta$ is a vector of coefficients which we are going to estimate, and $\hat{x}_{i,t}$ are the characteristics of stock $i$, which we standardize cross-sectionally to have zero mean and unit standard deviation. **Note on notation:** the hat on $\hat{x}_{i,t}$ denotes *standardization*, not an estimator — an unusual convention we borrow from Brandt et al. (2009)
+- Think of the portfolio strategy as a form of active portfolio management relative to a performance benchmark: The individual stock characteristics determine the deviations from the benchmark portfolio
 - By construction the weights sum up to one as $\sum_{i=1}^{N_t}\hat{x}_{i,t} = 0$ due to the standardization. Note that the coefficients are constant across assets and through time
 - Implicit assumption is that the characteristics fully capture all aspects of the joint distribution of returns that are relevant for forming optimal portfolios       
 
