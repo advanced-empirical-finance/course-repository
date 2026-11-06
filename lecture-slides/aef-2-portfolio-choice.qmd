@@ -33,12 +33,12 @@ library(tidyverse)
 library(tidyfinance)
 
 symbols <- download_data(
-  type = "constituents",
+  "Index Constituents",
   index = "Dow Jones Industrial Average"
 )
 
 prices_daily <- download_data(
-    type = "stock_prices", symbol = symbols$symbol,
+    "Stock Prices", symbols = symbols$symbol,
     start_date = "2019-08-01", end_date = "2026-01-15"
 ) |> 
   select(symbol, date,  price = adjusted_close)
@@ -55,27 +55,33 @@ returns_monthly <- prices_daily |>
 ### Python
 ```{python} 
 #| eval: false
-import pandas as pd
+import polars as pl
 import numpy as np
 import tidyfinance as tf
 
 symbols = tf.download_data(
-  domain="constituents", 
+  domain="Index Constituents", 
   index="Dow Jones Industrial Average"
 )
 
-prices_daily = tf.download_data(
-  domain="stock_prices", 
-  symbols=symbols["symbol"].tolist(),
-  start_date="2019-08-01",
-  end_date="2026-01-15"
+prices_daily = (tf.download_data(
+    domain="Stock Prices", 
+    symbols=symbols["symbol"].to_list(),
+    start_date="2019-08-01",
+    end_date="2026-01-15"
+  )
+  .select("symbol", "date", price="adjusted_close")
 )
 
 returns_monthly = (prices_daily
-  .assign(date=prices_daily["date"].dt.to_period("M").dt.to_timestamp())
-  .groupby(["symbol", "date"], as_index=False)
-  .agg(adjusted_close=("adjusted_close", "last"))
-  .assign(ret=lambda x: x.groupby("symbol")["adjusted_close"].pct_change())
+  .sort("date")
+  .with_columns(date=pl.col("date").dt.truncate("1mo"))
+  .group_by("symbol", "date")
+  .agg(price=pl.col("price").last())
+  .sort("symbol", "date")
+  .with_columns(ret=pl.col("price").pct_change().over("symbol"))
+  .drop_nulls("ret")
+  .drop("price")
 )
 ```
 
@@ -118,11 +124,12 @@ assets <- returns_monthly |>
 ```{python}
 #| eval: false
 assets = (returns_monthly
-  .groupby("symbol", as_index=False)
+  .group_by("symbol")
   .agg(
-    mu=("ret", "mean"),
-    sigma=("ret", "std")
+    mu=pl.col("ret").mean(),
+    sigma=pl.col("ret").std()
   )
+  .sort("symbol")
 )
 ```
 
@@ -212,15 +219,14 @@ omega_mvp <- omega_mvp / sum(omega_mvp)
 ```{python}
 #| eval: false
 import numpy as np
-sigma = (returns_monthly
-  .pivot(index="date", columns="symbol", values="ret")
-  .reset_index()
-  .drop(columns=["date"])
-  .cov()
+returns_wide = (returns_monthly
+  .pivot(on="symbol", index="date", values="ret")
+  .drop("date")
 )
+sigma = np.cov(returns_wide.to_numpy(), rowvar=False)
 
 iota = np.ones(sigma.shape[0])
-sigma_inv = np.linalg.inv(sigma.values)
+sigma_inv = np.linalg.inv(sigma)
 omega_mvp = (sigma_inv @ iota) / (iota @ sigma_inv @ iota)
 ```
 
@@ -322,6 +328,7 @@ efficient_frontier <- tibble(a = seq(from = -0, to = 2, by = 0.01)) |>
 ### Python
 ```{python}
 #| eval: false
+mu = assets["mu"].to_numpy()
 mu_bar = assets["mu"].max()
 C = iota @ sigma_inv @ iota
 D = iota @ sigma_inv @ mu
@@ -329,24 +336,22 @@ E = mu @ sigma_inv @ mu
 lambda_tilde = 2 * (mu_bar - D / C) / (E - (D ** 2) / C)
 omega_efp = omega_mvp + (lambda_tilde / 2) * (sigma_inv @ mu - D * omega_mvp)
 mu_efp = omega_efp @ mu
-sigma_efp = np.sqrt(omega_efp @ sigma.values @ omega_efp)
+sigma_efp = np.sqrt(omega_efp @ sigma @ omega_efp)
 
-summary_efp = pd.DataFrame({
+summary_efp = pl.DataFrame({
   "mu": [mu_efp],
   "sigma": [sigma_efp],
   "type": ["Efficient Portfolio"]
 })
 
-efficient_frontier = (
-  pd.DataFrame({
-    "a": np.arange(-1, 2.01, 0.01)
-  })
-  .assign(omega=lambda x: x["a"].map(lambda x: x * omega_efp + (1 - x) * omega_mvp))
-  .assign(
-    mu=lambda x: x["omega"].map(lambda x: x @ mu),
-    sigma=lambda x: x["omega"].map(lambda x: np.sqrt(x @ sigma @ x))
-  )
-)
+a_grid = np.arange(0, 2.01, 0.01)
+omega_grid = [a * omega_efp + (1 - a) * omega_mvp for a in a_grid]
+
+efficient_frontier = pl.DataFrame({
+  "a": a_grid,
+  "mu": [omega @ mu for omega in omega_grid],
+  "sigma": [np.sqrt(omega @ sigma @ omega) for omega in omega_grid]
+})
 ```
 
 ### Figure {.active}
@@ -440,8 +445,8 @@ w_tan = w_tan / np.sum(w_tan)
 mu_w = w_tan.T @ mu
 sigma_w = np.sqrt(w_tan.T @ sigma @ w_tan)
 
-efficient_portfolios = pd.DataFrame([
-  {"symbol": "\omega_{tan}", "mu": mu_w, "sigma": sigma_w},
+efficient_portfolios = pl.DataFrame([
+  {"symbol": r"\omega_{tan}", "mu": mu_w, "sigma": sigma_w},
   {"symbol": "r_f", "mu": rf, "sigma": 0}
 ])
 
@@ -500,7 +505,7 @@ price_of_risk <- as.numeric(t(w_tan) %*% assets$mu - rf)
 ```{python}
 #| eval: false
 betas = (sigma @ w_tan) / (w_tan.T @ sigma @ w_tan)
-assets["beta"] = betas.values
+assets = assets.with_columns(beta=pl.Series(betas))
 
 price_of_risk = float(w_tan.T @ mu - rf)
 ```
@@ -715,7 +720,7 @@ crsp_monthly <- read_parquet("../data-r/crsp_monthly.parquet")
 ## Python
 ```{python}
 #| eval: false
-crsp_monthly = pd.read_parquet("../data-python/crsp_monthly.parquet")
+crsp_monthly = pl.read_parquet("../data-python/crsp_monthly.parquet")
 ```
 :::
 
@@ -774,23 +779,20 @@ roll_capm_estimation <- function(data, months, min_obs) {
 ::: {.column width="45%"}
 ```{python}
 #| eval: false
-def roll_capm_estimation(data, window_size, min_obs):
-  
-    data = data.sort_values("month")
+def roll_capm_estimation(data, months, min_obs):
 
-    result = (RollingOLS.from_formula(
-      formula="ret_excess ~ mkt_excess",
-      data=data,
-      window=window_size,
-      min_nobs=min_obs
+    betas = (data
+      .sort("month")
+      .rolling(index_column="month", period=f"{months}mo")
+      .agg(
+        n=pl.len(),
+        beta=pl.cov("ret_excess", "mkt_excess") / pl.col("mkt_excess").var()
       )
-      .fit()
-      .params["mkt_excess"]
+      .filter(pl.col("n") >= min_obs)
+      .select("month", "beta")
     )
-    
-    result.index = data.index
-    
-    return result
+
+    return betas
 ```
 ::: 
 ::::
@@ -838,22 +840,23 @@ beta_portfolios |> # Positive alpha?
 ## Python
 ```{python}
 #| eval: false
-beta_portfolios = (
-    beta
-    .assign(breakpoint=lambda df: df.groupby('date')['beta'].transform('median'))
-    .assign(portfolio=lambda df: np.where(df['beta'] <= df['breakpoint'], 'low', 'high'))
-    .groupby(['date', 'portfolio'], as_index=False)
-    .apply(lambda df: pd.DataFrame({
-        'ret': np.average(df['ret_excess'], weights=df['mktcap_lag'])
-    }, index=[0]))
-    .reset_index(drop=True)
+beta_portfolios = (beta
+  .with_columns(breakpoint=pl.col("beta").median().over("date"))
+  .with_columns(
+    portfolio=pl.when(pl.col("beta") <= pl.col("breakpoint")).then(pl.lit("low"))
+      .when(pl.col("beta") > pl.col("breakpoint")).then(pl.lit("high"))
+  )
+  .group_by("date", "portfolio")
+  .agg(
+    ret=(pl.col("ret_excess") * pl.col("mktcap_lag")).sum()
+      / pl.col("mktcap_lag").sum()
+  )
 )
 
-long_short = (
-    beta_portfolios
-    .pivot(index='date', columns='portfolio', values='ret')
-    .assign(long_short=lambda df: df['high'] - df['low'])
-    .reset_index()
+long_short = (beta_portfolios
+  .pivot(on="portfolio", index="date", values="ret")
+  .sort("date")
+  .with_columns(long_short=pl.col("high") - pl.col("low"))
 )
 
 ```

@@ -206,7 +206,7 @@ See details [here](https://occasionaldivergences.com/posts/python-intro/)
 
 ![](figures/r-learning-curve.png){width=60% fig-align="center"}
 
-## Data science workflow: tidyverse and pandas
+## Data science workflow: tidyverse and polars
 
 ![](figures/tidyverse_workflow.png){width=60% fig-align="center"}
 
@@ -214,7 +214,7 @@ See details [here](https://occasionaldivergences.com/posts/python-intro/)
 - The tidyverse is "a framework [...] that aims at doing the cleaning and preparing steps much easier"
 - [Wickhams and Grolemunds book *R for Data Science*](https://r4ds.hadley.nz/) explains everything we need
 - During this semester, we cover almost every topic from their book
-- Python library equivalents: `pandas`, `numpy`, `plotnine`
+- Python library equivalents: `polars`, `numpy`, `plotnine`
 
 ## Ready for a first case study?
 
@@ -230,7 +230,7 @@ library(tidyverse)
 library(tidyfinance)
 
 prices <- download_data(
-  type = "stock_prices",
+  "Stock Prices",
   symbols = c("AAPL", "MSFT"),
   start_date = "2000-01-01",
   end_date = "2026-02-01"
@@ -239,15 +239,15 @@ prices <- download_data(
 
 ## Python
 
-- load the libraries `pandas`, `numpy`, and `tidyfinance`
-- Import data: `pd.read_csv()`, `pd.read_txt()`, .., or download with `tidyfinance`
+- load the libraries `polars`, `numpy`, and `tidyfinance`
+- Import data: `pl.read_csv()`, `pl.read_parquet()`, .., or download with `tidyfinance`
 ```{python}
-import pandas as pd
+import polars as pl
 import numpy as np
 import tidyfinance as tf
 
 prices = tf.download_data(
-  domain="stock_prices", 
+  domain="Stock Prices", 
   symbols=["AAPL", "MSFT"],
   start_date="2000-01-01", 
   end_date="2026-02-01"
@@ -278,8 +278,8 @@ prices <- prices |>
 
 ```{python}
 prices = (prices
-  .rename(columns = {"volume": "traded_shares"})
-  .assign(volume_usd = lambda x: x["traded_shares"] * x["close"] / 1000000)
+  .rename({"volume": "traded_shares"})
+  .with_columns(volume_usd=pl.col("traded_shares") * pl.col("close") / 1000000)
 )
 ```
 ::: 
@@ -307,15 +307,15 @@ prices <- prices |> mutate(year = year(date))
 ```{python}
 #| eval: false
 
-prices.get(['symbol', 'date', 'adjusted_close'])
-prices.drop(columns=['close'])
+prices.select("symbol", "date", "adjusted_close")
+prices.drop("close")
 ```
 
 - Working with `date` format
 ```{python}
 #| eval: false
 
-prices = prices.assign(year = prices['date'].dt.year)
+prices = prices.with_columns(year=pl.col("date").dt.year())
 ```
 :::
 
@@ -341,19 +341,19 @@ prices |>
 
 ## Python
 
-- `size`, `groupby` and `summarise` solve *many* data science questions
+- `len`, `group_by` and `agg` solve *many* data science questions
 - *How many daily observations per symbol?*
 ```{python}
-prices.groupby("symbol").size()
+prices.group_by("symbol").len().sort("symbol")
 ```
 
 - *Which ticker had the highest average daily volume (in USD)?*
 
 ```{python}
 (prices
-    .groupby("symbol")["volume_usd"]
-    .mean()
-    .reset_index(name="avg_volume")
+  .group_by("symbol")
+  .agg(avg_volume=pl.col("volume_usd").mean())
+  .sort("symbol")
 )
 ```
 
@@ -398,11 +398,11 @@ returns
 ```{python}
 # Python
 returns = (prices
-  .query('symbol == "AAPL"')
-  .sort_values("date")
-  .assign(ret = lambda x: x["adjusted_close"].pct_change())
-  .get(["symbol", "date", "ret"])
-  .dropna())
+  .filter(pl.col("symbol") == "AAPL")
+  .sort("date")
+  .with_columns(ret=pl.col("adjusted_close").pct_change())
+  .select("symbol", "date", "ret")
+  .drop_nulls("ret"))
 returns.head(10)
 ```
 :::
@@ -435,7 +435,7 @@ prices |>
 ```{python}
 #| eval: false
 from plotnine import *
-from mizani.formatters import dollar_format
+from mizani.formatters import label_dollar
 price_plot = (
     ggplot(prices, aes(x="date", y="volume_usd", color="symbol"))
     + geom_point(size=0.2)
@@ -448,7 +448,7 @@ price_plot = (
     )
     + facet_wrap("~symbol", scales="free_x")
     + theme_bw()
-    + scale_y_continuous(labels=dollar_format(suffix="M", scale=1e-6))
+    + scale_y_continuous(labels=label_dollar(suffix="M", precision=0))
 )
 price_plot.show()
 ``` 
