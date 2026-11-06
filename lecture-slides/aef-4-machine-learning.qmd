@@ -286,7 +286,10 @@ $$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1} \un
 factors_ff3_monthly <- read_parquet("../data-r/factors_ff3_monthly.parquet") |>
   rename_with(~ str_c("factor_ff_", .), -date)
 
-factors_q_monthly <- read_parquet("../data-r/factors_q_monthly.parquet")  |>
+factors_q_monthly <- tidyfinance::download_data(
+  "Global Q", "q5_factors_monthly_2024",
+  start_date = "1967-01-01", end_date = "2024-12-31"
+) |>
   rename_with(~ str_c("factor_q_", .), -date)
 
 macro_predictors <- read_parquet("../data-r/macro_predictors.parquet") |>
