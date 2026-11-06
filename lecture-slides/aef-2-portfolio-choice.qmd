@@ -594,7 +594,7 @@ $$\beta_i = \frac{\sigma_{im}}{\sigma_m^2}$$
 
 ```{r}
 #| echo: false
-library(arrow)
+library(nanoparquet)
 library(gt)
 factors_ff_monthly <- read_parquet("../data-r/factors_ff3_monthly.parquet")
 factors_ff_monthly |> 
@@ -713,7 +713,7 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
 ## R
 
 ```{r}
-library(arrow)
+library(nanoparquet)
 crsp_monthly <- read_parquet("../data-r/crsp_monthly.parquet")
 ```
 

@@ -1,4 +1,4 @@
-manifest_fingerprint = "sha256:1c8385645845d6b2d0413df5437a9c4e6dcb04ba0b58408106a6b5091793fccf"
+manifest_fingerprint = "sha256:d9ef149c31f78029eb33422284227eb1cb116d61b0b92a0455cecf8af0b84f6c"
 
 [r]
 version = "4.6.1"
@@ -329,25 +329,6 @@ requires = [
 ]
 
 [[package]]
-name = "arrow"
-version = "26.0.0"
-source = "cran"
-raw_version = "26.0.0"
-url = "https://cran.r-project.org/src/contrib/arrow_26.0.0.tar.gz"
-checksum = "md5:856f159373ecc6746d3eef6e963993b0"
-requires = [
-    "assertthat",
-    "bit64",
-    "glue",
-    "purrr",
-    "R6",
-    "rlang",
-    "tidyselect",
-    "vctrs",
-    "cpp11",
-]
-
-[[package]]
 name = "askpass"
 version = "1.2.1"
 source = "cran"
@@ -355,14 +336,6 @@ raw_version = "1.2.1"
 url = "https://cran.r-project.org/src/contrib/askpass_1.2.1.tar.gz"
 checksum = "md5:fc2c6a61b6a354707586b01950366f37"
 requires = ["sys"]
-
-[[package]]
-name = "assertthat"
-version = "0.2.1"
-source = "cran"
-raw_version = "0.2.1"
-url = "https://cran.r-project.org/src/contrib/assertthat_0.2.1.tar.gz"
-checksum = "md5:9f2eae3d20a9d6b40856a6fed013cb05"
 
 [[package]]
 name = "backports"

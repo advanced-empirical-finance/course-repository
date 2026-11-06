@@ -39,12 +39,15 @@ The deadline to hand in the files on Peergrade via Absalon is **Sunday, April 12
 ## Empirical Asset Pricing via Machine Learning (inspired by @Gu.2020)
 
 ```{r}
-library(arrow)
+library(nanoparquet)
 library(dplyr)
 library(tidyr)
 
-stock_characteristics <- open_dataset("../data-r/stock_characteristics_monthly.parquet")
-characteristics_info <- stock_characteristics |> count(date, permno) |> collect()
+# Only the columns needed here: the file is large.
+characteristics_file <- "../data-r/stock_characteristics_monthly.parquet"
+columns <- read_parquet_schema(characteristics_file)$name
+characteristics_info <- read_parquet(characteristics_file, col_select = c("date", "permno")) |> count(date, permno)
+n_industries <- read_parquet(characteristics_file, col_select = "sic2") |> distinct() |> nrow()
 
 ```
 
@@ -60,7 +63,7 @@ The four exercises build on each other. Your variable selection in Exercise 1 de
 **Practical note:** Training machine learning models on large panels can be computationally intensive. If training is slow, consider reducing the hyperparameter grid or the number of characteristics. Consult the discussion board on Absalon if you run into technical difficulties. To render a Quarto document that includes heavy computations, you can set `cache: true` in the YAML header. Code chunks will then only be re-evaluated if their content changes, saving time when editing the report text.
 :::
 
-1. *Goal: build a clean, well-understood dataset for return prediction.* Read in the file `stock_characteristics_monthly.parquet` from Absalon and prepare the dataset. The file contains `{r} stock_characteristics |> select(contains("characteristic")) |> head(1) |> collect() |> ncol()` stock characteristics from @Gu.2020 (GKX, henceforth) and `{r}  stock_characteristics |> select(contains("macro")) |>head(1) |> collect()|>ncol()` macroeconomic predictors from the @Goyal.2008 data library. The file also contains `{r} stock_characteristics |> select(sic2)|>unique()|>collect()|>nrow()` industry classifications (`sic2`), excess returns (`ret_excess`), lagged market capitalization (`mktcap_lag`), and firm and date identifiers (`permno`, `date`). Stock characteristic columns are named `characteristic_*` and macroeconomic predictor columns `macro_*`.
+1. *Goal: build a clean, well-understood dataset for return prediction.* Read in the file `stock_characteristics_monthly.parquet` from Absalon and prepare the dataset. The file contains `{r} sum(grepl("characteristic", columns))` stock characteristics from @Gu.2020 (GKX, henceforth) and `{r} sum(grepl("macro", columns))` macroeconomic predictors from the @Goyal.2008 data library. The file also contains `{r} n_industries` industry classifications (`sic2`), excess returns (`ret_excess`), lagged market capitalization (`mktcap_lag`), and firm and date identifiers (`permno`, `date`). Stock characteristic columns are named `characteristic_*` and macroeconomic predictor columns `macro_*`.
 
     GKX model an asset's excess return as
     $$
