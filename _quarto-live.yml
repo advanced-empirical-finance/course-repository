@@ -3,7 +3,9 @@
 #
 #   quarto preview lecture-slides/<deck>.qmd --profile live
 #
-# The output goes to _live/ (git-ignored) and is never published. Without the
-# profile, Quarto renders the student version next to the .qmd as before.
-project:
-  output-dir: _live
+# The output is <deck>.live.html next to the .qmd: git-ignored and never
+# published. Without the profile, Quarto renders the student version
+# <deck>.html as before.
+format:
+  revealjs:
+    output-ext: live.html

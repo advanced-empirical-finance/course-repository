@@ -3,7 +3,7 @@
 /submissions/
 /.quarto/
 # Live version of the slides (quarto ... --profile live), never published
-/_live/
+*.live.html
 # Prototype renders
 lecture-slides/prototypes/*.html
 lecture-slides/prototypes/*_cache/
