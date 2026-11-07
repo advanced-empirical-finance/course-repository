@@ -1,0 +1,3 @@
+model,sr_train,sr_valid,sr_estimation,sr_test,seeds,hidden,instruments,rounds,pcs,no_macro,dropout,weight_decay,lr,patience,device
+B4 Feed-forward SDF (unconditional moments),3.46,2.94,3.32,0.88,2,64,8,3,10,True,0.05,1e-05,0.001,100,cpu
+B4 Chen-Pelger-Zhu light (adversarial moments),4.69,3.89,4.47,1.37,2,64,8,3,10,True,0.05,1e-05,0.001,100,cpu
