@@ -1,0 +1,139 @@
+---
+subtitle: "Prototype: the risk-free rate and the tangency portfolio"
+---
+
+```{r}
+#| label: data
+#| echo: false
+#| cache: true
+library(tidyverse)
+library(tidyfinance)
+
+# The Dow Jones 30 data of the Tidy Finance chapter "Modern portfolio theory"
+symbols <- download_data(
+  domain = "Index Constituents",
+  index = "Dow Jones Industrial Average"
+)
+
+prices_daily <- download_data(
+  domain = "Stock Prices",
+  symbols = symbols$symbol,
+  start_date = "2000-01-01",
+  end_date = "2024-12-31"
+)
+
+prices_daily <- prices_daily |>
+  group_by(symbol) |>
+  mutate(n = n()) |>
+  ungroup() |>
+  filter(n == max(n)) |>
+  select(-n)
+
+returns_monthly <- prices_daily |>
+  mutate(date = floor_date(date, "month")) |>
+  group_by(symbol, date) |>
+  summarize(price = last(adjusted_close), .groups = "drop_last") |>
+  mutate(ret = price / lag(price) - 1) |>
+  drop_na(ret) |>
+  select(-price)
+
+assets <- returns_monthly |>
+  group_by(symbol) |>
+  summarize(mu = mean(ret), sigma = sd(ret))
+
+sigma <- returns_monthly |>
+  pivot_wider(names_from = symbol, values_from = ret) |>
+  select(-date) |>
+  cov()
+```
+
+```{r}
+#| label: closed-form
+#| echo: false
+# Everything the slider changes follows in closed form from two vectors:
+# tangency weights for a risk-free rate r are (a - r b) / (D - r C)
+mu <- assets$mu
+sigma_inv <- solve(sigma)
+iota <- rep(1, length(mu))
+a <- as.vector(sigma_inv %*% mu)
+b <- as.vector(sigma_inv %*% iota)
+C <- sum(b)
+D <- sum(a)
+E <- as.numeric(t(mu) %*% a)
+
+frontier <- tibble(mu = seq(D / C - 0.02, max(mu) * 1.6, length.out = 200)) |>
+  mutate(sigma = sqrt((C * mu^2 - 2 * D * mu + E) / (C * E - D^2)))
+
+ojs_define(
+  stocks = assets,
+  frontier = frontier,
+  ab = tibble(symbol = assets$symbol, a = a, b = b),
+  consts = list(C = C, D = D, E = E)
+)
+```
+
+## The risk-free rate and the tangency portfolio
+
+```{ojs}
+//| echo: false
+viewof rf = Inputs.range([0, 1.2], {step: 0.01, value: 0.2, label: "Risk-free rate, % per month"})
+```
+
+:::: {.columns}
+::: {.column width="62%"}
+```{ojs}
+//| echo: false
+r = rf / 100
+mvp_mu = consts.D / consts.C
+denominator = consts.D - r * consts.C
+tangency = ({
+  mu: (consts.E - r * consts.D) / denominator,
+  sigma: Math.sqrt(consts.E - 2 * r * consts.D + r * r * consts.C) / Math.abs(denominator)
+})
+slope = (tangency.mu - r) / tangency.sigma
+sigma_max = 0.16
+Plot.plot({
+  width: 640,
+  height: 440,
+  x: {label: "Volatility (monthly)", domain: [0, sigma_max], tickFormat: "%"},
+  y: {label: "Expected return (monthly)", domain: [-0.01, 0.04], tickFormat: "%"},
+  marks: [
+    Plot.line(transpose(frontier), {x: "sigma", y: "mu", stroke: "#1f2937", strokeWidth: 2}),
+    Plot.dot(transpose(stocks), {x: "sigma", y: "mu", fill: "#9ca3af", r: 3}),
+    Plot.text(transpose(stocks), {x: "sigma", y: "mu", text: "symbol", dx: 12, fontSize: 9, fill: "#6b7280"}),
+    Plot.line([{sigma: 0, mu: r}, {sigma: sigma_max, mu: r + slope * sigma_max}],
+              {x: "sigma", y: "mu", stroke: "#901A1E", strokeWidth: 2}),
+    Plot.dot([{sigma: 0, mu: r}], {x: "sigma", y: "mu", fill: "#901A1E", r: 5}),
+    Plot.dot([tangency], {x: "sigma", y: "mu", fill: "#901A1E", r: 7}),
+    Plot.text([tangency], {x: "sigma", y: "mu", text: d => "Tangency", dy: -14, fill: "#901A1E", fontWeight: "bold"})
+  ]
+})
+```
+:::
+::: {.column width="38%"}
+```{ojs}
+//| echo: false
+weights = transpose(ab)
+  .map(d => ({symbol: d.symbol, weight: (d.a - r * d.b) / denominator}))
+  .sort((x, y) => y.weight - x.weight)
+Plot.plot({
+  width: 360,
+  height: 440,
+  marginLeft: 50,
+  x: {label: "Tangency weight", tickFormat: "%", domain: [-1.5, 1.5]},
+  y: {label: null, domain: weights.map(d => d.symbol)},
+  marks: [
+    Plot.barX(weights, {x: "weight", y: "symbol", fill: d => d.weight > 0 ? "#901A1E" : "#9ca3af"}),
+    Plot.ruleX([0])
+  ]
+})
+```
+:::
+::::
+
+```{ojs}
+//| echo: false
+denominator > 0
+  ? md`Sharpe ratio of the tangency portfolio: **${(slope * Math.sqrt(12)).toFixed(2)}** (annualized). The risk-free rate is ${(rf * 12).toFixed(1)}% per year.`
+  : md`**The risk-free rate exceeds the mean return of the minimum-variance portfolio** (${(mvp_mu * 100).toFixed(2)}% per month): the "tangency" portfolio lies on the inefficient lower branch of the frontier.`
+```
