@@ -1,4 +1,5 @@
-# Live polls with the poll service on eumel (see ~/live-poll/README.md there).
+# Live polls and surveys with the poll service on eumel (see
+# ~/live-poll/README.md there).
 #
 # A deck sources this file in its setup chunk. In the live version
 # (--profile live), the poll slides show a QR code and a chart that updates
@@ -45,4 +46,48 @@ poll_chart <- function(id, choices) {
     ) +
     ggplot2::theme_minimal(base_size = 16) +
     ggplot2::theme(panel.grid = ggplot2::element_blank(), axis.text.x = ggplot2::element_blank())
+}
+
+# All questions of a survey with the number of answers per choice
+# (see /survey on eumel); NULL if eumel is unreachable
+survey_results <- function(id) {
+  tryCatch(
+    jsonlite::fromJSON(paste0(poll_base, "/survey/data?id=", id)),
+    error = function(e) NULL
+  )
+}
+
+# One bar chart per survey question; NULL if nobody answered
+survey_chart <- function(id) {
+  results <- survey_results(id)
+  if (is.null(results) || results$respondents == 0) {
+    return(NULL)
+  }
+  # Choices are made unique per question ("1|None"), so questions with the
+  # same choices keep their own order in their own panel
+  counts <- results$questions |>
+    dplyr::mutate(question = dplyr::row_number()) |>
+    dplyr::select(question, short, choices, counts) |>
+    tidyr::unnest(c(choices, counts)) |>
+    dplyr::mutate(
+      short = factor(short, levels = unique(short)),
+      choice = paste(question, choices, sep = "|"),
+      choice = factor(choice, levels = rev(unique(choice)))
+    )
+  ggplot2::ggplot(counts, ggplot2::aes(x = counts, y = choice)) +
+    ggplot2::geom_col(fill = "#901A1E") +
+    ggplot2::geom_text(ggplot2::aes(label = counts), hjust = -0.4, size = 4) +
+    ggplot2::facet_wrap(~short, scales = "free_y", ncol = 3) +
+    ggplot2::scale_y_discrete(labels = function(x) sub("^[0-9]+[|]", "", x)) +
+    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0, 0.25))) +
+    ggplot2::labs(
+      x = NULL, y = NULL,
+      title = paste0("Answers in the first lecture (n = ", results$respondents, ")")
+    ) +
+    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(face = "bold", hjust = 0)
+    )
 }
