@@ -1,0 +1,11 @@
+# Live version of the slides: polls and interactive charts that need eumel
+# and the internet. Render or present it with the live profile:
+#
+#   quarto preview lecture-slides/<deck>.qmd --profile live
+#
+# The output is <deck>.live.html next to the .qmd: git-ignored and never
+# published. Without the profile, Quarto renders the student version
+# <deck>.html as before.
+format:
+  revealjs:
+    output-ext: live.html
