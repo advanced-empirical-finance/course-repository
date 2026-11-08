@@ -1,33 +1,46 @@
 ```{ojs}
 //| echo: false
-// Helpers for live polls; a deck includes this file once, on a slide inside
-// ::: {.content-visible when-profile="live"}. It needs poll_base from R:
-// if (live) ojs_define(poll_base = poll_base)
+// Helpers for live polls and surveys; a deck includes this file once, on a
+// slide inside ::: {.content-visible when-profile="live"}. It needs
+// poll_base from R: if (live) ojs_define(poll_base = poll_base)
 QRCode = require("qrcode-generator@1.4.4")
 
 function pollLink(id, choices) {
   return `${poll_base}/?poll=${id}&choices=${encodeURIComponent(choices.join(","))}`;
 }
 
-// QR code and a short link for the students' phones
-function pollQR(id, choices) {
+function surveyLink(id) {
+  return `${poll_base}/survey?id=${id}`;
+}
+
+// QR code with the link written below, for the students' phones
+function qrCode(link, label = link, size = 320) {
   const qr = QRCode(0, "M");
-  qr.addData(pollLink(id, choices));
+  qr.addData(link);
   qr.make();
   return html`<div style="text-align: center">
-    <img src="${qr.createDataURL(8, 2)}" style="width: 320px; image-rendering: pixelated">
-    <div style="font-size: 0.6em; word-break: break-all">${poll_base}/?poll=${id}</div>
+    <img src="${qr.createDataURL(8, 2)}" style="width: ${size}px; image-rendering: pixelated">
+    <div style="font-size: 0.6em; word-break: break-all">${label}</div>
   </div>`;
 }
 
-// All answers of a poll, fetched again every 3 seconds
-function pollAnswers(id) {
+function pollQR(id, choices) {
+  return qrCode(pollLink(id, choices), `${poll_base}/?poll=${id}`);
+}
+
+function surveyQR(id, size = 420) {
+  return qrCode(surveyLink(id), surveyLink(id), size);
+}
+
+// JSON from the poll service, fetched again every 3 seconds; null if eumel
+// cannot be reached
+function fetchEvery3s(link) {
   return Generators.observe(notify => {
     let timer;
     const update = async () => {
       try {
-        const response = await fetch(`${poll_base}/data?poll=${id}`, {cache: "no-store"});
-        notify(await response.json());
+        const response = await fetch(link, {cache: "no-store"});
+        notify(response.ok ? await response.json() : null);
       } catch (error) {
         notify(null);
       }
@@ -36,6 +49,14 @@ function pollAnswers(id) {
     update();
     return () => clearTimeout(timer);
   });
+}
+
+function pollAnswers(id) {
+  return fetchEvery3s(`${poll_base}/data?poll=${id}`);
+}
+
+function surveyResults(id) {
+  return fetchEvery3s(`${poll_base}/survey/data?id=${id}`);
 }
 
 // Bar chart of a multiple-choice poll in the order of `choices`
@@ -59,5 +80,34 @@ function pollBars(answers, choices) {
     ]
   });
   return html`<div>${chart}<p style="font-size: 0.7em">Answers so far: ${answers.length}</p></div>`;
+}
+
+// One small bar chart per survey question, three per row
+function surveyCharts(results) {
+  if (results === null) return md`*Cannot reach the survey on eumel.*`;
+  const charts = results.questions.map(q => {
+    const counts = q.choices.map((choice, i) => ({choice, n: q.counts[i]}));
+    return html`<div>
+      <div style="font-size: 0.6em; font-weight: bold; margin-left: 10px">${q.short}</div>
+      ${Plot.plot({
+        width: 340,
+        height: 30 + 34 * counts.length,
+        marginLeft: 195,
+        marginRight: 30,
+        style: {fontSize: "14px"},
+        x: {axis: null, domain: [0, Math.max(3, ...counts.map(d => d.n))]},
+        y: {label: null, domain: q.choices},
+        marks: [
+          Plot.barX(counts, {x: "n", y: "choice", fill: "#901A1E"}),
+          Plot.text(counts, {x: "n", y: "choice", text: "n", dx: 10, fontSize: 14}),
+          Plot.ruleX([0])
+        ]
+      })}
+    </div>`;
+  });
+  return html`<div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px">${charts}</div>
+    <p style="font-size: 0.6em; margin: 0">Answers so far: ${results.respondents}</p>
+  </div>`;
 }
 ```

@@ -208,15 +208,71 @@ The learning curve is very steep, remember to reach out in case something is unc
 
 # Where do we start?
 
-## Why did you choose to enroll in this course?
+## Who is in the room?
 
-![](figures/qr_code.png){width=25% fig-align="center"}
+```{r}
+#| label: survey-setup
+#| echo: false
+source("_live-poll.R")
+background_survey <- "aef27-l01-background"
+if (live) ojs_define(poll_base = poll_base, background_survey = background_survey)
+```
 
-[https://padlet.com/stefanvoigt2/8xyqpu91evwvndss](https://padlet.com/stefanvoigt2/8xyqpu91evwvndss){style="color:#901A1E;"}
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
 
-1. Bachelor's/Master's/Exchange student?
-2. Coding experience (General, R, Python, tidyverse)?
-3. General interest in finance? Data science? Skills for your future career?
+:::: {.columns}
+::: {.column width="55%"}
+```{ojs}
+//| echo: false
+surveyQR(background_survey)
+```
+:::
+::: {.column width="45%"}
+Six quick questions, anonymous:
+
+- Who are you?
+- How good are you at R, Python, and AI tools for coding?
+- Which tools have you used?
+- What do you mainly want to take away from this course?
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+A short anonymous survey in the first lecture:
+
+- Who are you: master's, exchange, or PhD student?
+- How good are you at R, Python, and AI tools for coding?
+- Which tools have you used?
+- What do you mainly want to take away from this course?
+:::
+
+## Who is in the room: your answers
+
+::: {.content-visible when-profile="live"}
+```{ojs}
+//| echo: false
+background = surveyResults(background_survey)
+surveyCharts(background)
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: survey-results
+#| echo: false
+#| results: asis
+#| fig-width: 12
+#| fig-height: 6
+background_chart <- survey_chart(background_survey)
+if (is.null(background_chart)) {
+  cat("The answers appear here after the first lecture.\n")
+} else {
+  print(background_chart)
+}
+```
+:::
 
 # Set up R, Python, Quarto, and Positron
 
