@@ -12,10 +12,7 @@ slide-number: true
 lightbox: true
 logo: ku_logo.png
 smaller: true
-html-math-method:
-  method: mathjax
-  url: http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML
+html-math-method: mathjax
 embed-resources: true
-self-contained-math: true
 execute:
   echo: true
