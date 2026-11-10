@@ -39,7 +39,13 @@ import tidyfinance as tf
 from great_tables import GT
 from mizani.formatters import percent_format
 from plotnine import (
-    aes, facet_wrap, geom_histogram, ggplot, labs, scale_x_continuous, theme,
+    aes,
+    facet_wrap,
+    geom_histogram,
+    ggplot,
+    labs,
+    scale_x_continuous,
+    theme,
     theme_bw,
 )
 
@@ -105,19 +111,19 @@ returns = (
 #| label: moments
 # One column per stock; drop days on which a stock has no return
 returns_matrix = (
-    returns.pivot(on="symbol", values="ret", index="date")
-    .drop_nulls()
-    .drop("date")
+    returns.pivot(on="symbol", values="ret", index="date").drop_nulls().drop("date")
 )
 
 mu = returns_matrix.to_numpy().mean(axis=0)
 sigma = np.cov(returns_matrix.to_numpy(), rowvar=False)
 
 # Name each Sharpe ratio after its column, so tickers and values stay matched
-sharpe_ratios = pl.DataFrame({
-    "ticker": returns_matrix.columns,
-    "sharpe": np.sqrt(trading_days_per_year) * mu / np.sqrt(np.diag(sigma)),
-})
+sharpe_ratios = pl.DataFrame(
+    {
+        "ticker": returns_matrix.columns,
+        "sharpe": np.sqrt(trading_days_per_year) * mu / np.sqrt(np.diag(sigma)),
+    }
+)
 highest_sharpe = sharpe_ratios.sort("sharpe", descending=True).row(0, named=True)
 ```
 
