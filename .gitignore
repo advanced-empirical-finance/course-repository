@@ -8,7 +8,7 @@
 lecture-slides/prototypes/*.html
 lecture-slides/prototypes/*_cache/
 lecture-slides/prototypes/*_files/
-**/*.quarto_ipynb
+**/*.quarto_ipynb*
 mandatory-assignments/MA_1_portfolio_choice_2026.qmd
 .claude/settings.local.json
 .Renviron
