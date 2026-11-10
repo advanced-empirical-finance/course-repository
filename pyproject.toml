@@ -1,5 +1,5 @@
 [project]
-name = "aef-2026"
+name = "aef"
 version = "0.1.0"
 description = "Python packages for Advanced Empirical Finance"
 readme = "README.md"
