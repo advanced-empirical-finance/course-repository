@@ -1,8 +1,8 @@
 ---
 title: Mandatory Assignment 1
 author: Your names
-date: today
-date-format: MMMM D, YYYY
+# The course environment's Python kernel (uv sync), never a kernel left over from an earlier setup
+jupyter: python3
 execute:
   echo: false
   warning: false
@@ -21,6 +21,13 @@ format:
     lang: en
     fontsize: 12pt
     highlight-style: github-light
+    # Figures and tables stay where they are in the text
+    fig-pos: "H"
+    tbl-pos: "H"
+    # A title in proportion to the text
+    include-in-header:
+      text: |
+        \setkomafont{title}{\normalfont\bfseries\Large}
 ---
 
 ```{python}
@@ -32,7 +39,13 @@ import tidyfinance as tf
 from great_tables import GT
 from mizani.formatters import percent_format
 from plotnine import (
-    aes, facet_wrap, geom_histogram, ggplot, labs, scale_x_continuous, theme,
+    aes,
+    facet_wrap,
+    geom_histogram,
+    ggplot,
+    labs,
+    scale_x_continuous,
+    theme,
     theme_bw,
 )
 
@@ -43,11 +56,11 @@ end_date = "2025-12-31"
 trading_days_per_year = 252
 ```
 
-## Quarto: a framework for reproducible research
+# Quarto: a framework for reproducible research
 
 Quarto weaves text and executable code into one document. To learn more, see <https://quarto.org> and the course's [Quarto self-study page](https://aef-course.ku.dk/additional-material/quarto-documentation.html). When you click **Preview** in Positron or run `quarto render` in the Terminal, Quarto runs the code and creates a PDF with all results. Use this template for your mandatory assignments. It shows the elements every report needs: sections, a figure and a table with captions and cross-references, math, a footnote, citations, and numbers in the text that come from the code (inline code). By default, the PDF hides the code; `echo: true` in the header or in a chunk shows it.
 
-## Exercise
+# Exercise
 
 1. Download daily adjusted prices for three stocks, AAPL, MSFT, and BA, from January 1, 2000, until December 31, 2025, from Yahoo Finance. Show the code you use to download the data in your report. Compute the daily returns of each stock.
 
@@ -61,7 +74,10 @@ prices = tf.download_data(
     start_date=start_date,
     end_date=end_date,
 )
+```
 
+```{python}
+#| label: returns
 # Daily net returns per stock
 returns = (
     prices.sort("symbol", "date")
@@ -95,19 +111,19 @@ returns = (
 #| label: moments
 # One column per stock; drop days on which a stock has no return
 returns_matrix = (
-    returns.pivot(on="symbol", values="ret", index="date")
-    .drop_nulls()
-    .drop("date")
+    returns.pivot(on="symbol", values="ret", index="date").drop_nulls().drop("date")
 )
 
 mu = returns_matrix.to_numpy().mean(axis=0)
 sigma = np.cov(returns_matrix.to_numpy(), rowvar=False)
 
 # Name each Sharpe ratio after its column, so tickers and values stay matched
-sharpe_ratios = pl.DataFrame({
-    "ticker": returns_matrix.columns,
-    "sharpe": np.sqrt(trading_days_per_year) * mu / np.sqrt(np.diag(sigma)),
-})
+sharpe_ratios = pl.DataFrame(
+    {
+        "ticker": returns_matrix.columns,
+        "sharpe": np.sqrt(trading_days_per_year) * mu / np.sqrt(np.diag(sigma)),
+    }
+)
 highest_sharpe = sharpe_ratios.sort("sharpe", descending=True).row(0, named=True)
 ```
 
@@ -120,17 +136,19 @@ where $\hat\mu_i$ is the sample mean and $\hat\sigma_i$ the sample standard devi
 ```{python}
 #| label: tbl-sharpe-ratios
 #| tbl-cap: Annualized Sharpe ratios of daily returns, January 2000 to December 2025.
+#| tbl-pos: "H"
 #| output: asis
 # great_tables writes HTML by default; as_latex() gives the table for the PDF
 print(
     GT(sharpe_ratios)
     .cols_label(ticker="Ticker", sharpe="Sharpe ratio")
     .fmt_number(columns="sharpe", decimals=3)
+    .tab_options(table_width="50%")
     .as_latex()
 )
 ```
 
-## References {.unnumbered}
+# References {.unnumbered}
 
 ::: {#refs}
 :::
