@@ -1,13 +1,13 @@
 ---
-title: Mandatory Assignment 0
-author: Stefan Voigt
-date: 2024-01-03
-date-format: MMMM DD, YYYY
-execute: 
+title: Mandatory Assignment 1
+author: Your names
+date: today
+date-format: MMMM D, YYYY
+execute:
   echo: false
   warning: false
 format:
-  pdf: 
+  pdf:
     number-sections: true
     colorlinks: true
     geometry:
@@ -17,110 +17,120 @@ format:
       - right=20mm
     bibliography: references.bib
     cite-method: natbib
-    biblio-style: apalike  
+    biblio-style: apalike
     lang: en
     fontsize: 12pt
     highlight-style: github-light
 ---
 
+```{python}
+#| label: setup
+# Packages
+import numpy as np
+import polars as pl
+import tidyfinance as tf
+from great_tables import GT
+from mizani.formatters import percent_format
+from plotnine import (
+    aes, facet_wrap, geom_histogram, ggplot, labs, scale_x_continuous, theme,
+    theme_bw,
+)
 
-## Quarto - a framework for reproducible research
+# Sample and constants: change them here, nowhere else
+symbols = ["AAPL", "MSFT", "BA"]
+start_date = "2000-01-01"
+end_date = "2025-12-31"
+trading_days_per_year = 252
+```
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>. When you click the **Preview** button in Positron or type `quarto render` in the terminal a .pdf document will be generated that includes both content and the output of embedded code. The template below can be used to submit your answers for the mandatory assignment. Within the template you find all typical issues. By default, code is omitted in the output (can be changed with `echo: true` in line 6). Formatting is done using markdown (e.g., check out how to use \# to define sections and subsections or how to generate bold text). Footnotes and citations are easy. You can also include math notation using LaTeX style. The template contains inline code execution (e.g. to automatically return the ticker of the asset with the highest Sharpe ratio) and shows how to embed figures into the document.
+## Quarto: a framework for reproducible research
+
+Quarto weaves text and executable code into one document. To learn more, see <https://quarto.org> and the course's [Quarto self-study page](https://aef-course.ku.dk/additional-material/quarto-documentation.html). When you click **Preview** in Positron or run `quarto render` in the Terminal, Quarto runs the code and creates a PDF with all results. Use this template for your mandatory assignments. It shows the elements every report needs: sections, a figure and a table with captions and cross-references, math, a footnote, citations, and numbers in the text that come from the code (inline code). By default, the PDF hides the code; `echo: true` in the header or in a chunk shows it.
 
 ## Exercise
 
-1. Download daily adjusted prices for all constituents of three stocks: AAPL, MSFT, and BA for the period from January 1st, 2000 until December 31st, 2025 from Yahoo!Finance. Explicitly include the code you use to download the data into your report. Compute the daily returns for each of the tickers.
+1. Download daily adjusted prices for three stocks, AAPL, MSFT, and BA, from January 1, 2000, until December 31, 2025, from Yahoo Finance. Show the code you use to download the data in your report. Compute the daily returns of each stock.
 
 ```{python}
-import polars as pl
-import numpy as np
-import tidyfinance as tf
-from plotnine import *
-from mizani.formatters import percent_format
-```
-
-```{python} 
+#| label: download
 #| echo: true
-#| cache: true
-
-ticker = ["AAPL", "MSFT", "BA"]
+# Daily prices from Yahoo Finance, adjusted for splits and dividends
 prices = tf.download_data(
-  domain="Stock Prices", 
-  symbols=ticker,
-  start_date="2000-01-01", 
-  end_date="2025-12-31"
+    domain="Stock Prices",
+    symbols=symbols,
+    start_date=start_date,
+    end_date=end_date,
 )
 
-returns = (prices
-  .sort("symbol", "date")
-  .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
-  .select("symbol", "date", "ret")
-  .drop_nulls("ret")
+# Daily net returns per stock
+returns = (
+    prices.sort("symbol", "date")
+    .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
+    .select("symbol", "date", "ret")
+    .drop_nulls("ret")
 )
 ```
 
-1. Visualize the distribution of the daily returns.
+2. Visualize the distribution of the daily returns.
 
 ```{python}
 #| label: fig-return-distribution
-#| fig-cap: Distribution of daily stock returns. 
-
-returns_figure = (
-  ggplot(returns, aes(x="ret", fill="symbol")) +
-  geom_histogram(bins=100) +
-  labs(x="", y="",
-       fill ="") +
-  facet_wrap("symbol") +
-  scale_x_continuous(labels=percent_format()) +
-  theme_bw() +
-  theme(legend_position = "none")
+#| fig-cap: Distribution of daily returns of AAPL, BA, and MSFT, January 2000 to December 2025.
+(
+    ggplot(returns, aes(x="ret", fill="symbol"))
+    + geom_histogram(bins=100)
+    + labs(x="", y="", fill="")
+    + facet_wrap("symbol")
+    + scale_x_continuous(labels=percent_format())
+    + theme_bw()
+    + theme(legend_position="none")
 )
-returns_figure.draw()
 ```
 
-@fig-return-distribution shows the distribution of daily returns for the three assets.
+@fig-return-distribution shows the distribution of daily returns for the three stocks.
 
-1. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns.
-Which of the individual assets delivered the highest Sharpe ratio (assume the risk-free rate is zero) during the sample period?^[Whenever reporting performance measures, compute annualized values and clearly state how you calculated the measure.]
-The estimated moments may later be used for the construction of optimal portfolios (@Markowitz1952; @Merton1972)
+3. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns. Which of the individual assets delivered the highest Sharpe ratio (assume a risk-free rate of zero) during the sample period?^[Whenever you report performance measures, compute annualized values and state clearly how you calculated them.] The estimated moments may later be used to construct optimal portfolios [@Markowitz1952; @Merton1972].
 
 ```{python}
-returns_matrix = (returns
-  .pivot(on="symbol", 
-         values="ret", 
-         index="date")
-  .drop("date")
-  .drop_nulls()
+#| label: moments
+# One column per stock; drop days on which a stock has no return
+returns_matrix = (
+    returns.pivot(on="symbol", values="ret", index="date")
+    .drop_nulls()
+    .drop("date")
 )
 
-mu = np.mean(returns_matrix.to_numpy(), axis=0)
+mu = returns_matrix.to_numpy().mean(axis=0)
 sigma = np.cov(returns_matrix.to_numpy(), rowvar=False)
 
-sharpe_ratio = pl.DataFrame({"ticker": returns_matrix.columns,
-  "Sharpe": np.sqrt(250) * mu / np.sqrt(np.diag(sigma))})
+# Name each Sharpe ratio after its column, so tickers and values stay matched
+sharpe_ratios = pl.DataFrame({
+    "ticker": returns_matrix.columns,
+    "sharpe": np.sqrt(trading_days_per_year) * mu / np.sqrt(np.diag(sigma)),
+})
+highest_sharpe = sharpe_ratios.sort("sharpe", descending=True).row(0, named=True)
 ```
 
-**Answer: ** The asset with the highest annualized Sharpe-ratio, computed as 
+**Answer:** We compute the annualized Sharpe ratio of asset $i$ as
 $$
-\sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i},
+\sqrt{252}\,\frac{\hat\mu_i}{\hat\sigma_i},
 $$
-
-where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{python} sharpe_ratio.filter(pl.col("Sharpe") == pl.col("Sharpe").max())["ticker"].item()` with an annualized Sharpe-ratio of `{python} round(sharpe_ratio["Sharpe"].max(), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
+where $\hat\mu_i$ is the sample mean and $\hat\sigma_i$ the sample standard deviation of asset $i$'s daily returns, and 252 is the number of trading days per year. `{python} highest_sharpe["ticker"]` has the highest annualized Sharpe ratio, `{python} f"{highest_sharpe['sharpe']:.3f}"`. @tbl-sharpe-ratios shows the Sharpe ratios of all three stocks.^[Format numbers for the text with an f-string, as here. Otherwise Quarto prints Python's raw representation, for instance `np.float64(0.776)`.]
 
 ```{python}
-#| tbl-cap: Historical annualized Sharpe-ratios
 #| label: tbl-sharpe-ratios
+#| tbl-cap: Annualized Sharpe ratios of daily returns, January 2000 to December 2025.
 #| output: asis
-from great_tables import GT
-tbl = (
-    GT(sharpe_ratio)
-    .fmt_number(columns="Sharpe", decimals=3)
+# great_tables writes HTML by default; as_latex() gives the table for the PDF
+print(
+    GT(sharpe_ratios)
+    .cols_label(ticker="Ticker", sharpe="Sharpe ratio")
+    .fmt_number(columns="sharpe", decimals=3)
+    .as_latex()
 )
-latex_tbl = tbl.as_latex()
-print(latex_tbl)
 ```
 
-## References
-::::{#refs}
-::::
+## References {.unnumbered}
+
+::: {#refs}
+:::
