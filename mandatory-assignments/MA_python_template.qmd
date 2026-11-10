@@ -1,6 +1,8 @@
 ---
 title: Mandatory Assignment 1
 author: Your names
+# The course environment's Python kernel (uv sync), never a kernel left over from an earlier setup
+jupyter: python3
 execute:
   echo: false
   warning: false
