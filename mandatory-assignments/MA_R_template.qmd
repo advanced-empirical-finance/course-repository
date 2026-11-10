@@ -1,8 +1,6 @@
 ---
 title: Mandatory Assignment 1
 author: Your names
-date: today
-date-format: MMMM D, YYYY
 execute:
   echo: false
   warning: false
@@ -22,6 +20,13 @@ format:
     lang: en
     fontsize: 12pt
     highlight-style: github-light
+    # Figures and tables stay where they are in the text
+    fig-pos: "H"
+    tbl-pos: "H"
+    # A title in proportion to the text
+    include-in-header:
+      text: |
+        \setkomafont{title}{\normalfont\bfseries\Large}
 ---
 
 ```{r}
@@ -39,11 +44,11 @@ end_date <- "2025-12-31"
 trading_days_per_year <- 252
 ```
 
-## Quarto: a framework for reproducible research
+# Quarto: a framework for reproducible research
 
 Quarto weaves text and executable code into one document. To learn more, see <https://quarto.org> and the course's [Quarto self-study page](https://aef-course.ku.dk/additional-material/quarto-documentation.html). When you click **Preview** in Positron or run `quarto render` in the Terminal, Quarto runs the code and creates a PDF with all results. Use this template for your mandatory assignments. It shows the elements every report needs: sections, a figure and a table with captions and cross-references, math, a footnote, citations, and numbers in the text that come from the code (inline code). By default, the PDF hides the code; `echo: true` in the header or in a chunk shows it.
 
-## Exercise
+# Exercise
 
 1. Download daily adjusted prices for three stocks, AAPL, MSFT, and BA, from January 1, 2000, until December 31, 2025, from Yahoo Finance. Show the code you use to download the data in your report. Compute the daily returns of each stock.
 
@@ -57,7 +62,10 @@ prices <- download_data(
   start_date = start_date,
   end_date = end_date
 )
+```
 
+```{r}
+#| label: returns
 # Daily net returns per stock
 returns <- prices |>
   arrange(symbol, date) |>
@@ -115,13 +123,15 @@ where $\hat\mu_i$ is the sample mean and $\hat\sigma_i$ the sample standard devi
 ```{r}
 #| label: tbl-sharpe-ratios
 #| tbl-cap: Annualized Sharpe ratios of daily returns, January 2000 to December 2025.
+#| tbl-pos: "H"
 sharpe_ratios |>
   gt() |>
   cols_label(ticker = "Ticker", sharpe = "Sharpe ratio") |>
-  fmt_number(columns = sharpe, decimals = 3)
+  fmt_number(columns = sharpe, decimals = 3) |>
+  tab_options(table.width = pct(50))
 ```
 
-## References {.unnumbered}
+# References {.unnumbered}
 
 ::: {#refs}
 :::
