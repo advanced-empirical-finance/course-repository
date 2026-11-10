@@ -1,2 +1,7 @@
 project:
   title: "Advanced Empirical Finance: Topics and Data Science"
+execute:
+  # Start a fresh Jupyter kernel for every render. Quarto's kept-alive kernel
+  # breaks on Windows: "ConnectionReset" on the first render, or "No such file
+  # or directory: ....quarto_ipynb" from a kernel left in another folder.
+  daemon: false
