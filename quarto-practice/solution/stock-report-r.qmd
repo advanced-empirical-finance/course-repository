@@ -1,0 +1,124 @@
+---
+title: "Risk and return of three US stocks"
+author: "Your Name"
+date: today
+format:
+  pdf:
+    number-sections: true
+    fontsize: 12pt
+    geometry:
+      - margin=20mm
+execute:
+  echo: false
+  warning: false
+  message: false
+bibliography: references.bib
+---
+
+```{r}
+#| label: setup
+# Packages
+library(tidyverse)
+library(tidyfinance)
+library(gt)
+
+# Sample and constants: change them here, nowhere else
+symbols <- c("AAPL", "JPM", "XOM")
+start_date <- "2015-01-01"
+end_date <- "2025-12-31"
+trading_days_per_year <- 252
+```
+
+## Introduction
+
+Mean returns and volatilities are the two inputs of mean-variance analysis [@Markowitz1952]. This report compares them for `{r} length(symbols)` large US stocks: Apple (AAPL), JPMorgan Chase (JPM) and ExxonMobil (XOM).^[Daily prices from Yahoo Finance, downloaded with the tidyfinance package.]
+
+## Data {#sec-data}
+
+```{r}
+#| label: download
+#| echo: true
+# Daily prices from Yahoo Finance, adjusted for splits and dividends
+prices <- download_data(
+  "Stock Prices",
+  symbols = symbols,
+  start_date = start_date,
+  end_date = end_date
+)
+
+# Daily net returns per stock
+returns <- prices |>
+  arrange(symbol, date) |>
+  group_by(symbol) |>
+  mutate(ret = adjusted_close / lag(adjusted_close) - 1) |>
+  ungroup() |>
+  drop_na(ret)
+```
+
+```{r}
+#| label: sample-info
+n_days <- n_distinct(returns$date)
+first_day <- min(returns$date)
+last_day <- max(returns$date)
+```
+
+The sample contains `{r} n_days` trading days from `{r} first_day` to `{r} last_day`. The daily net return of stock $i$ on day $t$ is $r_{i,t} = p_{i,t} / p_{i,t-1} - 1$, where $p_{i,t}$ is the adjusted closing price.
+
+## Results
+
+```{r}
+#| label: fig-growth
+#| fig-cap: "Growth of one dollar invested in each stock at the start of the sample, based on daily adjusted closing prices. Log scale."
+#| fig-width: 6
+#| fig-height: 3.5
+returns |>
+  group_by(symbol) |>
+  mutate(wealth = cumprod(1 + ret)) |>
+  ggplot(aes(x = date, y = wealth, color = symbol)) +
+  geom_line() +
+  scale_y_log10() +
+  labs(x = NULL, y = "Value of $1 (log scale)", color = NULL) +
+  theme_minimal()
+```
+
+```{r}
+#| label: summary-stats
+# Annualized moments and Sharpe ratio (risk-free rate set to zero)
+summary_stats <- returns |>
+  group_by(symbol) |>
+  summarize(
+    mean_return = mean(ret) * trading_days_per_year,
+    volatility = sd(ret) * sqrt(trading_days_per_year)
+  ) |>
+  mutate(sharpe_ratio = mean_return / volatility)
+
+best <- summary_stats |> slice_max(sharpe_ratio, n = 1)
+```
+
+@fig-growth shows how one dollar invested in each stock evolves over the sample. We measure risk-adjusted performance with the annualized Sharpe ratio [@Sharpe1966], setting the risk-free rate to zero:
+
+$$
+\text{SR}_i = \sqrt{252}\,\frac{\bar r_i}{s_i},
+$$ {#eq-sharpe}
+
+where $\bar r_i$ and $s_i$ are the mean and the standard deviation of the daily returns of stock $i$. @tbl-summary reports the results of @eq-sharpe together with the annualized mean return and volatility. `{r} best$symbol` has the highest Sharpe ratio (`{r} round(best$sharpe_ratio, 2)`), with an annualized volatility of `{r} scales::percent(best$volatility, accuracy = 0.1)`.
+
+```{r}
+#| label: tbl-summary
+#| tbl-cap: "Annualized mean return, volatility and Sharpe ratio, based on daily returns. The risk-free rate is set to zero."
+summary_stats |>
+  gt() |>
+  cols_label(
+    symbol = "Stock",
+    mean_return = "Mean return",
+    volatility = "Volatility",
+    sharpe_ratio = "Sharpe ratio"
+  ) |>
+  fmt_percent(columns = c(mean_return, volatility), decimals = 1) |>
+  fmt_number(columns = sharpe_ratio, decimals = 2)
+```
+
+## References {.unnumbered}
+
+::: {#refs}
+:::
