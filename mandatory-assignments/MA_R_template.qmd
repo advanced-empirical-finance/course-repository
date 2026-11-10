@@ -1,13 +1,14 @@
 ---
-title: Mandatory Assignment 0
-author: Stefan Voigt
-date: 2024-01-03
-date-format: MMMM DD, YYYY
-execute: 
+title: Mandatory Assignment 1
+author: Your names
+date: today
+date-format: MMMM D, YYYY
+execute:
   echo: false
   warning: false
+  message: false
 format:
-  pdf: 
+  pdf:
     number-sections: true
     colorlinks: true
     geometry:
@@ -17,105 +18,110 @@ format:
       - right=20mm
     bibliography: references.bib
     cite-method: natbib
-    biblio-style: apalike  
+    biblio-style: apalike
     lang: en
     fontsize: 12pt
     highlight-style: github-light
 ---
 
-## Quarto - a framework for reproducible research
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>. When you click the **Preview** button in Positron or type `quarto render` in the terminal a .pdf document will be generated that includes both content and the output of embedded code. The template below can be used to submit your answers for the mandatory assignment. Within the template you find all typical issues. By default, code is omitted in the output (can be changed with `echo: true` in line 6). Formatting is done using markdown (e.g., check out how to use \# to define sections and subsections or how to generate bold text). Footnotes and citations are easy. You can also include math notation using LaTeX style. The template contains inline code execution (e.g. to automatically return the ticker of the asset with the highest Sharpe ratio) and shows how to embed figures into the document.
-
-## Exercise
-
-1. Download daily adjusted prices for all constituents of three stocks: AAPL, MSFT, and BA for the period from January 1st, 2000 until December 31st, 2025 from Yahoo!Finance. Explicitly include the code you use to download the data into your report. Compute the daily returns for each of the tickers.
-
 ```{r}
+#| label: setup
+# Packages
 library(tidyverse)
 library(tidyfinance)
 library(scales)
+library(gt)
+
+# Sample and constants: change them here, nowhere else
+symbols <- c("AAPL", "MSFT", "BA")
+start_date <- "2000-01-01"
+end_date <- "2025-12-31"
+trading_days_per_year <- 252
 ```
 
-```{r}
-#| cache: true
-#| echo: true
-ticker <- c("AAPL", "MSFT", "BA")
+## Quarto: a framework for reproducible research
 
+Quarto weaves text and executable code into one document. To learn more, see <https://quarto.org> and the course's [Quarto self-study page](https://aef-course.ku.dk/additional-material/quarto-documentation.html). When you click **Preview** in Positron or run `quarto render` in the Terminal, Quarto runs the code and creates a PDF with all results. Use this template for your mandatory assignments. It shows the elements every report needs: sections, a figure and a table with captions and cross-references, math, a footnote, citations, and numbers in the text that come from the code (inline code). By default, the PDF hides the code; `echo: true` in the header or in a chunk shows it.
+
+## Exercise
+
+1. Download daily adjusted prices for three stocks, AAPL, MSFT, and BA, from January 1, 2000, until December 31, 2025, from Yahoo Finance. Show the code you use to download the data in your report. Compute the daily returns of each stock.
+
+```{r}
+#| label: download
+#| echo: true
+# Daily prices from Yahoo Finance, adjusted for splits and dividends
 prices <- download_data(
   "Stock Prices",
-  symbols = ticker,
-  start_date = "2000-01-01",
-  end_date = "2025-12-31"
+  symbols = symbols,
+  start_date = start_date,
+  end_date = end_date
 )
 
+# Daily net returns per stock
 returns <- prices |>
+  arrange(symbol, date) |>
   group_by(symbol) |>
-  transmute(date, 
-            ret = adjusted_close / lag(adjusted_close) - 1) |>
+  mutate(ret = adjusted_close / lag(adjusted_close) - 1) |>
+  ungroup() |>
+  select(symbol, date, ret) |>
   drop_na(ret)
 ```
 
-1. Visualize the distribution of the daily returns.
+2. Visualize the distribution of the daily returns.
+
 ```{r}
 #| label: fig-return-distribution
-#| fig-cap: Distribution of daily stock returns. 
- 
+#| fig-cap: Distribution of daily returns of AAPL, BA, and MSFT, January 2000 to December 2025.
 returns |>
   ggplot(aes(x = ret, fill = symbol)) +
   geom_histogram(bins = 100) +
-  labs(
-    x = NULL,
-    y = NULL,
-    fill = NULL,
-  ) +
+  labs(x = NULL, y = NULL, fill = NULL) +
   facet_wrap(~symbol) +
   scale_x_continuous(labels = percent) +
   theme_bw() +
   theme(legend.position = "none")
 ```
 
-@fig-return-distribution shows the distribution of daily returns for the three assets.
+@fig-return-distribution shows the distribution of daily returns for the three stocks.
 
-1. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns.
-Which of the individual assets delivered the highest Sharpe ratio (assume the risk-free rate is zero) during the sample period?^[Whenever reporting performance measures, compute annualized values and clearly state how you calculated the measure.]
-The estimated moments may later be used for the construction of optimal portfolios (@Markowitz1952; @Merton1972)
+3. Compute the sample mean $\mu$ and the variance-covariance matrix $\Sigma$ of the returns. Which of the individual assets delivered the highest Sharpe ratio (assume a risk-free rate of zero) during the sample period?^[Whenever you report performance measures, compute annualized values and state clearly how you calculated them.] The estimated moments may later be used to construct optimal portfolios [@Markowitz1952; @Merton1972].
+
 ```{r}
+#| label: moments
+# One column per stock; drop days on which a stock has no return
 returns_matrix <- returns |>
-  pivot_wider(
-    names_from = symbol,
-    values_from = ret
-  )
+  pivot_wider(names_from = symbol, values_from = ret) |>
+  drop_na() |>
+  select(-date)
 
-Sigma <- cov(returns_matrix |> select(-date))
-mu <- colMeans(returns_matrix |> select(-date))
+mu <- colMeans(returns_matrix)
+sigma <- cov(returns_matrix)
 
-sharpe_ratio <- tibble(Ticker = ticker,
-                       Sharpe = sqrt(250) * mu / sqrt(diag(Sigma)))
+# Name each Sharpe ratio after its column, so tickers and values stay matched
+sharpe_ratios <- tibble(
+  ticker = names(mu),
+  sharpe = sqrt(trading_days_per_year) * mu / sqrt(diag(sigma))
+)
+highest_sharpe <- sharpe_ratios |> slice_max(sharpe)
 ```
 
-**Answer: ** The asset with the highest annualized Sharpe-ratio, computed as 
+**Answer:** We compute the annualized Sharpe ratio of asset $i$ as
 $$
-\sqrt{250}\frac{\hat\mu_i}{\hat\sigma_i},
+\sqrt{252}\,\frac{\hat\mu_i}{\hat\sigma_i},
 $$
+where $\hat\mu_i$ is the sample mean and $\hat\sigma_i$ the sample standard deviation of asset $i$'s daily returns, and 252 is the number of trading days per year. `{r} highest_sharpe$ticker` has the highest annualized Sharpe ratio, `{r} round(highest_sharpe$sharpe, 3)`. @tbl-sharpe-ratios shows the Sharpe ratios of all three stocks.
 
-where $\hat\mu_i$ is the sample mean of asset $i$s dailies returns and $\hat\sigma_i$ is the standard deviation of asset $i$s dailys returns is `{r} sharpe_ratio |> filter(Sharpe == max(Sharpe)) |> pull(Ticker) ` with an annualized Sharpe-ratio of `{r} round(max(sharpe_ratio$Sharpe), 3)`. @tbl-sharpe-ratios illustrates all Sharpe ratios. 
 ```{r}
-#| tbl-cap: Historical annualized Sharpe-ratios
 #| label: tbl-sharpe-ratios
-#| output: asis
-library(gt)
-sharpe_ratio |> 
+#| tbl-cap: Annualized Sharpe ratios of daily returns, January 2000 to December 2025.
+sharpe_ratios |>
   gt() |>
-  fmt_number(
-    columns = Sharpe,
-    decimals = 3
-  ) |>
-    as_latex() |>
-    cat()
+  cols_label(ticker = "Ticker", sharpe = "Sharpe ratio") |>
+  fmt_number(columns = sharpe, decimals = 3)
 ```
 
-# References {.unnumbered}
+## References {.unnumbered}
 
 ::: {#refs}
 :::

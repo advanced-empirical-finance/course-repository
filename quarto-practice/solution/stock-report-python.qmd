@@ -1,0 +1,133 @@
+---
+title: "Risk and return of three US stocks"
+author: "Your Name"
+date: today
+format:
+  pdf:
+    number-sections: true
+    fontsize: 12pt
+    geometry:
+      - margin=20mm
+execute:
+  echo: false
+  warning: false
+bibliography: references.bib
+---
+
+```{python}
+#| label: setup
+# Packages
+import polars as pl
+import tidyfinance as tf
+from great_tables import GT
+from plotnine import aes, geom_line, ggplot, labs, scale_y_log10, theme_minimal
+
+# Sample and constants: change them here, nowhere else
+symbols = ["AAPL", "JPM", "XOM"]
+start_date = "2015-01-01"
+end_date = "2025-12-31"
+trading_days_per_year = 252
+```
+
+## Introduction
+
+Mean returns and volatilities are the two inputs of mean-variance analysis [@Markowitz1952]. This report compares them for `{python} len(symbols)` large US stocks: Apple (AAPL), JPMorgan Chase (JPM) and ExxonMobil (XOM).^[Daily prices from Yahoo Finance, downloaded with the tidyfinance package.]
+
+## Data {#sec-data}
+
+```{python}
+#| label: download
+#| echo: true
+# Daily prices from Yahoo Finance, adjusted for splits and dividends
+prices = tf.download_data(
+    domain="Stock Prices",
+    symbols=symbols,
+    start_date=start_date,
+    end_date=end_date,
+)
+
+# Daily net returns per stock
+returns = (
+    prices
+    .sort("symbol", "date")
+    .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
+    .drop_nulls("ret")
+)
+```
+
+```{python}
+#| label: sample-info
+n_days = returns["date"].n_unique()
+first_day = str(returns["date"].min())
+last_day = str(returns["date"].max())
+```
+
+The sample contains `{python} n_days` trading days from `{python} first_day` to `{python} last_day`. The daily net return of stock $i$ on day $t$ is $r_{i,t} = p_{i,t} / p_{i,t-1} - 1$, where $p_{i,t}$ is the adjusted closing price.
+
+## Results
+
+```{python}
+#| label: fig-growth
+#| fig-cap: "Growth of one dollar invested in each stock at the start of the sample, based on daily adjusted closing prices. Log scale."
+#| fig-width: 6
+#| fig-height: 3.5
+growth = returns.with_columns(
+    wealth=(1 + pl.col("ret")).cum_prod().over("symbol")
+)
+
+(
+    ggplot(growth, aes(x="date", y="wealth", color="symbol"))
+    + geom_line()
+    + scale_y_log10()
+    + labs(x="", y="Value of $1 (log scale)", color="")
+    + theme_minimal()
+)
+```
+
+```{python}
+#| label: summary-stats
+# Annualized moments and Sharpe ratio (risk-free rate set to zero)
+summary_stats = (
+    returns
+    .group_by("symbol")
+    .agg(
+        mean_return=pl.col("ret").mean() * trading_days_per_year,
+        volatility=pl.col("ret").std() * trading_days_per_year**0.5,
+    )
+    .with_columns(sharpe_ratio=pl.col("mean_return") / pl.col("volatility"))
+    .sort("symbol")
+)
+
+best = summary_stats.sort("sharpe_ratio", descending=True).row(0, named=True)
+```
+
+@fig-growth shows how one dollar invested in each stock evolves over the sample. We measure risk-adjusted performance with the annualized Sharpe ratio [@Sharpe1966], setting the risk-free rate to zero:
+
+$$
+\text{SR}_i = \sqrt{252}\,\frac{\bar r_i}{s_i},
+$$ {#eq-sharpe}
+
+where $\bar r_i$ and $s_i$ are the mean and the standard deviation of the daily returns of stock $i$. @tbl-summary reports the results of @eq-sharpe together with the annualized mean return and volatility. `{python} best["symbol"]` has the highest Sharpe ratio (`{python} f"{best['sharpe_ratio']:.2f}"`), with an annualized volatility of `{python} f"{best['volatility']:.1%}"`.
+
+```{python}
+#| label: tbl-summary
+#| tbl-cap: "Annualized mean return, volatility and Sharpe ratio, based on daily returns. The risk-free rate is set to zero."
+#| output: asis
+table = (
+    GT(summary_stats)
+    .cols_label(
+        symbol="Stock",
+        mean_return="Mean return",
+        volatility="Volatility",
+        sharpe_ratio="Sharpe ratio",
+    )
+    .fmt_percent(columns=["mean_return", "volatility"], decimals=1)
+    .fmt_number(columns="sharpe_ratio", decimals=2)
+)
+print(table.as_latex())
+```
+
+## References {.unnumbered}
+
+::: {#refs}
+:::
