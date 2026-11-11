@@ -60,17 +60,32 @@ First results on a CPU (2 networks per ensemble):
 
 ## Hyperparameter search on UCloud
 
-`cpz_light_sweep.sh` tries 72 settings: hidden units, dropout, weight decay, loadings on or off, macro on or off. Each setting uses 9 networks per ensemble. Every run appends its settings and Sharpe ratios to `results/cpz_light_runs.csv`.
+`cpz_light_sweep.sh` tries 72 settings: hidden units (32, 64, 128), dropout (0, 0.05, 0.2), weight decay (1e-5, 1e-3), loadings on 10 principal components or none, macro state or none. Each setting uses 9 networks per ensemble. Every run appends its settings and Sharpe ratios to `results/cpz_light_runs.csv`.
 
-On a UCloud machine with a GPU (for example the *Terminal* or *JupyterLab* app), in a terminal:
+On a CPU machine, all settings can run side by side, one thread each; on a GPU machine, one at a time:
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh   # installs uv; open a new terminal afterwards
 git clone https://github.com/advanced-empirical-finance/course-repository.git
 cd course-repository
-bash lecture-slides/factor-zoo/cpz_light_sweep.sh
+JOBS=72 THREADS=1 bash lecture-slides/factor-zoo/cpz_light_sweep.sh   # CPU, e.g. 64 vCPUs
+bash lecture-slides/factor-zoo/cpz_light_sweep.sh                     # GPU
 ```
 
-The first lines of each run should report `device: cuda`. Afterwards, download the `results/` folder or commit it.
+### Results (11 November 2026)
+
+UCloud job 12456670: 64 vCPUs (AMD Zen 5), all 72 settings at once, 2 h 14 min. The setting of each model is chosen on the **validation** Sharpe ratio (1995–1999); the test sample (2000–2023) plays no part in the choice.
+
+| Model | Chosen setting | Train | Validation | Test |
+|---|---|---:|---:|---:|
+| Feed-forward SDF | 32 units, dropout 0.05, weight decay 1e-5, PC loadings, no macro | 3.78 | 3.26 | 1.06 |
+| Chen–Pelger–Zhu light | 128 units, dropout 0.2, weight decay 1e-5, PC loadings, no macro | 5.99 | 5.04 | **1.89** |
+
+- Across all 72 settings, the test Sharpe ratio of CPZ light ranges from 0.79 to 1.91 (median 1.21); of the feed-forward SDF from 0.76 to 1.48 (median 1.08).
+- For CPZ light, the validation Sharpe ratio predicts the test Sharpe ratio well (correlation 0.91 across settings); for the feed-forward SDF it does not (0.45).
+- What helps CPZ light on average: small weight decay (test 1.36 vs 1.18), PC loadings (1.39 vs 1.15), leaving out the macro state (1.40 vs 1.14). Hidden units and dropout hardly matter.
+- Even the best network stays below the static ridge SDF (test 2.89) and RP-PCA with 20 factors (2.53).
+
+The return series of the two chosen settings are in `results/` (`cpz_light_sdf_returns_seeds-9_...parquet`, both models each).
 
 **Next rows:** Sharpe ratios after transaction costs (B5), from our factor library with trading costs.

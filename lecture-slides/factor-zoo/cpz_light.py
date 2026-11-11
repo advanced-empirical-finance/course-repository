@@ -20,6 +20,11 @@ It uses a GPU if one is available. Results go to lecture-slides/factor-zoo/resul
 import argparse
 from pathlib import Path
 
+try:
+    import fcntl  # file lock for parallel runs (Linux, macOS)
+except ImportError:  # Windows: run one setting at a time
+    fcntl = None
+
 import numpy as np
 import polars as pl
 import tidyfinance as tf
@@ -37,6 +42,7 @@ parser.add_argument("--dropout", type=float, default=0.05)
 parser.add_argument("--weight-decay", type=float, default=1e-5)
 parser.add_argument("--lr", type=float, default=1e-3)
 parser.add_argument("--patience", type=int, default=100, help="steps without validation improvement before stopping")
+parser.add_argument("--prepare", action="store_true", help="only download the data, then stop (before a parallel search)")
 args = parser.parse_args()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -60,11 +66,19 @@ dates = anomalies["date"].to_numpy()
 R = anomalies.select(complete).to_numpy() / 100          # T x N monthly returns
 
 macro_names = ["dp", "tbl", "tms", "dfy", "svar"]
-macro = (tf.download_data(domain="Goyal-Welch", dataset="monthly",
-                          start_date="1972-12-01", end_date="2023-12-31")
-    .with_columns(pl.col("date").dt.offset_by("1mo"))     # known at the end of the previous month
+# The course repository stores the Goyal-Welch data (data-raw/public_data.R); download only without it
+macro_file = Path("data/macro_predictors.parquet")
+macro_source = (pl.read_parquet(macro_file) if macro_file.exists() else
+    tf.download_data(domain="Goyal-Welch", dataset="monthly",
+                     start_date="1972-12-01", end_date="2023-12-31"))
+macro = (macro_source
+    .filter(pl.col("date").is_between(pl.date(1972, 12, 1), pl.date(2023, 12, 31)))
+    .with_columns(pl.col("date").cast(anomalies["date"].dtype).dt.offset_by("1mo"))  # known at the end of the previous month
     .select("date", *macro_names)
 )
+if args.prepare:
+    print(f"data ready: {osap_file}, {macro.height} months of macro data")
+    raise SystemExit(0)
 macro = anomalies.select("date").join(macro, on="date", how="left")
 X = macro.select(macro_names).to_numpy()                 # T x 5, macro state for month t
 
@@ -192,17 +206,22 @@ for adversarial, label in [(False, "B4 Feed-forward SDF (unconditional moments)"
 
 out = Path("lecture-slides/factor-zoo/results")
 out.mkdir(parents=True, exist_ok=True)
-settings = {k: str(v) for k, v in vars(args).items()}
+settings = {k: str(v) for k, v in vars(args).items() if k != "prepare"}
 run_id = "_".join(f"{k}-{v}" for k, v in settings.items())
 scoreboard = (pl.DataFrame(rows)
     .with_columns(pl.col("^sr_.*$").round(2))
     .with_columns(**{k: pl.lit(v) for k, v in settings.items()}, device=pl.lit(device))
 )
-# every run appends its settings and results, so a hyperparameter search ends in one table
+# every run appends its settings and results, so a hyperparameter search ends in one table;
+# the lock keeps runs that finish at the same time from overwriting each other's rows
 runs_file = out / "cpz_light_runs.csv"
-if runs_file.exists():
-    scoreboard = pl.concat([pl.read_csv(runs_file, infer_schema_length=0), scoreboard.cast(pl.String)], how="diagonal")
-scoreboard.cast(pl.String).write_csv(runs_file)
+with open(out / ".cpz_light_runs.lock", "w") as lock:
+    if fcntl:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    table = scoreboard.cast(pl.String)
+    if runs_file.exists():
+        table = pl.concat([pl.read_csv(runs_file, infer_schema_length=0), table], how="diagonal")
+    table.write_csv(runs_file)
 pl.concat(sdf_returns).write_parquet(out / f"cpz_light_sdf_returns_{run_id}.parquet")
 scoreboard = scoreboard.tail(2)
 print(f"device: {device}, anomalies: {N}, months: {T}, seeds: {args.seeds}, pcs: {args.pcs}")
