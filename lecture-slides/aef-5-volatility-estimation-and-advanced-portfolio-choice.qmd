@@ -2,6 +2,25 @@
 subtitle: Volatility estimation
 ---
 
+```{r}
+#| label: setup
+#| echo: false
+#| message: false
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(patchwork)
+library(nanoparquet)
+library(xts)
+library(tsgarch)
+
+theme_set(theme_minimal())
+
+start_date <- as.Date("2000-01-01")
+end_date <- as.Date("2025-12-31")
+```
+
 ## Why do we care about volatility?
 
 - We can decompose any time series into a predictable part and an unpredictable part
@@ -21,34 +40,27 @@ $$\sigma_t^2 = \text{Var}\left(r_t|\mathcal{F}_{t-1}\right) = E\left(\varepsilon
 ```{r}
 #| label: load-industry-returns
 #| echo: false
-#| message: false
+# Ten Fama-French industry portfolios, monthly, as stored in data/
+industry_returns <- read_parquet("../data/industries_ff_monthly.parquet") |>
+  filter(between(date, start_date, end_date))
 
-library(dplyr)
-library(tidyr)
-
-industry_returns <- tidyfinance::download_data_factors_ff("10 Industry Portfolios",
-start_date = "2000-01-01", 
-end_date = "2026-04-01")
-
-returns <- industry_returns |> pivot_longer(-date, names_to = "industry", values_to = "return")
+returns <- industry_returns |>
+  pivot_longer(-date, names_to = "industry", values_to = "return")
 ```
 
 ```{r}
 #| label: plot-vol-clustering-acf
 #| echo: false
-library(ggplot2)
-library(purrr)
-theme_set(theme_minimal())
-
-p0 <- ggplot(data = returns, mapping = aes(x = date, y = return, color = industry)) +
+plot_returns <- ggplot(returns, aes(x = date, y = return, color = industry)) +
   geom_line(linewidth = 0.2) +
   scale_y_continuous(labels = scales::percent_format()) +
-        labs(x = "Date", y = "Return (%)", title = "Volatility is not constant") +
-        theme(legend.position = "none")
+  labs(x = "Date", y = "Monthly return", title = "Volatility is not constant") +
+  theme(legend.position = "none")
 
+# Fixed seed, so that the random jitter below is the same in every render
 set.seed(3010)
 
-p2 <- returns |>
+plot_acf_squared <- returns |>
   nest(.by = industry) |>
   mutate(
     acf = map(data, \(d) {
@@ -58,24 +70,24 @@ p2 <- returns |>
   select(-data) |>
   unnest(acf) |>
   filter(lag > 0) |>
-  mutate(lag = as.numeric(lag) + runif(n(), -0.1, 0.1)) |> # add some jitter to the lags
+  # Jitter the lags so that the ten industries do not overlap
+  mutate(lag = as.numeric(lag) + runif(n(), -0.1, 0.1)) |>
   ggplot(aes(x = lag, y = acf, color = industry)) +
-  geom_hline(aes(yintercept = 0)) +
+  geom_hline(yintercept = 0) +
+  # 95% confidence bands under the null hypothesis of no autocorrelation
   geom_hline(
-    aes(yintercept = qnorm(0.975) / sqrt(n)),  # 95% CI bands
+    aes(yintercept = qnorm(0.975) / sqrt(n)),
     linetype = "dashed", color = "blue"
   ) +
   geom_hline(
     aes(yintercept = -qnorm(0.975) / sqrt(n)),
     linetype = "dashed", color = "blue"
   ) +
-  geom_segment(
-    aes(xend = lag, yend = 0)) +
-  labs(x = "Lag", y = "ACF of squared returns", title = "Volatility is predictable") +
+  geom_segment(aes(xend = lag, yend = 0)) +
+  labs(x = "Lag (months)", y = "ACF of squared returns", title = "Volatility is predictable") +
   theme(legend.position = "none")
 
-library(patchwork)
-p0/p2
+plot_returns / plot_acf_squared
 ```
 
 ## Naive estimators
@@ -97,14 +109,18 @@ $$\hat\sigma_t^2 = (1 - \lambda)\, r_{t-1}^2 + \lambda\, \hat\sigma_{t-1}^2$$
 ```{r}
 #| label: compute-naive-vol-estimators
 #| echo: false
-#| message: false
-#| warning: false
-ewma_vol <- function(ret, lambda = 0.94) {
+# Window lengths in months and the RiskMetrics smoothing parameter
+window_1y <- 12
+window_5y <- 60
+lambda <- 0.94
+
+ewma_vol <- function(ret, lambda) {
   n <- length(ret)
   sigma2 <- numeric(n)
+  # The recursion needs a starting value: the first squared return
   sigma2[1] <- ret[1]^2
   for (t in 2:n) {
-    sigma2[t] <- (1 - lambda) * ret[t-1]^2 + lambda * sigma2[t-1]
+    sigma2[t] <- (1 - lambda) * ret[t - 1]^2 + lambda * sigma2[t - 1]
   }
   sqrt(sigma2)
 }
@@ -113,18 +129,24 @@ naive_estimators <- returns |>
   filter(industry == "manuf") |>
   arrange(date) |>
   mutate(
-    `Rolling 1Y`  = slider::slide_dbl(return, sd, .before = 12, .complete = TRUE),
-    `Rolling 5Y`  = slider::slide_dbl(return, sd, .before = 60, .complete = TRUE),
-    `EWMA (λ=0.94)` = ewma_vol(return, lambda = 0.94)
+    # .before counts the months before the current one
+    `Rolling 1Y` = slider::slide_dbl(return, sd, .before = window_1y - 1, .complete = TRUE),
+    `Rolling 5Y` = slider::slide_dbl(return, sd, .before = window_5y - 1, .complete = TRUE),
+    `EWMA (λ=0.94)` = ewma_vol(return, lambda = lambda)
   ) |>
   select(date, `Rolling 1Y`, `Rolling 5Y`, `EWMA (λ=0.94)`) |>
-  pivot_longer(-date, names_to = "estimator", values_to = "sigma")
+  pivot_longer(-date, names_to = "estimator", values_to = "sigma") |>
+  # The rolling windows are not yet complete in the first months
+  drop_na(sigma)
 
 ggplot(naive_estimators, aes(x = date, y = sigma, color = estimator)) +
   geom_line(linewidth = 0.3) +
-  labs(x = NULL, y = "Estimated volatility",
-       title = "Naive volatility estimators (Manufacturing industry)",
-       color = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    x = NULL, y = "Estimated monthly volatility",
+    title = "Naive volatility estimators (Manufacturing industry)",
+    color = NULL
+  ) +
   theme(legend.position = "bottom")
 ```
 
@@ -192,12 +214,15 @@ $$\sigma_t^2(l) \rightarrow \frac{\alpha_0}{1 - \alpha_1 - \beta_1}$$
 ```{r}
 #| label: plot-garch-forecast-mean-reversion
 #| echo: false
-#| message: false
-#| warning: false
+# Illustrative parameters of the size estimated for daily returns in percent
 alpha0 <- 0.02
 alpha1 <- 0.09
 beta1  <- 0.88
 long_run <- alpha0 / (1 - alpha1 - beta1)
+horizon <- 120
+# Today's variance: four times and a quarter of the long-run variance
+sigma2_high <- 4 * long_run
+sigma2_low <- 0.25 * long_run
 
 forecast_path <- function(sigma2_today, horizon) {
   s2 <- numeric(horizon)
@@ -206,18 +231,17 @@ forecast_path <- function(sigma2_today, horizon) {
   s2
 }
 
-horizon <- 120
 paths <- tibble(
   l = rep(1:horizon, 2),
-  sigma2 = c(forecast_path(4 * long_run, horizon),
-             forecast_path(0.25 * long_run, horizon)),
+  sigma2 = c(forecast_path(sigma2_high, horizon),
+             forecast_path(sigma2_low, horizon)),
   start = rep(c("High volatility start", "Low volatility start"), each = horizon)
 )
 
 ggplot(paths, aes(x = l, y = sqrt(sigma2), color = start)) +
   geom_line(linewidth = 0.6) +
   geom_hline(yintercept = sqrt(long_run), linetype = "dashed") +
-  labs(x = "Forecast horizon l (days)", y = expression(sigma[t](l)),
+  labs(x = "Forecast horizon l (days)", y = expression(sigma[t](l) ~ "(% per day)"),
        title = "GARCH(1,1) forecasts mean-revert to the unconditional level",
        color = NULL) +
   theme(legend.position = "bottom")
@@ -240,8 +264,9 @@ where we compute $\sigma_t^2$ and $\mu_t$ recursively
 #| label: mle-standard-errors-snippet
 #| eval: false
 #R
-fit <- optim( ... ) # fitted mle object 
-sqrt(diag(solve(fit$hessian)))
+fit <- optim(..., hessian = TRUE) # minimizes the negative log-likelihood
+# The inverse Hessian estimates the covariance matrix of the estimator
+standard_errors <- sqrt(diag(solve(fit$hessian)))
 ```
 
 ## Fitting GARCH in Practice
@@ -253,14 +278,12 @@ The key choice is the **distribution** of the innovations $z_t$: a skewed Studen
 ::: {.panel-tabset group="language"}
 ## R
 ```{r}
-#| label: fit-garch-tsgarch
-#| message: false
-#| warning: false
+#| label: fit-garch-r
 #| results: hide
-returns_xts <- returns |> filter(industry == "manuf") |>
-  as.data.frame() |>
-  (\(d) xts::xts(d[, "return"], order.by = d[["date"]]))()
-library(tsgarch)
+manuf_returns <- returns |>
+  filter(industry == "manuf")
+returns_xts <- xts(manuf_returns$return, order.by = manuf_returns$date)
+
 spec <- garch_modelspec(
   y            = returns_xts,
   model        = "garch",
@@ -274,6 +297,7 @@ summary(fit)
 
 ## Python
 ```{python}
+#| label: fit-garch-py
 #| eval: false
 from arch import arch_model
 
@@ -301,31 +325,40 @@ where $L$ is a loss function, e.g. in terms of USD
 #| fig-width: 6
 #| fig-align: center
 
-data = tibble(loss = seq(from = -10, to = 10, by  = 0.1),
-       cdf = pnorm(loss, mean = 1, sd = 4))
-data |>
-  ggplot(aes(x = loss, 
-             y = cdf)) +
+loss_mean <- 1
+loss_sd <- 4
+tail_probability <- 0.025
+var_threshold <- qnorm(tail_probability, mean = loss_mean, sd = loss_sd)
+
+loss_cdf <- tibble(
+  loss = seq(from = -10, to = 10, by = 0.1),
+  cdf = pnorm(loss, mean = loss_mean, sd = loss_sd)
+)
+
+loss_cdf |>
+  ggplot(aes(x = loss, y = cdf)) +
   geom_line() +
-  geom_ribbon(data = data |> filter(loss < 2 - 4 * 1.96),
-              aes(ymin = 0, ymax = cdf), fill = "lightblue", alpha = 0.5) +
-  labs(title = "CDF of Gaussian Loss",
-       x = "Loss",
-       y = NULL) +
-  geom_vline(aes(xintercept = 2 - 4 * 1.96),linetype = "dotted")
+  geom_ribbon(
+    data = loss_cdf |> filter(loss < var_threshold),
+    aes(ymin = 0, ymax = cdf), fill = "lightblue", alpha = 0.5
+  ) +
+  labs(
+    title = "CDF of Gaussian Loss",
+    x = "Loss (USD)",
+    y = "Cumulative probability"
+  ) +
+  geom_vline(xintercept = var_threshold, linetype = "dotted")
 ```
 
 ## Small example: Value-at-risk
 ```{r}
 #| label: plot-garch-var-vs-returns
 #| echo: false
-library(xts)
-
 # assuming normal distribution; adjust qnorm to qt(..., df) for t-distributed errors
 var_95 <- qnorm(0.05) * as.numeric(fit$sigma)
 
 tibble(
-  date   = index(fit$sigma),
+  date   = index(returns_xts),
   sigma  = as.numeric(fit$sigma),
   var_95 = var_95,
   return = as.numeric(returns_xts)
@@ -334,7 +367,8 @@ tibble(
   geom_line(aes(y = return), alpha = 0.4) +
   geom_line(aes(y = var_95), color = "red") +
   geom_line(aes(y = -var_95), color = "red", linetype = "dashed") +
-  labs(y = NULL, title = "Returns vs. 95% VaR")
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = NULL, y = "Monthly return", title = "Returns vs. 95% VaR")
 ```
 
 # Multivariate volatility estimation
@@ -395,7 +429,7 @@ The shrinkage target (Ledoit Wolf, 2004)
 ```{r}
 #| label: fig-ledoit-wolf-shrinkage
 #| echo: false
-knitr::include_graphics('figures/ledoit_wolf_2003_fig_1.jpg')
+knitr::include_graphics("figures/ledoit_wolf_2003_fig_1.jpg")
 ```
 
 - The optimal linear combination depends on unknown population quantities and, therefore, we must think of it as an ideal (or “oracle”) but infeasible estimator

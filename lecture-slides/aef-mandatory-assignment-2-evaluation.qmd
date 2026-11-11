@@ -3,30 +3,27 @@ subtitle: Mandatory assignment 2
 ---
 
 ```{r}
+#| label: plot-quality-criteria-overview
 #| echo: false
 #| message: false
 #| warning: false
 
-library(ellmer)
-library(purrr)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(stringr)
-library(forcats)
-library(pdftools)
+library(nanoparquet)
 
 results <- bind_rows(
-  nanoparquet::read_parquet("../submissions/ma-1-evaluation_results.parquet") |>
+  read_parquet("../submissions/ma-1-evaluation_results.parquet") |>
     mutate(assignment = "MA 1"),
-  nanoparquet::read_parquet("../submissions/ma-2-evaluation_results.parquet") |>
+  read_parquet("../submissions/ma-2-evaluation_results.parquet") |>
     mutate(assignment = "MA 2")
 )
 
-# Visualization
-# Replace separate category_map / category_order / category_colors with one metadata table
-criteria_meta <- tibble(
-  criterion = c(
+# The evaluation criteria by category, in the order of the evaluation
+criteria_by_category <- list(
+  "Code Quality" = c(
     "style_guide_followed",
     "pipe_used_consistently",
     "no_dead_code",
@@ -35,7 +32,9 @@ criteria_meta <- tibble(
     "no_magic_numbers",
     "consistent_naming_convention",
     "logical_code_organization",
-    "no_debug_output",
+    "no_debug_output"
+  ),
+  "Reproducibility" = c(
     "no_absolute_paths",
     "no_setwd_calls",
     "packages_loaded_at_top",
@@ -43,7 +42,9 @@ criteria_meta <- tibble(
     "seed_set_explicitly",
     "seed_set_appropriately",
     "no_implicit_workspace",
-    "chunks_execute_in_order",
+    "chunks_execute_in_order"
+  ),
+  "Communication" = c(
     "figures_have_captions",
     "axes_are_labeled",
     "tables_properly_formatted",
@@ -54,7 +55,9 @@ criteria_meta <- tibble(
     "logical_section_structure",
     "cross_references_used",
     "data_loaded_once",
-    "vectorized_operations",
+    "vectorized_operations"
+  ),
+  "Writing" = c(
     "no_spelling_errors",
     "no_grammatical_errors",
     "no_punctuation_errors",
@@ -73,7 +76,9 @@ criteria_meta <- tibble(
     "precise_quantitative_language",
     "headings_are_informative",
     "consistent_formatting",
-    "numbers_formatted_in_prose",
+    "numbers_formatted_in_prose"
+  ),
+  "AI Polish" = c(
     "no_ai_filler_phrases",
     "no_overclaiming",
     "no_list_overuse",
@@ -88,49 +93,39 @@ criteria_meta <- tibble(
     "code_chunk_labels_meaningful",
     "chunk_options_appropriate",
     "no_code_in_prose"
-  ),
-  category = c(
-    rep("Code Quality", 9),
-    rep("Reproducibility", 8),
-    rep("Communication", 11),
-    rep("Writing", 19),
-    rep("AI Polish", 14)
-  ),
-  color = c(
-    rep("#2166AC", 9),
-    rep("#4DAC26", 8),
-    rep("#E08214", 11),
-    rep("#8073AC", 19),
-    rep("#D6604D", 14)
   )
 )
 
-# Derive explicit category order from the metadata (keeps it colocated)
-category_order <- c(
-  "Code Quality",
-  "Reproducibility",
-  "Communication",
-  "Writing",
-  "AI Polish"
+category_colors <- c(
+  "Code Quality" = "#2166AC",
+  "Reproducibility" = "#4DAC26",
+  "Communication" = "#E08214",
+  "Writing" = "#8073AC",
+  "AI Polish" = "#D6604D"
 )
+category_order <- names(criteria_by_category)
 
-# Downstream changes: use joins instead of named vectors
-# In criterion_order computation, pivot_longer result -> left_join(criteria_meta, by = c("criterion"))
+criteria_meta <- tibble(
+  category = category_order,
+  criterion = criteria_by_category
+) |>
+  unnest(criterion) |>
+  mutate(
+    color = unname(category_colors[category]),
+    criterion_label = criterion |>
+      str_replace_all("_", " ") |>
+      str_to_sentence()
+  )
+
 criterion_order <- results |>
   select(all_of(criteria_meta$criterion)) |>
   summarise(across(everything(), \(x) mean(as.numeric(x), na.rm = TRUE))) |>
   pivot_longer(everything(), names_to = "criterion", values_to = "pass_rate") |>
   left_join(criteria_meta, by = "criterion") |>
-  mutate(
-    category = factor(category, levels = category_order),
-    criterion_label = criterion |>
-      str_replace_all("_", " ") |>
-      str_to_sentence()
-  ) |>
+  mutate(category = factor(category, levels = category_order)) |>
   arrange(category, pass_rate) |>
   pull(criterion_label)
 
-# In plot_data, join metadata rather than indexing into category_map
 plot_data <- results |>
   group_by(assignment) |>
   mutate(submission = paste0("S", row_number())) |>
@@ -140,33 +135,14 @@ plot_data <- results |>
   left_join(criteria_meta, by = "criterion") |>
   mutate(
     category = factor(category, levels = category_order),
-    criterion_label = factor(
-      criterion |> str_replace_all("_", " ") |> str_to_sentence(),
-      levels = criterion_order
-    )
+    criterion_label = factor(criterion_label, levels = criterion_order)
   )
 
-# Step 3: colour vector for y-axis labels
-# element_text(colour) is applied top-to-bottom; factor levels run bottom-to-top
-# Build a lookup from clean label -> category, then apply in reversed level order
-label_to_category <- criteria_meta |>
-  mutate(
-    criterion_label = criterion |>
-      str_replace_all("_", " ") |>
-      str_to_sentence()
-  ) |>
-  distinct(criterion_label, category)
-
-label_colors <- tibble(criterion_label = rev(criterion_order)) |>
-  left_join(
-    criteria_meta |>
-      mutate(
-        criterion_label = criterion |>
-          str_replace_all("_", " ") |>
-          str_to_sentence()
-      ),
-    by = "criterion_label"
-  ) |>
+# One colour per y-axis label, in the order of the factor levels (bottom to
+# top). Vectorized colours in element_text() work but make ggplot2 warn that
+# they are not officially supported: the only warning that warning: false hides.
+label_colors <- tibble(criterion_label = criterion_order) |>
+  left_join(criteria_meta, by = "criterion_label") |>
   pull(color)
 
 n_per_assignment <- results |>
