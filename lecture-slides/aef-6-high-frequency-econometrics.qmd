@@ -6,6 +6,22 @@ execute:
   cache: true
 ---
 
+```{r}
+#| label: setup
+#| echo: false
+#| message: false
+#| cache: false
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(patchwork)
+
+theme_set(theme_bw())
+```
+
 ## High-frequency trading
 
 ![](./figures/tuchmann_broker.jpg){width=80% fig-align="center"}
@@ -36,10 +52,6 @@ execute:
 #| echo: false
 #| message: false
 #| fig-align: center
-library(ggplot2)
-library(dplyr)
-library(readr)
-
 order_book <- bind_rows(
   tibble(price = c(1, 2, 3, 4), depth = c(-7, -5, -4, -0.5), side = "Bid"),
   tibble(price = c(5, 6, 7, 8), depth = c(3, 7, 5, 7), side = "Ask")
@@ -229,7 +241,7 @@ $$\Delta X_{t_{n,i}} = X_{t_{n,i}} - X_{t_{n,i -1}} $$
 ```{r}
 #| label: brownian-motion-code-example
 #| eval: false
-price = cumsum(c(
+price <- cumsum(c(
   start,
   rnorm(steps, mean = mu / steps, sd = sigma / sqrt(steps))
 ))
@@ -237,10 +249,7 @@ price = cumsum(c(
 ```{r}
 #| label: fig-brownian-motion-simulation
 #| echo: false
-library(lubridate)
-library(purrr)
-library(patchwork)
-theme_set(theme_bw())
+n_paths <- 400
 
 simulate_brownian_motion <- function(
   seed = 1,
@@ -249,25 +258,19 @@ simulate_brownian_motion <- function(
   mu = 1.3,
   start = 100
 ) {
+  # One seed per path, so that every path is reproducible on its own
   set.seed(seed)
-  date <- Sys.Date() + lubridate::days(seed)
-  hour(date) <- 9
-  minute(date) <- 30
-  date_end <- date
-  hour(date_end) <- 16
-  minute(date_end) <- 0
   tibble(
     step = 1:(steps + 1),
-    time = seq(from = date, to = date_end, length.out = steps + 1),
     price = cumsum(c(
       start,
       rnorm(steps, mean = mu / steps, sd = sigma / sqrt(steps))
     ))
   )
 }
-simulation <- tibble(iteration = 1:400) |>
-  mutate(values = purrr::map(iteration, simulate_brownian_motion, start = 1)) |>
-  tidyr::unnest(values)
+simulation <- tibble(iteration = 1:n_paths) |>
+  mutate(values = map(iteration, simulate_brownian_motion, start = 1)) |>
+  unnest(values)
 
 final_day <- simulation |> filter(step == max(step))
 y_range <- range(simulation$price - 1)
@@ -277,7 +280,7 @@ p_main <- simulation |>
   geom_line(alpha = 0.3) +
   geom_point(data = final_day, size = 0.1) +
   coord_cartesian(ylim = y_range) +
-  labs(x = "Intraday step", y = "cum. return")
+  labs(x = "Intraday step", y = "Cumulative log return")
 
 p_marg <- final_day |>
   ggplot(aes(x = price - 1)) +
@@ -366,15 +369,9 @@ $$\begin{aligned}Y_{\tau_i} &= \tilde X_{\tau_i} - \tilde X_{\tau_{i-1}} \\&= \l
 ```{r}
 #| label: fig-bid-ask-bounce-signature
 #| message: false
-#| warning: false
 #| echo: false
 #| fig-align: center
 #| fig-cap: "A simulated bid-ask bounce example. The left panel shows the volatility signature plot: microstructure noise in observed prices inflates realized variance at very high sampling frequencies. The right panel shows that bid-ask bounce induces negative first-order autocovariance in observed returns."
-library(dplyr)
-library(ggplot2)
-library(patchwork)
-library(purrr)
-
 set.seed(123)
 
 n_seconds <- 6.5 * 60 * 60
@@ -424,7 +421,7 @@ autocovariance_data <- simulated_prices |>
     efficient = cov(diff(efficient_price)[-1], lag(diff(efficient_price))[-1]),
     observed = cov(diff(observed_price)[-1], lag(diff(observed_price))[-1])
   ) |>
-  tidyr::pivot_longer(
+  pivot_longer(
     cols = everything(),
     names_to = "price",
     values_to = "first_order_autocovariance"
@@ -453,18 +450,12 @@ p_signature + p_autocovariance + plot_layout(widths = c(2, 1))
 ```{r}
 #| label: fig-rv-sampling-frequency
 #| message: false
-#| warning: false
 #| echo: false
 #| cache: true
 #| fig-align: center
 #| fig-cap: "Volatility signature plot for S&P 500 high-frequency midquotes. Each point reports the average daily realized variance at a different calendar-time sampling interval; higher estimates at very fine intervals indicate the influence of market microstructure noise."
-library(dplyr)
-library(ggplot2)
-library(lubridate)
-library(purrr)
-
-data <- tidyfinance::download_data(
-  domain = "tidyfinance",
+midquotes <- tidyfinance::download_data(
+  domain = "Tidy Finance",
   dataset = "high_frequency_sp500",
   start_date = "2008-09-01",
   end_date = "2008-09-30"
@@ -499,7 +490,7 @@ sampling_grid <- tibble(
 )
 
 compute_rv <- function(sampling_seconds) {
-  data |>
+  midquotes |>
     arrange(ts) |>
     mutate(
       trading_day = as.Date(ts),
@@ -576,7 +567,7 @@ rv_data <- read_csv(
 rv_data |>
   filter(symbol == "GOOGL") |>
   select(date, rv1, bv5_ss) |>
-  tidyr::pivot_longer(-date) |>
+  pivot_longer(-date) |>
   ggplot(aes(x = date, y = value, color = name)) +
   geom_line() +
   labs(x = "Date", y = "Variance estimate", color = "Estimator") +

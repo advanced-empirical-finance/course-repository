@@ -215,7 +215,9 @@ The learning curve is very steep, remember to reach out in case something is unc
 #| echo: false
 source("_live-poll.R")
 background_survey <- "aef27-l01-background"
-if (live) ojs_define(poll_base = poll_base, background_survey = background_survey)
+if (live) {
+  ojs_define(poll_base = poll_base, background_survey = background_survey)
+}
 ```
 
 ::: {.content-visible when-profile="live"}
@@ -224,6 +226,7 @@ if (live) ojs_define(poll_base = poll_base, background_survey = background_surve
 :::: {.columns}
 ::: {.column width="55%"}
 ```{ojs}
+//| label: survey-qr-code
 //| echo: false
 surveyQR(background_survey)
 ```
@@ -252,6 +255,7 @@ A short anonymous survey in the first lecture:
 
 ::: {.content-visible when-profile="live"}
 ```{ojs}
+//| label: survey-results-live
 //| echo: false
 background = surveyResults(background_survey)
 surveyCharts(background)
@@ -338,8 +342,9 @@ Stick to R, Python (or Julia) because:
 ## R 
 
 - load the packages `tidyverse` and `tidyfinance`
-- Import data: `read_csv()`, `read_txt()`, .., or download with `tidyfinance`
+- Import data: `read_csv()`, `read_delim()`, ..., or download with `tidyfinance`
 ```{r}
+#| label: download-stock-prices-r
 library(tidyverse)
 library(tidyfinance)
 
@@ -353,18 +358,30 @@ prices <- download_data(
 
 ## Python
 
-- load the libraries `polars`, `numpy`, and `tidyfinance`
+- load the libraries `polars`, `tidyfinance`, and `plotnine`
 - Import data: `pl.read_csv()`, `pl.read_parquet()`, .., or download with `tidyfinance`
 ```{python}
+#| label: download-stock-prices-py
 import polars as pl
-import numpy as np
 import tidyfinance as tf
+from mizani.formatters import label_dollar
+from plotnine import (
+    aes,
+    facet_wrap,
+    geom_line,
+    geom_point,
+    ggplot,
+    labs,
+    scale_y_continuous,
+    theme,
+    theme_bw,
+)
 
 prices = tf.download_data(
-  domain="Stock Prices", 
-  symbols=["AAPL", "MSFT"],
-  start_date="2000-01-01", 
-  end_date="2026-02-01"
+    domain="Stock Prices",
+    symbols=["AAPL", "MSFT"],
+    start_date="2000-01-01",
+    end_date="2026-02-01",
 )
 ```
 
@@ -381,6 +398,7 @@ prices = tf.download_data(
 ## R
 
 ```{r}
+#| label: compute-volume-usd-r
 prices <- prices |>
   rename(traded_shares = volume) |>
   mutate(volume_usd = traded_shares * close / 1000000) # Volume in million USD
@@ -391,9 +409,11 @@ prices <- prices |>
 ## Python
 
 ```{python}
-prices = (prices
-  .rename({"volume": "traded_shares"})
-  .with_columns(volume_usd=pl.col("traded_shares") * pl.col("close") / 1000000)
+#| label: compute-volume-usd-py
+prices = (
+    prices.rename({"volume": "traded_shares"})
+    # Volume in million USD
+    .with_columns(volume_usd=pl.col("traded_shares") * pl.col("close") / 1000000)
 )
 ```
 ::: 
@@ -405,13 +425,15 @@ prices = (prices
 ## R 
 - Select or drop columns
 ```{r}
+#| label: select-columns-r
 #| eval: false
-prices |> select(symbol, date, adjusted_close) 
-prices |> select(-close) 
+prices |> select(symbol, date, adjusted_close)
+prices |> select(-close)
 ```
 
 - Working with `date` format
 ```{r}
+#| label: extract-year-r
 #| eval: false
 prices <- prices |> mutate(year = year(date))
 ```
@@ -419,16 +441,16 @@ prices <- prices |> mutate(year = year(date))
 ## Python
 - Select or drop columns
 ```{python}
+#| label: select-columns-py
 #| eval: false
-
 prices.select("symbol", "date", "adjusted_close")
 prices.drop("close")
 ```
 
 - Working with `date` format
 ```{python}
+#| label: extract-year-py
 #| eval: false
-
 prices = prices.with_columns(year=pl.col("date").dt.year())
 ```
 :::
@@ -442,12 +464,14 @@ prices = prices.with_columns(year=pl.col("date").dt.year())
 - `count`, `group_by` and `summarise` solve *many* data science questions
 - *How many daily observations per symbol?*
 ```{r}
+#| label: count-observations-r
 prices |> count(symbol)
 ```
 
 - *Which ticker had the highest average daily volume (in USD)?*
 
 ```{r}
+#| label: compute-average-volume-r
 prices |>
   group_by(symbol) |>
   summarise(avg_volume = mean(volume_usd))
@@ -458,16 +482,18 @@ prices |>
 - `len`, `group_by` and `agg` solve *many* data science questions
 - *How many daily observations per symbol?*
 ```{python}
+#| label: count-observations-py
 prices.group_by("symbol").len().sort("symbol")
 ```
 
 - *Which ticker had the highest average daily volume (in USD)?*
 
 ```{python}
-(prices
-  .group_by("symbol")
-  .agg(avg_volume=pl.col("volume_usd").mean())
-  .sort("symbol")
+#| label: compute-average-volume-py
+(
+    prices.group_by("symbol")
+    .agg(avg_volume=pl.col("volume_usd").mean())
+    .sort("symbol")
 )
 ```
 
@@ -486,6 +512,7 @@ prices.group_by("symbol").len().sort("symbol")
 ::::{.columns}
 :::{.column width="45%"}
 ```{r}
+#| label: compute-aapl-returns-r
 # R
 returns <- prices |>
   filter(symbol == "AAPL") |>
@@ -498,13 +525,15 @@ returns
 :::
 :::{.column width="45%"}
 ```{python}
+#| label: compute-aapl-returns-py
 # Python
-returns = (prices
-  .filter(pl.col("symbol") == "AAPL")
-  .sort("date")
-  .with_columns(ret=pl.col("adjusted_close").pct_change())
-  .select("symbol", "date", "ret")
-  .drop_nulls("ret"))
+returns = (
+    prices.filter(pl.col("symbol") == "AAPL")
+    .sort("date")
+    .with_columns(ret=pl.col("adjusted_close").pct_change())
+    .select("symbol", "date", "ret")
+    .drop_nulls("ret")
+)
 returns.head(10)
 ```
 :::
@@ -531,41 +560,41 @@ returns.head(10)
 
 ## R 
 ```{r}
+#| label: plot-trading-volume-r
 #| output-location: slide
-library(scales)
-prices |> 
+prices |>
   ggplot(aes(x = date, y = volume_usd, color = symbol)) +
-  geom_point(size = 0.2) + geom_line(linetype = "dotted") + 
-  labs(x = "Year", y ="Volume (USD)", title = "Daily trading volume", color = NULL) +
-  facet_wrap(~symbol, scales = "free_x") + theme_bw() +
-  scale_y_continuous(labels = scales::unit_format(unit = "M", 
-                                                  prefix = "$")) +
-                                                  theme(legend.position = "none")
+  geom_point(size = 0.2) +
+  geom_line(linetype = "dotted") +
+  labs(
+    x = "Year",
+    y = "Volume (USD)",
+    title = "Daily trading volume",
+    color = NULL
+  ) +
+  facet_wrap(~symbol, scales = "free_x") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", prefix = "$")) +
+  theme(legend.position = "none")
 ```
 
 - Many more themes here: https://ggplot2.tidyverse.org/reference/ggtheme.html
 
 ## Python
 ```{python}
+#| label: plot-trading-volume-py
 #| eval: false
-from plotnine import *
-from mizani.formatters import label_dollar
-price_plot = (
+(
     ggplot(prices, aes(x="date", y="volume_usd", color="symbol"))
     + geom_point(size=0.2)
     + geom_line(linetype="dotted")
-    + labs(
-        x="Year",
-        y="Volume (USD)",
-        title="Daily volume",
-        color=None
-    )
+    + labs(x="Year", y="Volume (USD)", title="Daily trading volume", color=None)
     + facet_wrap("~symbol", scales="free_x")
     + theme_bw()
     + scale_y_continuous(labels=label_dollar(suffix="M", precision=0))
+    + theme(legend_position="none")
 )
-price_plot.show()
-``` 
+```
 
 ::: 
 

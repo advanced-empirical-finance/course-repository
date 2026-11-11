@@ -16,7 +16,7 @@ allocation_choices <- c(
 ```
 
 ```{r}
-#| label: data
+#| label: download-dj30-returns
 #| echo: false
 #| cache: true
 # The Dow Jones 30 data of the Tidy Finance chapter "Modern portfolio theory"
@@ -58,7 +58,7 @@ sigma <- returns_monthly |>
 ```
 
 ```{r}
-#| label: closed-form
+#| label: closed-form-frontier
 #| echo: false
 # Everything the slider changes follows in closed form from two vectors:
 # tangency weights for a risk-free rate r are (a - r b) / (D - r C)
@@ -77,6 +77,7 @@ frontier <- tibble(mu = seq(D / C - 0.02, max(mu) * 1.6, length.out = 200)) |>
 if (live) {
   ojs_define(
     poll_base = poll_base,
+    allocation_poll = allocation_poll,
     allocation_choices = allocation_choices,
     stocks = assets,
     frontier = frontier,
@@ -94,14 +95,16 @@ if (live) {
 :::: {.columns}
 ::: {.column width="40%"}
 ```{ojs}
+//| label: allocation-poll-qr
 //| echo: false
-pollQR("aef27-l02-allocation", allocation_choices)
+pollQR(allocation_poll, allocation_choices)
 ```
 :::
 ::: {.column width="60%"}
 ```{ojs}
+//| label: allocation-results-live
 //| echo: false
-allocation = pollAnswers("aef27-l02-allocation")
+allocation = pollAnswers(allocation_poll)
 pollBars(allocation, allocation_choices)
 ```
 :::
@@ -130,6 +133,7 @@ poll_chart(allocation_poll, allocation_choices)
 ::: {.content-visible when-profile="live"}
 
 ```{ojs}
+//| label: rf-slider
 //| echo: false
 viewof rf = Inputs.range([0, 1.2], {step: 0.01, value: 0.2, label: "Risk-free rate, % per month"})
 ```
@@ -137,6 +141,7 @@ viewof rf = Inputs.range([0, 1.2], {step: 0.01, value: 0.2, label: "Risk-free ra
 :::: {.columns}
 ::: {.column width="62%"}
 ```{ojs}
+//| label: rf-frontier-live
 //| echo: false
 r = rf / 100
 mvp_mu = consts.D / consts.C
@@ -167,6 +172,7 @@ Plot.plot({
 :::
 ::: {.column width="38%"}
 ```{ojs}
+//| label: rf-weights-live
 //| echo: false
 weights = transpose(ab)
   .map(d => ({symbol: d.symbol, weight: (d.a - r * d.b) / denominator}))
@@ -187,6 +193,7 @@ Plot.plot({
 ::::
 
 ```{ojs}
+//| label: rf-sharpe-note-live
 //| echo: false
 denominator > 0
   ? md`Sharpe ratio of the tangency portfolio: **${(slope * Math.sqrt(12)).toFixed(2)}** (annualized). The risk-free rate is ${(rf * 12).toFixed(1)}% per year.`

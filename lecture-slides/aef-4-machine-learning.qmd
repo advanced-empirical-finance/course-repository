@@ -2,6 +2,40 @@
 subtitle: Machine learning
 ---
 
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(nanoparquet)
+library(glmnet)
+library(tidymodels)
+library(timetk)
+library(rpart)
+
+seed <- 2027
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+#| eval: false
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import tidyfinance as tf
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import ElasticNet
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from sklearn.neural_network import MLPRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+seed = 2027
+```
+
 ## What is Machine learning?
 
 :::: {.columns}
@@ -152,60 +186,63 @@ E(\hat{\varepsilon}^2)&=E((y-\hat{f}(\textbf{x}))^2)=E((f(\textbf{x})+\varepsilo
 - Evaluate the performance in-sample (first 20 months) and out-of-sample (last 20 months) for $P = 1, 2, 5, 10, 19$
 
 ```{r}
+#| label: plot-polynomial-overfitting
 #| echo: false
 #| fig-align: center
-library(nanoparquet)
-library(tidyverse)
+#| fig-height: 3
+sample_months <- 40
+training_months <- 20
+polynomial_degrees <- c(1, 2, 5, 10, 19)
 
-data <- read_parquet("../data/industries_ff_monthly.parquet") |> 
-    select(date, returns = manuf) |> 
-    tail(40) |>
-    mutate(time = as.integer(date),
-    time = (time - mean(time)) / sd(time)) 
+returns_manuf <- read_parquet("../data/industries_ff_monthly.parquet") |>
+  select(date, returns = manuf) |>
+  slice_tail(n = sample_months) |>
+  mutate(
+    time = as.integer(date),
+    time = (time - mean(time)) / sd(time)
+  )
 
-# Split the data into training and testing sets
-in_sample_size <- 20
-train_set <- data |> slice_head(n = in_sample_size)
-test_set <- data |> slice_tail(n = nrow(data) - in_sample_size)
+training_set <- returns_manuf |> slice_head(n = training_months)
+test_set <- returns_manuf |> slice_tail(n = sample_months - training_months)
 
-# Function to fit polynomial regression models
-fit_polynomial <- function(degree, data = train_set) {
-  formula <- as.formula(paste("returns ~ poly(time, ", degree, ")", sep = ""))
-  model <- lm(formula, data)
-  return(model)
+fit_polynomial <- function(degree) {
+  lm(returns ~ poly(time, degree), data = training_set)
 }
 
-results <- tibble(degree = c(1, 2, 5, 10, 19)) |> 
-  mutate(lm = map(degree, fit_polynomial),
-         lm_train = map(lm, predict, newdata = train_set),
-         lm_test = map(lm, predict, newdata = test_set),
-         lm_predictions = map2(lm_train, lm_test, 
-                               ~tibble(time = data$time,
-                                       returns =c(.x,.y)))) |>
-  unnest(lm_predictions) |> 
-  mutate(time = as.Date(time))
+polynomial_predictions <- tibble(degree = polynomial_degrees) |>
+  mutate(
+    model = map(degree, fit_polynomial),
+    predictions = map(model, \(fit) {
+      tibble(
+        date = returns_manuf$date,
+        returns = predict(fit, newdata = returns_manuf)
+      )
+    })
+  ) |>
+  unnest(predictions)
 
-# Plot the results
-ggplot(data |> mutate(time = as.Date(time)), 
-       aes(x = time, y = returns)) +
+ggplot(returns_manuf, aes(x = date, y = returns)) +
   geom_point() +
-  coord_cartesian(
-  ylim = c(min(data$returns), max(data$returns))
-) +
+  coord_cartesian(ylim = range(returns_manuf$returns)) +
   scale_x_date(date_labels = "%Y-%m") +
   scale_y_continuous(labels = scales::percent) +
-  geom_line(data = results, aes(color = as_factor(degree))) +
-  annotate("rect",
-           xmin = test_set |> pull(time) |> min() |> as.Date(),
-           xmax = test_set |> pull(time) |> max() |> as.Date(),
-           ymin = -Inf, ymax = Inf,
-           alpha = 0.5, fill = "grey70"
+  geom_line(data = polynomial_predictions, aes(color = as_factor(degree))) +
+  annotate(
+    "rect",
+    xmin = min(test_set$date),
+    xmax = max(test_set$date),
+    ymin = -Inf,
+    ymax = Inf,
+    alpha = 0.5,
+    fill = "grey70"
   ) +
-  labs(x = NULL,
-       y = "Return",
-       color = NULL) +
+  labs(
+    title = "Polynomial fits to manufacturing returns (shaded: out of sample)",
+    x = NULL,
+    y = "Monthly return",
+    color = "Polynomial degree"
+  ) +
   theme_bw()
-
 ```
 
 
@@ -238,33 +275,38 @@ $$\text{Var}(\hat\beta^\text{ridge}) = \sigma_\varepsilon^2 \left(D + \lambda I\
 ## Bias variance trade-off with the ridge trace
   
 ```{r}
+#| label: plot-ridge-bias-variance
 #| echo: false
 D <- 1
 sigma_e <- 1
-values <- tibble(lambda = seq(from = 0, to = 5, by = 0.1)) |> 
-  mutate(bias = (lambda / (1+lambda))^2,
-         variance = sigma_e^2 * (D + lambda)^-2 * D,
-         mspe = bias + variance) |> 
-  pivot_longer(-lambda, 
-               names_to = "variable", 
-               values_to = "value") 
+beta <- 1
+lambda_grid <- seq(from = 0, to = 5, by = 0.1)
 
-ggplot(values, aes(x = lambda, 
-                   y = value, 
-                   color = variable)) +
+ridge_bias_variance <- tibble(lambda = lambda_grid) |>
+  mutate(
+    bias = (lambda / (D + lambda) * beta)^2,
+    variance = sigma_e^2 * (D + lambda)^-2 * D,
+    mspe = bias + variance
+  ) |>
+  pivot_longer(-lambda, names_to = "variable", values_to = "value")
+
+lambda_lowest_mspe <- ridge_bias_variance |>
+  filter(variable == "mspe") |>
+  filter(value == min(value)) |>
+  pull(lambda)
+
+ggplot(ridge_bias_variance, aes(x = lambda, y = value, color = variable)) +
   geom_point() +
-  geom_vline(xintercept = values |> 
-               filter(variable == "mspe") |> 
-               filter(value == min(value)) |>
-               pull(lambda), 
-             linetype = "dotted") +
-  labs(x = paste("Penalty (Lambda)"),
-       y = NULL,
-       color = NULL) +
-  scale_color_discrete(labels = c("Bias (Squared)", "MSPE", "Variance"))+
+  geom_vline(xintercept = lambda_lowest_mspe, linetype = "dotted") +
+  labs(
+    title = "Ridge (D = 1, beta = 1, unit error variance), dotted: lowest MSPE",
+    x = "Penalty (lambda)",
+    y = "Squared error",
+    color = NULL
+  ) +
+  scale_color_discrete(labels = c("Bias (Squared)", "MSPE", "Variance")) +
   theme_bw() +
   theme(legend.position = "bottom")
-
 ```
 
 ## A case study: Predicting industry returns
@@ -281,37 +323,111 @@ $$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1} \un
 - **Exercise:** Implement Ridge on your own before using `glmnet`
 
 ```{r}
+#| label: prepare-case-study-data-r
 #| echo: false
-
-factors_ff3_monthly <- read_parquet("../data/factors_ff3_monthly.parquet") |>
-  rename_with(~ str_c("factor_ff_", .), -date)
-
-factors_q_monthly <- tidyfinance::download_data(
-  "Global Q", "q5_factors_monthly_2024",
-  start_date = "1967-01-01", end_date = "2024-12-31"
-) |>
-  rename_with(~ str_c("factor_q_", .), -date)
-
-macro_predictors <- read_parquet("../data/macro_predictors.parquet") |>
-  rename_with(~ str_c("macro_", .), -date) |>
-  select(-macro_rp_div)
-
-industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |> 
-  pivot_longer(-date,
-    names_to = "industry", values_to = "ret"
+factors_q_file <- "../data/factors_q5_monthly.parquet"
+# q-factors are not in data/: download them once, then read the stored copy
+if (!file.exists(factors_q_file)) {
+  download_data(
+    domain = "Global Q",
+    dataset = "q5_factors_monthly_2024",
+    start_date = "1967-01-01",
+    end_date = "2024-12-31"
   ) |>
-  arrange(desc(industry)) |> 
+    write_parquet(factors_q_file)
+}
+
+# Predictors of month t - 1 explain returns of month t: x_{t-1} in the model
+lag_predictors <- function(predictors, prefix) {
+  predictors |>
+    rename_with(\(name) str_c(prefix, name), -date) |>
+    mutate(date = date %m+% months(1))
+}
+
+factors_ff3_monthly <- read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff_lagged <- lag_predictors(factors_ff3_monthly, "factor_ff_")
+factors_q_lagged <- read_parquet(factors_q_file) |>
+  lag_predictors("factor_q_")
+macro_lagged <- read_parquet("../data/macro_predictors.parquet") |>
+  # rp_div is the market excess return of the following month
+  select(-rp_div) |>
+  lag_predictors("macro_")
+
+industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |>
+  pivot_longer(-date, names_to = "industry", values_to = "ret") |>
+  arrange(desc(industry)) |>
   mutate(industry = as_factor(industry))
 
 data <- industries_ff_monthly |>
-  left_join(factors_ff3_monthly, join_by(date)) |>
-  left_join(factors_q_monthly, join_by(date)) |>
-  left_join(macro_predictors, join_by(date)) |>
-  mutate(
-    ret = ret - factor_ff_risk_free
-  ) |>
-  select(date, industry, ret_excess = ret, everything()) |>
+  left_join(select(factors_ff3_monthly, date, risk_free), join_by(date)) |>
+  mutate(ret_excess = ret - risk_free, .keep = "unused") |>
+  left_join(factors_ff_lagged, join_by(date)) |>
+  left_join(factors_q_lagged, join_by(date)) |>
+  left_join(macro_lagged, join_by(date)) |>
+  select(date, industry, ret_excess, everything()) |>
   drop_na()
+```
+
+```{python}
+#| label: prepare-case-study-data-py
+#| echo: false
+#| eval: false
+factors_q_file = Path("../data/factors_q5_monthly.parquet")
+# q-factors are not in data/: download them once, then read the stored copy
+if not factors_q_file.exists():
+    tf.download_data(
+        domain="Global Q",
+        dataset="q5_factors_monthly_2024",
+        start_date="1967-01-01",
+        end_date="2024-12-31",
+    ).write_parquet(factors_q_file)
+
+
+# Predictors of month t - 1 explain returns of month t: x_{t-1} in the model
+def lag_predictors(predictors, prefix):
+    return predictors.select(
+        pl.col("date").dt.offset_by("1mo"),
+        pl.exclude("date").name.prefix(prefix),
+    )
+
+
+factors_ff3_monthly = pl.read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff_lagged = lag_predictors(factors_ff3_monthly, "factor_ff_")
+factors_q_lagged = lag_predictors(pl.read_parquet(factors_q_file), "factor_q_")
+macro_lagged = lag_predictors(
+    # rp_div is the market excess return of the following month
+    pl.read_parquet("../data/macro_predictors.parquet").drop("rp_div"),
+    "macro_",
+)
+
+data = (
+    pl.read_parquet("../data/industries_ff_monthly.parquet")
+    .unpivot(index="date", variable_name="industry", value_name="ret")
+    .join(factors_ff3_monthly.select("date", "risk_free"), on="date", how="left")
+    .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))
+    .drop("ret", "risk_free")
+    .join(factors_ff_lagged, on="date", how="left")
+    .join(factors_q_lagged, on="date", how="left")
+    .join(macro_lagged, on="date", how="left")
+    .drop_nulls()
+)
+
+# scikit-learn has no step_interact(), so the interactions are built here
+factor_columns = [column for column in data.columns if column.startswith("factor_")]
+macro_columns = [column for column in data.columns if column.startswith("macro_")]
+data = data.with_columns(
+    (pl.col(factor) * pl.col(macro)).alias(f"{factor}_x_{macro}")
+    for factor in factor_columns
+    for macro in macro_columns
+)
+
+data_manufacturing = (
+    data.filter(pl.col("industry") == "manuf").drop("industry").sort("date")
+)
+# The first 4/5 of the months, as initial_time_split(prop = 4 / 5) in R
+data_manufacturing_training = data_manufacturing.head(
+    int(data_manufacturing.height * 4 / 5)
+)
 ```
 
 ## Ridge trace
@@ -320,27 +436,40 @@ data <- industries_ff_monthly |>
 - To keep things simple, I restrict the sample to the manufacturing portfolio
 
 ```{r}
+#| label: fit-ridge-path
 #| echo: false
 y <- data |> filter(industry == "manuf") |> pull(ret_excess)
-x <- data |> filter(industry == "manuf") |> select(factor_ff_mkt_excess:last_col()) |> as.matrix()
+x <- data |>
+  filter(industry == "manuf") |>
+  select(factor_ff_mkt_excess:last_col()) |>
+  as.matrix()
 
-library(glmnet)
-fit_ridge <- glmnet(x, y, alpha = 0) # Model
+fit_ridge <- glmnet(x, y, alpha = 0)
 ```
 
 ```{r}
+#| label: plot-ridge-trace
 #| echo: false
-broom::tidy(fit_ridge) |>
-  filter(term != "(Intercept)") |>
-  ggplot(aes(x=lambda, y = estimate, color = term)) +
-  geom_line() +
-  geom_hline(data = broom::tidy(fit_ridge) |>
-  filter(term != "(Intercept)")  |> filter(lambda == min(lambda)), aes(yintercept = estimate, color = term), linetype = "dotted") + 
-  scale_x_log10() +
-  labs(x = "Lambda", y = "Estimate", color = "Variable") +
-  theme_bw() +
-  theme(legend.position = "None")
+ridge_paths <- tidy(fit_ridge) |>
+  filter(term != "(Intercept)")
 
+ridge_paths |>
+  ggplot(aes(x = lambda, y = estimate, color = term)) +
+  geom_line() +
+  geom_hline(
+    data = ridge_paths |> filter(lambda == min(lambda)),
+    aes(yintercept = estimate, color = term),
+    linetype = "dotted"
+  ) +
+  scale_x_log10() +
+  labs(
+    title = "Ridge coefficients for manufacturing (dotted: smallest penalty)",
+    x = "Penalty (lambda, log scale)",
+    y = "Coefficient estimate",
+    color = "Variable"
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
 ```
 
 ## The Lasso (Tibshirani, 1996)
@@ -360,23 +489,33 @@ $$\hat\beta_\lambda^\text{Lasso} = \arg\min_\beta \left(Y - X\beta\right)'\left(
 
 ## Lasso with glmnet
 ```{r}
+#| label: fit-lasso-path
 #| echo: false
 fit_lasso <- glmnet(x, y, alpha = 1)
 ```
 
 ```{r}
+#| label: plot-lasso-trace
 #| echo: false
-broom::tidy(fit_lasso) |>
-  filter(term != "(Intercept)") |>
-  ggplot(aes(x=lambda, y = estimate, color = term)) +
+lasso_paths <- tidy(fit_lasso) |>
+  filter(term != "(Intercept)")
+
+lasso_paths |>
+  ggplot(aes(x = lambda, y = estimate, color = term)) +
   geom_line() +
-  geom_hline(data = broom::tidy(fit_lasso) |>
-  filter(term != "(Intercept)") |> filter(lambda == min(lambda)), aes(yintercept = estimate, color = term), linetype = "dotted") + 
-  theme_minimal() +
+  geom_hline(
+    data = lasso_paths |> filter(lambda == min(lambda)),
+    aes(yintercept = estimate, color = term),
+    linetype = "dotted"
+  ) +
   scale_x_log10() +
-  labs(x = "Lambda", y = "Estimate") +
+  labs(
+    title = "Lasso coefficients for manufacturing (dotted: smallest penalty)",
+    x = "Penalty (lambda, log scale)",
+    y = "Coefficient estimate"
+  ) +
   theme_bw() +
-  theme(legend.position = "None")
+  theme(legend.position = "none")
 ```
 
 ## Difference between Ridge and Lasso 
@@ -506,6 +645,7 @@ $$
 - R and Python provide unparalleled workflows for ML: `tidymodels` and `scikit-learn`
 
 ```{mermaid}
+%%| label: diagram-ml-workflow
 %%| echo: false
 %%| fig-width: 3
 
@@ -524,8 +664,7 @@ flowchart LR
 ## Tidymodels recipes
 
 ```{r}
-library(tidymodels) # For ML applications
-library(timetk) 
+#| label: split-train-test-r
 split <- initial_time_split(
   data |>
     filter(industry == "manuf") |>
@@ -535,15 +674,17 @@ split <- initial_time_split(
 ```
 
 - We start with a pre-processing plan (`recipe`)
-- We remove the column *month*, include all interaction terms between factors and macroeconomic predictors, and demean and scale each variable such that the standard deviation is one
+- We remove the column *date*, include all interaction terms between factors and macroeconomic predictors, and demean and scale each variable such that the standard deviation is one
 - Understanding why we use recipes instead of `mutate` is key: recipes defer transformations until fitting, which avoids data leakage
 
 ```{r}
+#| label: define-preprocessing-r
 rec <- recipe(ret_excess ~ ., data = training(split)) |>
-  step_rm(date) |> # remove date variable
-  step_interact(terms = ~ contains("factor"):contains("macro")) |> # interaction terms
-  step_normalize(all_predictors()) |> # scale to unit standard deviation
-  step_center(ret_excess , skip = TRUE) # demean variables
+  step_rm(date) |>
+  step_interact(terms = ~ contains("factor"):contains("macro")) |>
+  step_normalize(all_predictors()) |>
+  # Demeaned outcome instead of an intercept; skipped for new data (no outcome)
+  step_center(ret_excess, skip = TRUE)
 ```
 
 ## Scikit-learn recipes
@@ -552,15 +693,14 @@ rec <- recipe(ret_excess ~ ., data = training(split)) |>
 - You have to build interaction terms manually
 
 ```{python}
+#| label: define-preprocessing-py
 #| eval: false
+predictors = data.drop("ret_excess", "date", "industry").columns
+
 preprocessor = ColumnTransformer(
-  transformers=[
-    ("scale", StandardScaler(), 
-    [col for col in data.columns 
-      if col not in ["ret_excess", "date", "industry"]])
-  ],
-  remainder="drop",
-  verbose_feature_names_out=False
+    transformers=[("scale", StandardScaler(), predictors)],
+    remainder="drop",
+    verbose_feature_names_out=False,
 )
 ```
 
@@ -569,10 +709,9 @@ preprocessor = ColumnTransformer(
 - Makes use of a range of packages that `tidymodels` combines
 
 ```{r}
-lm_model <- linear_reg(
-  penalty = 0.0001,
-  mixture = 1
-) |> set_engine("glmnet", intercept = FALSE)
+#| label: specify-linear-model-r
+lm_model <- linear_reg(penalty = 0.0001, mixture = 1) |>
+  set_engine("glmnet", intercept = FALSE)
 ```
 
 - `lm_model` contains the definition of our model with all required information. 
@@ -580,6 +719,7 @@ lm_model <- linear_reg(
 - Key advantage: you can swap the model (e.g., change `mixture` to get Ridge, or replace `linear_reg` with a neural network) without changing the rest of the workflow
 
 ```{r}
+#| label: build-linear-workflow-r
 lm_fit <- workflow() |>
   add_recipe(rec) |>
   add_model(lm_model)
@@ -588,6 +728,7 @@ lm_fit <- workflow() |>
 - `workflow` ends with combining everything necessary for the (serious) data science workflow: a recipe and a model. So now we are ready to use `fit`.
 
 ```{r}
+#| label: fit-linear-model-r
 #| eval: false
 lm_fit |> fit(data = training(split))
 ```
@@ -598,95 +739,102 @@ lm_fit |> fit(data = training(split))
 - `Fit` method to compute parameter estimates
 
 ```{python}
+#| label: fit-linear-model-py
 #| eval: false
 lm_model = ElasticNet(
-  alpha=0.007,
-  l1_ratio=1, 
-  max_iter=5000, 
-  fit_intercept=False
-)  
-
-lm_pipeline = Pipeline([
-  ("preprocessor", preprocessor),
-  ("regressor", lm_model)
-])
-
-
-# Easy to fit a model
-lm_fit = lm_pipeline.fit(
-  data_manufacturing_training, 
-  data_manufacturing_training.get("ret_excess")
+    alpha=0.007,
+    l1_ratio=1,
+    max_iter=5000,
+    fit_intercept=False,
 )
 
+lm_pipeline = Pipeline([("preprocessor", preprocessor), ("regressor", lm_model)])
+
+lm_fit = lm_pipeline.fit(
+    data_manufacturing_training, data_manufacturing_training["ret_excess"].to_numpy()
+)
 ```
 
 ## Tune a model with tidymodels
-  
-- Recall:  Specify a grid of hyperparameters, obtain predictors $\hat{y}_i(\lambda)$ to denote the predictors for the used parameters $\lambda$ and compute $\mbox{MSPE}(\lambda)$ 
+
+- Recall:  Specify a grid of hyperparameters, obtain predictors $\hat{y}_i(\lambda)$ to denote the predictors for the used parameters $\lambda$ and compute $\mbox{MSPE}(\lambda)$
 
 ```{r}
-lm_model <- linear_reg(
-  penalty = tune(),
-  mixture = tune()
-) |> set_engine("glmnet")
-lm_fit <- lm_fit |> update_model(lm_model) # Update the existing model
+#| label: specify-tuning-model-r
+lm_model <- linear_reg(penalty = tune(), mixture = tune()) |>
+  set_engine("glmnet")
+lm_fit <- lm_fit |> update_model(lm_model)
 ```
 
-- time-series cross-validation sample: tune with 20 random samples of length five years with a validation period of 4 years
+- time-series cross-validation sample: tune with 20 rolling samples of length five years with a validation period of 4 years
 
 ```{r}
+#| label: create-time-series-folds-r
 data_folds <- time_series_cv(
-  data        = training(split),
-  date_var    = date,
-  initial     = "5 years",
-  assess      = "48 months", cumulative  = FALSE, slice_limit = 20
+  data = training(split),
+  date_var = date,
+  initial = "5 years",
+  assess = "48 months",
+  cumulative = FALSE,
+  slice_limit = 20
 )
 ```
 
 ```{r}
+#| label: tune-elastic-net-r
 lm_tune <- lm_fit |>
   tune_grid(
-    resample = data_folds,
+    resamples = data_folds,
     grid = grid_regular(penalty(), mixture(), levels = c(10, 3)),
     metrics = metric_set(rmse)
   )
 ```
 
-## Select the best model 
+## Select the best model
 
 ```{r}
+#| label: plot-tuning-results
 autoplot(lm_tune) +
   theme_minimal() +
   theme(legend.position = "bottom") +
-  labs(title = "Cross-validated average squared prediction errors")
+  labs(
+    title = "Cross-validated root mean squared prediction errors (RMSE)",
+    y = "RMSE of monthly excess returns"
+  )
 ```
 
 ## Tune a model with Scikit-learn
 
 ```{python}
+#| label: tune-elastic-net-py
 #| eval: false
+initial_months = 60
+assessment_months = 48
+# TimeSeriesSplit's validation windows do not overlap: as many as fit
+n_splits = (len(data_manufacturing_training) - initial_months) // assessment_months
+
 data_folds = TimeSeriesSplit(
-  n_splits=n_splits, 
-  test_size=assessment_months, 
-  max_train_size=initial_years * length_of_year
+    n_splits=n_splits,
+    test_size=assessment_months,
+    max_train_size=initial_months,
 )
 
 params = {
-  "regressor__alpha": alphas,
-  "regressor__l1_ratio": (0.0, 0.5, 1)
+    # The grid of grid_regular(penalty(), mixture(), levels = c(10, 3)) in R
+    "regressor__alpha": np.logspace(-10, 0, 10),
+    "regressor__l1_ratio": (0.0, 0.5, 1),
 }
 
 finder = GridSearchCV(
-  lm_pipeline,
-  param_grid=params,
-  scoring="neg_root_mean_squared_error",
-  cv=data_folds
+    lm_pipeline,
+    param_grid=params,
+    scoring="neg_root_mean_squared_error",
+    cv=data_folds,
 )
 
 finder = finder.fit(
-  data_manufacturing, data_manufacturing.get("ret_excess")
+    data_manufacturing_training, data_manufacturing_training["ret_excess"].to_numpy()
 )
-
 ```
 
 ## Advanced Tools
@@ -724,16 +872,19 @@ $$
 ## Intuition with R
 - Also here: In the **exercises**, you will implement a regression tree on your own
 ```{r}
+#| label: plot-regression-tree
 #| out-width: "70%"
 #| fig-align: "center"
-library(rpart)
-model <- rpart(
-  ret_excess ~ ., 
-  data = training(split) |> select(-date), 
-  control = rpart.control(maxdepth = 2))
+# rpart cross-validates the tree internally on randomly drawn folds
+set.seed(seed)
+tree_model <- rpart(
+  ret_excess ~ .,
+  data = training(split) |> select(-date),
+  control = rpart.control(maxdepth = 2)
+)
 
-plot(model)
-text(model, cex = 0.7)
+plot(tree_model, margin = 0.1, main = "Tree for manufacturing excess returns")
+text(tree_model, cex = 0.7)
 ```
 
 ## Random forests and Bagging
@@ -750,20 +901,17 @@ Growing a forest
 
 ## Hyperparameter tuning for random forests (R)
 ```{r}
-#| eval: false
-# install.packages("ranger") # Regression trees in R
-rf_model <- rand_forest(
-  trees = 50, # tune()
-  min_n = 20  # tune()
-) |>
-  set_engine("ranger") |>
+#| label: specify-random-forest-r
+# Fixed here to keep the example fast; in practice, tune() both
+rf_model <- rand_forest(trees = 50, min_n = 20) |>
+  set_engine("ranger", seed = seed) |>
   set_mode("regression")
 ```
 
 - Fitting the model follows the same convention as for the penalized regressions before
 
 ```{r}
-#| eval: false
+#| label: fit-random-forest-r
 rf_fit <- workflow() |>
   add_recipe(rec) |>
   add_model(rf_model) |>
@@ -772,22 +920,26 @@ rf_fit <- workflow() |>
 
 ## Hyperparameter tuning for random forests (Python)
 ```{python}
+#| label: specify-random-forest-py
 #| eval: false
+# Fixed here to keep the example fast; in practice, tune both
 rf_model = RandomForestRegressor(
-  n_estimators=50, 
-  min_samples_leaf=20, 
-  random_state=random_state
+    n_estimators=50,
+    min_samples_leaf=20,
+    random_state=seed,
 )
 ```
 
 - Fitting the model follows the same convention as for the penalized regressions before
 
 ```{python}
+#| label: fit-random-forest-py
 #| eval: false
-rf_pipeline = Pipeline([
-  ("preprocessor", preprocessor),
-  ("regressor", rf_model)
-])
+rf_pipeline = Pipeline([("preprocessor", preprocessor), ("regressor", rf_model)])
+
+rf_fit = rf_pipeline.fit(
+    data_manufacturing_training, data_manufacturing_training["ret_excess"].to_numpy()
+)
 ```
 
 ## Neural networks
@@ -833,24 +985,29 @@ $$x_k^l = f\left(\theta^k_{0} + \sum\limits_{j = 1}^{N ^l}z_j\theta_{l,j}^k\righ
 
 
 ```{r}
+#| label: plot-activation-functions
 #| echo: false
 #| out-width: "50%"
 #| fig-align: "center"
-tab <- tibble(val = seq(-1.5, 1.5, 0.01)) |> 
-  mutate(linear = 0 + val*0.2,
-         ReLU = pmax(0, val),
-         logistic = 1/(1 + exp(-1 -2*val)),
-         tanh = tanh(val),
-         binary = 1 * (val>0),
-         softsign = val/(1+abs(val)))
+activation_functions <- tibble(input = seq(-1.5, 1.5, by = 0.01)) |>
+  mutate(
+    # Slope and shift only make the curves easy to tell apart
+    linear = 0.2 * input,
+    ReLU = pmax(0, input),
+    logistic = 1 / (1 + exp(-1 - 2 * input)),
+    tanh = tanh(input),
+    binary = 1 * (input > 0),
+    softsign = input / (1 + abs(input))
+  )
 
-tab |> pivot_longer(-val) |> 
-  ggplot(aes(x = val, y = value)) +
+activation_functions |>
+  pivot_longer(-input, names_to = "activation", values_to = "output") |>
+  ggplot(aes(x = input, y = output)) +
   geom_line() +
   theme_minimal() +
-  facet_wrap(~name) +
-  labs(x = "", y = "") +
-  geom_hline(aes(yintercept =0), linetype = "dotted")
+  facet_wrap(~activation) +
+  labs(title = "Activation functions", x = "Input x", y = "Output f(x)") +
+  geom_hline(yintercept = 0, linetype = "dotted")
 ```
 
 ## Neural networks: Architecture and Implementation
@@ -884,10 +1041,12 @@ $$\Delta \vec{w} = r\cdot\left(\frac{\partial P}{\partial w_0},\frac{\partial P}
 - Output is a single neuron with linear (default) activation function which we can use for predictions
 
 ```{r}
+#| label: specify-neural-network-r
 #| eval: false
 library(torch)
 library(brulee)
 
+# brulee seeds torch from R's random numbers: call set.seed(seed) before fit()
 deep_nnet_model <- mlp(
   epochs = 500,
   dropout = 0.6,
@@ -902,21 +1061,19 @@ deep_nnet_model <- mlp(
 ## Deep neural networks in Python
 
 ```{python}
+#| label: specify-neural-network-py
 #| eval: false
-
 deepnnet_model = MLPRegressor(
-  hidden_layer_sizes=(64, 16),
-  activation="relu",
-  solver="lbfgs",
-  max_iter=500, 
-  random_state=42 # seed
+    hidden_layer_sizes=(64, 16),
+    activation="relu",
+    solver="lbfgs",
+    max_iter=500,
+    random_state=seed,
 )
-                              
-deepnnet_pipeline = Pipeline([
-  ("preprocessor", preprocessor),
-  ("regressor", deepnnet_model)
-])
 
+deepnnet_pipeline = Pipeline(
+    [("preprocessor", preprocessor), ("regressor", deepnnet_model)]
+)
 ```
 
 ## Beyond feed-forward networks
