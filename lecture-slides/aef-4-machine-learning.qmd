@@ -309,7 +309,7 @@ ggplot(ridge_bias_variance, aes(x = lambda, y = value, color = variable)) +
   theme(legend.position = "bottom")
 ```
 
-## A case study: Predicting industry returns
+## A case study: Explaining industry returns
 
 - Data for case study: macroeconomic predictors from the paper "A Comprehensive Look at The Empirical Performance of Equity Premium Prediction" (Welch and Goyal, 2008)
 - Monthly variables that the literature has proposed as good predictors for the equity premium: Dividend Price Ratio, Earnings Price Ratio, Stock Variance, Net Equity Expansion, Treasury Bill rate, and inflation
@@ -317,7 +317,8 @@ ggplot(ridge_bias_variance, aes(x = lambda, y = value, color = variable)) +
 - Monthly q-factor returns from Hou, Xue, and Zhang (2015)
 - Monthly portfolio returns from 10 different industries according to the definition from Kenneth French's homepage
 - The regression specification is
-$$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1} \underbrace{x_{t-1}}_{\text{macro} \times \text{factor}} + \varepsilon_t$$
+$$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1}' \underbrace{x_t}_{f_t,\ z_{t-1},\ f_t \times z_{t-1}} + \varepsilon_{i, t}$$
+- $f_t$: factor returns of month $t$; $z_{t-1}$: macro predictors of month $t-1$. The model explains industry returns but does not forecast them: $f_t$ is known only at the end of month $t$
 
 - Package `glmnet` fits generalized linear models via penalized maximum likelihood
 - **Exercise:** Implement Ridge on your own before using `glmnet`
@@ -337,21 +338,21 @@ if (!file.exists(factors_q_file)) {
     write_parquet(factors_q_file)
 }
 
-# Predictors of month t - 1 explain returns of month t: x_{t-1} in the model
-lag_predictors <- function(predictors, prefix) {
-  predictors |>
-    rename_with(\(name) str_c(prefix, name), -date) |>
-    mutate(date = date %m+% months(1))
-}
-
+# Factor returns of month t, macro predictors of month t - 1: the factor
+# exposures vary with the macro state known when month t starts
 factors_ff3_monthly <- read_parquet("../data/factors_ff3_monthly.parquet")
-factors_ff_lagged <- lag_predictors(factors_ff3_monthly, "factor_ff_")
-factors_q_lagged <- read_parquet(factors_q_file) |>
-  lag_predictors("factor_q_")
+factors_ff <- factors_ff3_monthly |>
+  select(-risk_free) |>
+  rename_with(\(name) str_c("factor_ff_", name), -date)
+# The q-factor file repeats the market factor and the risk-free rate
+factors_q <- read_parquet(factors_q_file) |>
+  select(-risk_free, -mkt_excess) |>
+  rename_with(\(name) str_c("factor_q_", name), -date)
 macro_lagged <- read_parquet("../data/macro_predictors.parquet") |>
   # rp_div is the market excess return of the following month
   select(-rp_div) |>
-  lag_predictors("macro_")
+  rename_with(\(name) str_c("macro_", name), -date) |>
+  mutate(date = date %m+% months(1))
 
 industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |>
   pivot_longer(-date, names_to = "industry", values_to = "ret") |>
@@ -361,8 +362,8 @@ industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |
 data <- industries_ff_monthly |>
   left_join(select(factors_ff3_monthly, date, risk_free), join_by(date)) |>
   mutate(ret_excess = ret - risk_free, .keep = "unused") |>
-  left_join(factors_ff_lagged, join_by(date)) |>
-  left_join(factors_q_lagged, join_by(date)) |>
+  left_join(factors_ff, join_by(date)) |>
+  left_join(factors_q, join_by(date)) |>
   left_join(macro_lagged, join_by(date)) |>
   select(date, industry, ret_excess, everything()) |>
   drop_na()
@@ -383,21 +384,24 @@ if not factors_q_file.exists():
     ).write_parquet(factors_q_file)
 
 
-# Predictors of month t - 1 explain returns of month t: x_{t-1} in the model
-def lag_predictors(predictors, prefix):
-    return predictors.select(
-        pl.col("date").dt.offset_by("1mo"),
-        pl.exclude("date").name.prefix(prefix),
-    )
-
-
+# Factor returns of month t, macro predictors of month t - 1: the factor
+# exposures vary with the macro state known when month t starts
 factors_ff3_monthly = pl.read_parquet("../data/factors_ff3_monthly.parquet")
-factors_ff_lagged = lag_predictors(factors_ff3_monthly, "factor_ff_")
-factors_q_lagged = lag_predictors(pl.read_parquet(factors_q_file), "factor_q_")
-macro_lagged = lag_predictors(
+factors_ff = factors_ff3_monthly.select(
+    "date", pl.exclude("date", "risk_free").name.prefix("factor_ff_")
+)
+# The q-factor file repeats the market factor and the risk-free rate
+factors_q = pl.read_parquet(factors_q_file).select(
+    "date", pl.exclude("date", "risk_free", "mkt_excess").name.prefix("factor_q_")
+)
+macro_lagged = (
+    pl.read_parquet("../data/macro_predictors.parquet")
     # rp_div is the market excess return of the following month
-    pl.read_parquet("../data/macro_predictors.parquet").drop("rp_div"),
-    "macro_",
+    .drop("rp_div")
+    .select(
+        pl.col("date").dt.offset_by("1mo"),
+        pl.exclude("date").name.prefix("macro_"),
+    )
 )
 
 data = (
@@ -406,8 +410,8 @@ data = (
     .join(factors_ff3_monthly.select("date", "risk_free"), on="date", how="left")
     .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))
     .drop("ret", "risk_free")
-    .join(factors_ff_lagged, on="date", how="left")
-    .join(factors_q_lagged, on="date", how="left")
+    .join(factors_ff, on="date", how="left")
+    .join(factors_q, on="date", how="left")
     .join(macro_lagged, on="date", how="left")
     .drop_nulls()
 )
@@ -842,7 +846,70 @@ finder = finder.fit(
 - In the exercises, you will go further: Compute lasso (with penalty as tuning parameter) for **all** industries in the sample
 - The figure below illustrates for each industry the selected variables: What are your expectations? 
 
-![](figures/factor_selection_lasso.png)
+```{r}
+#| label: plot-lasso-selection-by-industry
+#| echo: false
+#| cache: true
+#| fig-width: 10
+#| fig-height: 5.5
+# For each industry: tune the lasso penalty with the same time-series folds as
+# above, take the simplest model within one standard error of the lowest RMSE,
+# and keep the predictors with nonzero coefficients
+# Penalties from 10^-5 to 10^-1, the range in which predictors enter the model;
+# a coarser grid jumps from several predictors straight to none
+lasso_penalties <- grid_regular(penalty(range = c(-5, -1)), levels = 50)
+
+select_variables <- function(industry_data) {
+  industry_split <- initial_time_split(industry_data, prop = 4 / 5)
+  industry_folds <- time_series_cv(
+    data = training(industry_split),
+    date_var = date,
+    initial = "5 years",
+    assess = "48 months",
+    cumulative = FALSE,
+    slice_limit = 20
+  )
+  lasso_workflow <- workflow() |>
+    add_recipe(rec) |>
+    add_model(linear_reg(penalty = tune(), mixture = 1) |> set_engine("glmnet"))
+  lasso_tuned <- lasso_workflow |>
+    tune_grid(
+      resamples = industry_folds,
+      grid = lasso_penalties,
+      metrics = metric_set(rmse)
+    )
+  best_penalty <- select_by_one_std_err(lasso_tuned, desc(penalty), metric = "rmse")
+  finalize_workflow(lasso_workflow, best_penalty) |>
+    fit(data = training(industry_split)) |>
+    extract_fit_parsnip() |>
+    tidy() |>
+    filter(term != "(Intercept)", estimate != 0) |>
+    select(term)
+}
+
+selected_variables <- data |>
+  nest(industry_data = -industry) |>
+  mutate(selected = map(industry_data, select_variables)) |>
+  select(industry, selected) |>
+  unnest(selected)
+
+# Readable predictor names: "factor_ff_mkt_excess_x_macro_dp" becomes "mkt_excess × dp"
+selected_variables |>
+  mutate(
+    term = str_remove_all(term, "factor_ff_|factor_q_|macro_"),
+    term = str_replace(term, "_x_", " × "),
+    term = fct_rev(fct_infreq(term))
+  ) |>
+  ggplot(aes(x = industry, y = term)) +
+  geom_tile(fill = "#901A1E") +
+  scale_x_discrete(drop = FALSE) +
+  labs(
+    x = NULL, y = NULL,
+    title = "Predictors the lasso selects for each industry",
+    subtitle = "Monthly excess returns on factor returns of the same month and macro predictors of the previous month;\npenalty: simplest model within one SE of the lowest RMSE"
+  ) +
+  theme_minimal()
+```
 
 # Nonlinear methods
 
