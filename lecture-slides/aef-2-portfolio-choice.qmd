@@ -20,17 +20,34 @@
 ::: {.panel-tabset}
 ### R
 ```{r}
+#| label: setup
 #| echo: false
 #| warning: false
 library(tidyverse)
 library(tidyfinance)
+library(nanoparquet)
+library(slider)
 library(ggrepel)
 library(scales)
+library(gt)
+library(broom)
+library(quadprog)
+
+theme_set(theme_minimal())
+
+# Parameters that several hidden chunks below share
+months_per_year <- 12
+estimation_window_months <- 60
 ```
 
 ```{r}
+#| label: download-dj30-returns-r
 library(tidyverse)
 library(tidyfinance)
+library(nanoparquet)
+
+start_date <- "2019-08-01"
+end_date <- "2026-01-15"
 
 symbols <- download_data(
   "Index Constituents",
@@ -38,10 +55,12 @@ symbols <- download_data(
 )
 
 prices_daily <- download_data(
-    "Stock Prices", symbols = symbols$symbol,
-    start_date = "2019-08-01", end_date = "2026-01-15"
-) |> 
-  select(symbol, date,  price = adjusted_close)
+  "Stock Prices",
+  symbols = symbols$symbol,
+  start_date = start_date,
+  end_date = end_date
+) |>
+  select(symbol, date, price = adjusted_close)
 
 returns_monthly <- prices_daily |>
   mutate(date = floor_date(date, "month")) |>
@@ -53,22 +72,26 @@ returns_monthly <- prices_daily |>
 ```
 
 ### Python
-```{python} 
+```{python}
+#| label: download-dj30-returns-py
 #| eval: false
 import polars as pl
 import numpy as np
 import tidyfinance as tf
 
+start_date = "2019-08-01"
+end_date = "2026-01-15"
+
 symbols = tf.download_data(
-  domain="Index Constituents", 
+  domain="Index Constituents",
   index="Dow Jones Industrial Average"
 )
 
 prices_daily = (tf.download_data(
-    domain="Stock Prices", 
+    domain="Stock Prices",
     symbols=symbols["symbol"].to_list(),
-    start_date="2019-08-01",
-    end_date="2026-01-15"
+    start_date=start_date,
+    end_date=end_date
   )
   .select("symbol", "date", price="adjusted_close")
 )
@@ -111,8 +134,9 @@ $$
 ## R
 
 ```{r}
-assets <- returns_monthly |> 
-  group_by(symbol) |> 
+#| label: compute-asset-moments-r
+assets <- returns_monthly |>
+  group_by(symbol) |>
   summarize(
     mu = mean(ret),
     sigma = sd(ret)
@@ -122,6 +146,7 @@ assets <- returns_monthly |>
 ## Python
 
 ```{python}
+#| label: compute-asset-moments-py
 #| eval: false
 assets = (returns_monthly
   .group_by("symbol")
@@ -136,21 +161,16 @@ assets = (returns_monthly
 ## Figure {.active}
 
 ```{r}
+#| label: plot-risk-return
 #| echo: false
-
-library(ggrepel)
-library(scales)
-
-theme_set(theme_minimal())
-
-assets |> 
+assets |>
   ggplot(aes(x = sigma, y = mu, label = symbol)) +
   geom_point() +
   ggrepel::geom_text_repel() +
   scale_x_continuous(labels = percent) +
   scale_y_continuous(labels = percent) +
   labs(
-    x = "Volatility", y = "Expected return",
+    x = "Monthly volatility", y = "Monthly expected return",
     title = "Expected returns and volatilities of Dow Jones index constituents"
   )
 ```
@@ -208,7 +228,11 @@ $$
 ::: {.panel-tabset}
 ### R 
 ```{r}
-sigma <- returns_monthly |> pivot_wider(names_from = symbol, values_from = ret) |> select(-date) |> cov()
+#| label: compute-mvp-weights-r
+sigma <- returns_monthly |>
+  pivot_wider(names_from = symbol, values_from = ret) |>
+  select(-date) |>
+  cov()
 sigma_inv <- solve(sigma)
 iota <- rep(1, ncol(sigma))
 omega_mvp <- sigma_inv %*% iota
@@ -217,8 +241,8 @@ omega_mvp <- omega_mvp / sum(omega_mvp)
 
 ### Python
 ```{python}
+#| label: compute-mvp-weights-py
 #| eval: false
-import numpy as np
 returns_wide = (returns_monthly
   .pivot(on="symbol", index="date", values="ret")
   .drop("date")
@@ -303,30 +327,27 @@ $$\omega_\text{eff} = a \cdot \omega_\text{efp} + (1-a) \cdot \omega_\text{mvp}$
 
 ### R 
 ```{r}
+#| label: compute-efficient-frontier-r
 mu_bar <- max(assets$mu)
 C <- as.numeric(t(iota) %*% sigma_inv %*% iota)
 D <- as.numeric(t(iota) %*% sigma_inv %*% assets$mu)
 E <- as.numeric(t(assets$mu) %*% sigma_inv %*% assets$mu)
 lambda_tilde <- as.numeric(2 * (mu_bar - D / C) / (E - D^2 / C))
-omega_efp <- as.vector(omega_mvp + lambda_tilde / 2 * (sigma_inv %*% assets$mu - D * omega_mvp))
-
-summary_efp <- tibble(
-  mu = as.numeric(t(omega_efp) %*% assets$mu),
-  sigma = as.numeric(sqrt(t(omega_efp) %*% sigma %*% omega_efp)),
-  type = "Efficient Portfolio"
+omega_efp <- as.vector(
+  omega_mvp + lambda_tilde / 2 * (sigma_inv %*% assets$mu - D * omega_mvp)
 )
 
-efficient_frontier <- tibble(a = seq(from = -0, to = 2, by = 0.01)) |> 
+efficient_frontier <- tibble(a = seq(from = 0, to = 2, by = 0.01)) |>
   mutate(
     omega = map(a, \(x) x * omega_efp + (1 - x) * omega_mvp),
     mu = map_dbl(omega, \(x) t(x) %*% assets$mu),
-    sigma = map_dbl(omega, \(x) sqrt(t(x) %*% sigma %*% x)),
-  ) 
-
+    sigma = map_dbl(omega, \(x) sqrt(t(x) %*% sigma %*% x))
+  )
 ```
 
 ### Python
 ```{python}
+#| label: compute-efficient-frontier-py
 #| eval: false
 mu = assets["mu"].to_numpy()
 mu_bar = assets["mu"].max()
@@ -335,14 +356,6 @@ D = iota @ sigma_inv @ mu
 E = mu @ sigma_inv @ mu
 lambda_tilde = 2 * (mu_bar - D / C) / (E - (D ** 2) / C)
 omega_efp = omega_mvp + (lambda_tilde / 2) * (sigma_inv @ mu - D * omega_mvp)
-mu_efp = omega_efp @ mu
-sigma_efp = np.sqrt(omega_efp @ sigma @ omega_efp)
-
-summary_efp = pl.DataFrame({
-  "mu": [mu_efp],
-  "sigma": [sigma_efp],
-  "type": ["Efficient Portfolio"]
-})
 
 a_grid = np.arange(0, 2.01, 0.01)
 omega_grid = [a * omega_efp + (1 - a) * omega_mvp for a in a_grid]
@@ -356,21 +369,18 @@ efficient_frontier = pl.DataFrame({
 
 ### Figure {.active}
 ```{r}
+#| label: plot-efficient-frontier
 #| echo: false
-summaries <- bind_rows(assets, efficient_frontier) 
-summaries |> 
+assets |>
   ggplot(aes(x = sigma, y = mu)) +
-  geom_point(
-    data = summaries |> filter(is.na(a))
-  ) +
-  geom_point(
-    data = summaries |> filter(!is.na(a)), size = 0.1) +
+  geom_point() +
+  geom_point(data = efficient_frontier, size = 0.1) +
   scale_x_continuous(labels = percent) +
-  scale_y_continuous(labels = percent) + 
-  labs(x = "Volatility", y = "Expected return",
-       title = "Efficient frontier from historical moments of Dow Jones index constituents") + 
-  theme(legend.position = "none")
-
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Monthly volatility", y = "Monthly expected return",
+    title = "Efficient frontier from historical moments of Dow Jones index constituents"
+  )
 ```
 
 ::: 
@@ -419,6 +429,7 @@ $$
 :::{.panel-tabset group="language"}
 ### R
 ```{r}
+#| label: compute-tangency-portfolio-r
 rf <- 0
 w_tan <- solve(sigma) %*% (assets$mu - rf)
 w_tan <- w_tan / sum(w_tan)
@@ -427,16 +438,17 @@ mu_w <- as.numeric(t(w_tan) %*% assets$mu)
 sigma_w <- as.numeric(sqrt(t(w_tan) %*% sigma %*% w_tan))
 
 efficient_portfolios <- tribble(
-  ~symbol,    ~mu,         ~sigma,
+  ~symbol,      ~mu,  ~sigma,
   "omega[tan]", mu_w, sigma_w,
-  "r[f]", rf,   0
+  "r[f]",       rf,   0
 )
 
 sharpe_ratio <- (mu_w - rf) / sigma_w
 ```
 
-### Python 
+### Python
 ```{python}
+#| label: compute-tangency-portfolio-py
 #| eval: false
 rf = 0
 w_tan = np.linalg.solve(sigma, mu - rf)
@@ -455,23 +467,21 @@ sharpe_ratio = (mu_w - rf) / sigma_w
 
 ### Figure {.active}
 ```{r}
+#| label: plot-frontier-risk-free-asset
 #| echo: false
-assets |> 
+assets |>
   ggplot(aes(x = sigma, y = mu)) +
-  geom_point() + 
-  geom_line(
-    data = summaries |> filter(!is.na(a)), linewidth = 0.5,
-    linetype = "dotted") + 
+  geom_point() +
+  geom_line(data = efficient_frontier, linewidth = 0.5, linetype = "dotted") +
   geom_point(data = efficient_portfolios, color = "blue") +
-  geom_label_repel(data = efficient_portfolios,
-                   aes(label = symbol), parse = TRUE) +
+  geom_label_repel(data = efficient_portfolios, aes(label = symbol), parse = TRUE) +
   scale_x_continuous(labels = percent) +
   scale_y_continuous(labels = percent) +
   labs(
-    x = "Volatility", y = "Expected return",
+    x = "Monthly volatility", y = "Monthly expected return",
     title = "The efficient frontier with a risk-free asset and Dow index constituents"
   ) +
-  geom_abline(aes(intercept = rf, slope = sharpe_ratio))
+  geom_abline(intercept = rf, slope = sharpe_ratio)
 ```
 ::: 
 
@@ -494,8 +504,9 @@ $$
 :::{.panel-tabset}
 ### R
 ```{r}
+#| label: compute-security-market-line-r
 betas <- (sigma %*% w_tan) / as.numeric(t(w_tan) %*% sigma %*% w_tan)
-assets <- assets |> 
+assets <- assets |>
   mutate(beta = betas)
 
 price_of_risk <- as.numeric(t(w_tan) %*% assets$mu - rf)
@@ -503,6 +514,7 @@ price_of_risk <- as.numeric(t(w_tan) %*% assets$mu - rf)
 
 ### Python
 ```{python}
+#| label: compute-security-market-line-py
 #| eval: false
 betas = (sigma @ w_tan) / (w_tan.T @ sigma @ w_tan)
 assets = assets.with_columns(beta=pl.Series(betas))
@@ -512,19 +524,19 @@ price_of_risk = float(w_tan.T @ mu - rf)
 
 ### Figure {.active}
 ```{r}
+#| label: plot-security-market-line
 #| echo: false
-assets |> 
+assets |>
   ggplot(aes(x = beta, y = mu)) +
-  geom_point()  + 
+  geom_point() +
   ggrepel::geom_text_repel(aes(label = symbol), max.overlaps = Inf) +
   geom_abline(intercept = rf, slope = price_of_risk) +
   scale_y_continuous(labels = percent) +
   labs(
-    x = "Beta", y = "Expected return",
+    x = "Beta relative to the tangency portfolio", y = "Monthly expected return",
     title = "Security market line"
   ) +
   geom_label_repel(data = tibble(beta = 0, mu = rf), aes(label = "Risk-free"))
-
 ```
 ::: 
 
@@ -593,23 +605,33 @@ $$\beta_i = \frac{\sigma_{im}}{\sigma_m^2}$$
 - We compute the Sharpe ratio as $\frac{\hat{\mu}_z}{\hat{\sigma}_z}$
 
 ```{r}
+#| label: load-ff3-factors-r
 #| echo: false
-library(nanoparquet)
-library(gt)
 factors_ff_monthly <- read_parquet("../data/factors_ff3_monthly.parquet")
-factors_ff_monthly |> 
-    mutate(mkt_excess = 100 * mkt_excess) |> 
-    summarise(across(mkt_excess, list(mean = ~ 12 * mean(.), 
-                                      "\u03C3̂" = ~sqrt(12) * sd(.), 
-                                      Sharpe = ~sqrt(12) * mean(.)/sd(.)),
-                     .names = "{.fn}")) |>
-                      gt() |>
-  fmt_number(columns = everything(), decimals = 2) |> 
-  tab_footnote(
-    footnote = "All values are annualized.")
+```
+
+```{r}
+#| label: tabulate-market-factor
+#| echo: false
+sample_years <- range(year(factors_ff_monthly$date))
+
+factors_ff_monthly |>
+  summarize(
+    mean = months_per_year * mean(mkt_excess),
+    "\u03C3̂" = sqrt(months_per_year) * sd(mkt_excess),
+    Sharpe = sqrt(months_per_year) * mean(mkt_excess) / sd(mkt_excess)
+  ) |>
+  gt() |>
+  fmt_percent(columns = -Sharpe, decimals = 2) |>
+  fmt_number(columns = Sharpe, decimals = 2) |>
+  tab_header(
+    title = str_glue("Market excess returns, {sample_years[1]}-{sample_years[2]}")
+  ) |>
+  tab_footnote(footnote = "All values are annualized.")
 ```
 
 ```{python}
+#| label: load-ff3-factors-py
 #| echo: false
 #| eval: false
 factors_ff_monthly = pl.read_parquet("../data/factors_ff3_monthly.parquet")
@@ -628,25 +650,24 @@ $$
 
 ## CAPM - Example with simple linear regression
 ```{r}
+#| label: plot-capm-regression-aapl
 #| echo: false
-library(broom)
-apple_monthly <- returns_monthly |> filter(symbol == "AAPL") |> 
-  left_join(factors_ff_monthly |> select(date, risk_free, mkt_excess), join_by(date)) |>
+# Inner join: the factor data end before the Dow Jones sample does
+apple_monthly <- returns_monthly |>
+  filter(symbol == "AAPL") |>
+  inner_join(factors_ff_monthly |> select(date, risk_free, mkt_excess), join_by(date)) |>
   mutate(ret_excess = ret - risk_free)
 capm_regression <- lm(ret_excess ~ mkt_excess, data = apple_monthly)
-coef_tbl   <- tidy(capm_regression)
-fit_stats  <- glance(capm_regression)
+coef_tbl <- tidy(capm_regression)
 
 alpha <- coef_tbl$estimate[coef_tbl$term == "(Intercept)"]
-beta  <- coef_tbl$estimate[coef_tbl$term == "mkt_excess"]
-r2    <- fit_stats$r.squared
+beta <- coef_tbl$estimate[coef_tbl$term == "mkt_excess"]
 
 # Choose a representative market move for illustrating beta
-dx <- quantile(apple_monthly$mkt_excess, 0.9, na.rm = TRUE)
+dx <- quantile(apple_monthly$mkt_excess, 0.9)
 
 ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
   geom_point(alpha = 0.5, size = 1.6) +
-
   # Full CAPM fit (context only)
   geom_abline(
     intercept = alpha,
@@ -654,14 +675,11 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
     linewidth = 0.8,
     alpha = 0.4
   ) +
-
-  # Alpha: horizontal line
   geom_hline(
     yintercept = alpha,
     linetype = "dashed",
     linewidth = 1
   ) +
-
   # Beta: rise-over-run segment from the origin
   geom_segment(
     x = 0, y = 0,
@@ -669,13 +687,13 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
     linewidth = 1.3,
     arrow = arrow(length = unit(0.15, "inches"))
   ) +
-
   scale_x_continuous(labels = percent) +
   scale_y_continuous(labels = percent) +
-
   labs(
-    x = "Market Excess Return",
-    y = "AAPL Excess Return"  ) +
+    x = "Monthly market excess return",
+    y = "Monthly AAPL excess return",
+    title = "CAPM regression of Apple's monthly excess returns"
+  ) +
   annotate(
     "text",
     x = dx,
@@ -686,7 +704,7 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
   ) +
   annotate(
     "text",
-    x = quantile(apple_monthly$mkt_excess, 0.05, na.rm = TRUE),
+    x = quantile(apple_monthly$mkt_excess, 0.05),
     y = alpha,
     vjust = -0.6,
     label = sprintf("α = %.2f%%", 100 * alpha),
@@ -719,12 +737,13 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
 ## R
 
 ```{r}
-library(nanoparquet)
+#| label: load-crsp-monthly-r
 crsp_monthly <- read_parquet("../data/crsp_monthly.parquet")
 ```
 
 ## Python
 ```{python}
+#| label: load-crsp-monthly-py
 #| eval: false
 crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
 ```
@@ -735,21 +754,31 @@ crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
 - We adjust the market capitalization values for inflation using the [Consumer Price Index](https://www.bls.gov/cpi/data.htm) (CPI, All Urban Consumer series) from the Bureau of Labor Statistics website.
 
 ```{r}
+#| label: plot-crsp-composition
 #| echo: false
 #| layout-ncol: 2
-
-crsp_monthly |> count(exchange, date) |>
-  ggplot(aes(x = date, y = n, color = exchange)) + geom_line() +
-  labs(x = NULL, y = NULL, color = NULL, title = "Monthly number of securities by listing exchange") +
+crsp_monthly |>
+  count(exchange, date) |>
+  ggplot(aes(x = date, y = n, color = exchange)) +
+  geom_line() +
+  labs(
+    x = NULL, y = "Number of securities", color = NULL,
+    title = "Monthly number of securities by listing exchange"
+  ) +
   theme(legend.position = "bottom")
 
 cpi_monthly <- read_parquet("../data/cpi_monthly.parquet")
 crsp_monthly |>
-  left_join(cpi_monthly, join_by(date)) |> 
-  group_by(date, industry) |> 
-  summarize(mktcap = sum(mktcap / cpi) / 1000000) |> ungroup() |> 
-  ggplot(aes(x = date, y = mktcap, color = industry)) + geom_line() +
-  labs(x = NULL, y = NULL, color = NULL, title = "Market Cap by industry (in trillion USD)") +
+  left_join(cpi_monthly, join_by(date)) |>
+  group_by(date, industry) |>
+  # mktcap is in million USD, so dividing by 1e6 gives trillion USD
+  summarize(mktcap = sum(mktcap / cpi) / 1e6, .groups = "drop") |>
+  ggplot(aes(x = date, y = mktcap, color = industry)) +
+  geom_line() +
+  labs(
+    x = NULL, y = "Trillion USD, inflation-adjusted", color = NULL,
+    title = "Market capitalization by industry"
+  ) +
   theme(legend.position = "bottom")
 ```
 
@@ -762,6 +791,7 @@ crsp_monthly |>
 :::: {.columns}
 ::: {.column width="45%"}
 ```{r}
+#| label: define-rolling-capm-r
 roll_capm_estimation <- function(data, months, min_obs) {
   data <- data |>
     arrange(month)
@@ -784,6 +814,7 @@ roll_capm_estimation <- function(data, months, min_obs) {
 :::
 ::: {.column width="45%"}
 ```{python}
+#| label: define-rolling-capm-py
 #| eval: false
 def roll_capm_estimation(data, months, min_obs):
 
@@ -805,34 +836,54 @@ def roll_capm_estimation(data, months, min_obs):
 
 ## CAPM beta in the industry-cross section
 ```{r}
+#| label: estimate-crsp-betas-r
 #| echo: false
 #| cache: true
-# Rolling CAPM betas: 60 months of data, at least 48
+beta_lookback_months <- 60
+beta_min_months <- 48
+
 beta <- crsp_monthly |>
   select(permno, date, ret_excess) |>
   inner_join(select(factors_ff_monthly, date, mkt_excess), join_by(date)) |>
-  estimate_betas("ret_excess ~ mkt_excess", lookback = months(60), min_obs = 48) |>
+  estimate_betas(
+    "ret_excess ~ mkt_excess",
+    lookback = months(beta_lookback_months),
+    min_obs = beta_min_months
+  ) |>
   select(permno, date, beta = beta_mkt_excess) |>
   inner_join(crsp_monthly, join_by(date, permno))
-beta |> group_by(industry, permno) |> summarise(beta = mean(beta), na.rm = TRUE, .groups = "drop") |> 
-   ggplot(aes(x = reorder(industry, beta, FUN = median), y = beta)) +
-  geom_boxplot() + coord_flip() +
-  labs(x = NULL, y = NULL, title = "Firm-specific beta distributions by industry"
+```
+
+```{r}
+#| label: plot-industry-betas
+#| echo: false
+beta |>
+  group_by(industry, permno) |>
+  summarize(beta = mean(beta), .groups = "drop") |>
+  ggplot(aes(x = reorder(industry, beta, FUN = median), y = beta)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(
+    x = NULL, y = "Average market beta of a firm",
+    title = "Firm-specific beta distributions by industry"
   )
 ```
 
 ```{python}
+#| label: estimate-crsp-betas-py
 #| echo: false
 #| eval: false
-# Rolling CAPM betas: 60 months of data, at least 48
+beta_lookback_months = 60
+beta_min_months = 48
+
 beta = (
     tf.estimate_betas(
         crsp_monthly.select("permno", "date", "ret_excess").join(
             factors_ff_monthly.select("date", "mkt_excess"), on="date"
         ),
         model="ret_excess ~ mkt_excess",
-        lookback="60mo",
-        min_obs=48,
+        lookback=f"{beta_lookback_months}mo",
+        min_obs=beta_min_months,
     )
     .select("permno", "date", pl.col("beta_mkt_excess").alias("beta"))
     .join(crsp_monthly, how="inner", on=["date", "permno"])
@@ -852,29 +903,48 @@ portfolios
 :::{.panel-tabset}
 ## R 
 ```{r}
+#| label: sort-beta-portfolios-r
 #| eval: false
-beta_portfolios <- beta |> # A stylized example 
+# Sort on last month's beta, which investors know when they form portfolios
+beta_lag <- beta |>
+  transmute(permno, date = date %m+% months(1), beta_lag = beta)
+
+beta_portfolios <- crsp_monthly |> # A stylized example
+  inner_join(beta_lag, join_by(permno, date)) |>
   group_by(date) |>
-  mutate(breakpoint = median(beta),
-         portfolio = case_when(beta <= breakpoint ~ "low",
-                               beta > breakpoint ~ "high")) |>
+  mutate(
+    breakpoint = median(beta_lag),
+    portfolio = case_when(
+      beta_lag <= breakpoint ~ "low",
+      beta_lag > breakpoint ~ "high"
+    )
+  ) |>
   group_by(date, portfolio) |>
   summarize(ret = weighted.mean(ret_excess, mktcap_lag), .groups = "drop")
 
-beta_portfolios |> # Positive alpha?
-  pivot_wider(names_from = portfolio, values_from = ret) |> 
-  mutate(long_short = high - low) |> 
-  left_join(factors_ff_monthly)
+long_short <- beta_portfolios |> # Positive alpha?
+  pivot_wider(names_from = portfolio, values_from = ret) |>
+  mutate(long_short = high - low) |>
+  left_join(factors_ff_monthly, join_by(date))
 ```
 
 ## Python
 ```{python}
+#| label: sort-beta-portfolios-py
 #| eval: false
-beta_portfolios = (beta
-  .with_columns(breakpoint=pl.col("beta").median().over("date"))
+# Sort on last month's beta, which investors know when they form portfolios
+beta_lag = beta.select(
+  "permno",
+  pl.col("date").dt.offset_by("1mo"),
+  beta_lag="beta"
+)
+
+beta_portfolios = (crsp_monthly
+  .join(beta_lag, how="inner", on=["permno", "date"])
+  .with_columns(breakpoint=pl.col("beta_lag").median().over("date"))
   .with_columns(
-    portfolio=pl.when(pl.col("beta") <= pl.col("breakpoint")).then(pl.lit("low"))
-      .when(pl.col("beta") > pl.col("breakpoint")).then(pl.lit("high"))
+    portfolio=pl.when(pl.col("beta_lag") <= pl.col("breakpoint")).then(pl.lit("low"))
+      .when(pl.col("beta_lag") > pl.col("breakpoint")).then(pl.lit("high"))
   )
   .group_by("date", "portfolio")
   .agg(
@@ -889,7 +959,6 @@ long_short = (beta_portfolios
   .join(factors_ff_monthly, how="left", on="date")
   .sort("date")
 )
-
 ```
 :::
 
@@ -1039,6 +1108,7 @@ $$
 :::: {.columns}
 ::: {.column width="45%"}
 ```{r}
+#| label: for-loop-example-r
 for (value in c("My", "first", "for", "loop")) {
   print(value)
 }
@@ -1046,9 +1116,9 @@ for (value in c("My", "first", "for", "loop")) {
 :::
 ::: {.column width="45%"}
 ```{python}
+#| label: for-loop-example-py
 for value in ["My", "first", "for", "loop"]:
     print(value)
- 
 ```
 :::
 ::::
@@ -1063,29 +1133,38 @@ for value in ["My", "first", "for", "loop"]:
 - This motivates imposing constraints even at the cost of some theoretical inefficiency
 
 ```{r}
+#| label: plot-rolling-tangency-weights
 #| echo: false
-rolling_window <- 60
-returns_matrix <- returns_monthly |> pivot_wider(names_from = symbol, values_from = ret) |> dplyr::select(-date)
-weight_history <- map(seq(rolling_window + 1, nrow(returns_matrix)), function(t) {
-  window <- returns_matrix[(t-rolling_window):(t-1),] 
-  if (nrow(window) < 30) return(NULL)
-  mu_w  <- colMeans(window)
-  sig_w <- cov(window)
-  w_raw <- tryCatch(solve(sig_w) %*% mu_w, error = function(e) NULL)
-  if (is.null(w_raw) || abs(sum(w_raw)) < 1e-8) return(NULL)
-  tibble(symbol = names(mu_w), 
-         weight = as.vector(w_raw / sum(w_raw)),
-         date = t)
-}) |> compact() |> bind_rows()
+returns_wide <- returns_monthly |>
+  pivot_wider(names_from = symbol, values_from = ret) |>
+  arrange(date)
+returns_matrix <- returns_wide |>
+  select(-date) |>
+  as.matrix()
+
+weight_history <- map(seq(estimation_window_months + 1, nrow(returns_matrix)), function(t) {
+  window <- returns_matrix[(t - estimation_window_months):(t - 1), ]
+  mu_window <- colMeans(window)
+  sigma_window <- cov(window)
+  w_raw <- solve(sigma_window) %*% mu_window
+  tibble(
+    symbol = names(mu_window),
+    weight = as.vector(w_raw / sum(w_raw)),
+    date = returns_wide$date[t]
+  )
+}) |>
+  bind_rows()
 
 weight_history |>
   ggplot(aes(x = date, y = weight, group = symbol)) +
   geom_line(alpha = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   scale_y_continuous(labels = percent) +
-  labs(x = NULL, y = "Portfolio weight",
-       title = "Rolling tangency portfolio weights (60-month window)",
-       subtitle = "Each line is one Dow Jones stock; no short-sell constraint")
+  labs(
+    x = NULL, y = "Portfolio weight",
+    title = str_glue("Rolling tangency portfolio weights ({estimation_window_months}-month window)"),
+    subtitle = "Each line is one Dow Jones stock; no short-sell constraint"
+  )
 ```
 
 ## Parameter uncertainty
@@ -1120,43 +1199,49 @@ $$
 - The in-sample frontier is the best-looking one by construction — a severe form of overfitting (Michaud, 1998)
 
 ```{r}
+#| label: bootstrap-efficient-frontiers
 #| echo: false
-
 set.seed(2026)
 n_bootstrap <- 500
 T_obs <- nrow(returns_matrix)
 
 bootstrap_frontiers <- map(seq_len(n_bootstrap), function(b) {
-  idx   <- sample(T_obs, T_obs, replace = TRUE)
-  mu_b  <- colMeans(returns_matrix[idx, ])
+  idx <- sample(T_obs, T_obs, replace = TRUE)
+  mu_b <- colMeans(returns_matrix[idx, ])
   sig_b <- cov(returns_matrix[idx, ])
-  sig_inv_b <- tryCatch(solve(sig_b), error = function(e) NULL)
-  if (is.null(sig_inv_b)) return(NULL)
+  sig_inv_b <- solve(sig_b)
   iota_b <- rep(1, ncol(sig_b))
-  mvp_b  <- (sig_inv_b %*% iota_b) / as.numeric(t(iota_b) %*% sig_inv_b %*% iota_b)
-  C_b    <- as.numeric(t(iota_b) %*% sig_inv_b %*% iota_b)
-  D_b    <- as.numeric(t(iota_b) %*% sig_inv_b %*% mu_b)
-  E_b    <- as.numeric(t(mu_b)   %*% sig_inv_b %*% mu_b)
-  lam_b  <- 2 * (max(mu_b) - D_b / C_b) / (E_b - D_b^2 / C_b)
-  efp_b  <- as.vector(mvp_b + lam_b / 2 * (sig_inv_b %*% mu_b - D_b * mvp_b))
-  if(t(mvp_b)%*%mu_b>=t(efp_b)%*%mu_b) return(NULL)
+  C_b <- as.numeric(t(iota_b) %*% sig_inv_b %*% iota_b)
+  D_b <- as.numeric(t(iota_b) %*% sig_inv_b %*% mu_b)
+  E_b <- as.numeric(t(mu_b) %*% sig_inv_b %*% mu_b)
+  mvp_b <- (sig_inv_b %*% iota_b) / C_b
+  lam_b <- 2 * (max(mu_b) - D_b / C_b) / (E_b - D_b^2 / C_b)
+  efp_b <- as.vector(mvp_b + lam_b / 2 * (sig_inv_b %*% mu_b - D_b * mvp_b))
+  # If the target return max(mu_b) lies below the MVP return, the segment from
+  # the MVP to efp_b runs along the inefficient branch: skip such draws
+  if (t(mvp_b) %*% mu_b >= t(efp_b) %*% mu_b) return(NULL)
   tibble(a = seq(0, 1, by = 0.05), boot = b) |>
     mutate(
       omega = map(a, \(x) x * efp_b + (1 - x) * as.vector(mvp_b)),
-      mu    = map_dbl(omega, \(x) t(x) %*% assets$mu),
-      sigma = map_dbl(omega, \(x) sqrt(t(x) %*% sigma%*% x))
+      mu = map_dbl(omega, \(x) t(x) %*% assets$mu),
+      sigma = map_dbl(omega, \(x) sqrt(t(x) %*% sigma %*% x))
     )
-}) |> bind_rows()
+}) |>
+  bind_rows()
 
 ggplot(bootstrap_frontiers, aes(x = sigma, y = mu, group = boot)) +
   geom_line(alpha = 0.15, color = "grey60") +
-  geom_line(data = efficient_frontier, aes(group = NULL),
-            color = "steelblue", linewidth = 1) +
+  geom_line(
+    data = efficient_frontier, aes(group = NULL),
+    color = "steelblue", linewidth = 1
+  ) +
   scale_x_continuous(labels = percent) +
   scale_y_continuous(labels = percent) +
-  labs(x = "Volatility", y = "Expected return",
-       title = "Bootstrap uncertainty of the efficient frontier",
-       subtitle = "Grey: bootstrap frontiers (evaluated at full-sample parameters) | Blue: in-sample frontier")
+  labs(
+    x = "Monthly volatility", y = "Monthly expected return",
+    title = "Bootstrap uncertainty of the efficient frontier",
+    subtitle = "Grey: bootstrap frontiers (evaluated at full-sample parameters) | Blue: in-sample frontier"
+  )
 ```
 
 
@@ -1167,38 +1252,46 @@ ggplot(bootstrap_frontiers, aes(x = sigma, y = mu, group = boot)) +
 - Compare the distribution of $\widehat{\text{SR}}_s$ to the oracle $\text{SR}^* = \sqrt{\mu_0'\Sigma_0^{-1}\mu_0}$
 
 ```{r}
+#| label: simulate-plugin-sharpe-ratios
 #| echo: false
-library(MASS)
 set.seed(42)
-n_sim     <- 2000
-T_sim     <- 60
-mu_0      <- assets$mu
-sig_0     <- sigma
+n_sim <- 2000
+T_sim <- 60
+mu_0 <- assets$mu
+sig_0 <- sigma
 sr_oracle <- sqrt(as.numeric(t(mu_0) %*% solve(sig_0) %*% mu_0))
 
 sim_sr <- map_dbl(seq_len(n_sim), function(s) {
-  draws <- mvrnorm(T_sim, mu = mu_0, Sigma = sig_0)
-  mu_h  <- colMeans(draws)
+  draws <- MASS::mvrnorm(T_sim, mu = mu_0, Sigma = sig_0)
+  mu_h <- colMeans(draws)
   sig_h <- cov(draws)
-  w_raw <- tryCatch(solve(sig_h) %*% mu_h, error = function(e) NULL)
-  if (is.null(w_raw) || abs(sum(w_raw)) < 1e-8) return(NA_real_)
-  w    <- w_raw / sum(w_raw)
+  w_raw <- solve(sig_h) %*% mu_h
+  w <- w_raw / sum(w_raw)
   mu_p <- as.numeric(t(w) %*% mu_0)
   sd_p <- sqrt(as.numeric(t(w) %*% sig_0 %*% w))
-  if(mu_p<0) return(NA)
-  return(mu_p / sd_p)
+  # A negative expected return means the weights summed to a negative number
+  # and the normalization flipped the portfolio: the histogram leaves these out
+  if (mu_p < 0) return(NA_real_)
+  mu_p / sd_p
 })
 
-tibble(sr = sim_sr) |> drop_na() |>
+tibble(sr = sim_sr) |>
+  drop_na() |>
   ggplot(aes(x = sr)) +
-  geom_histogram(fill = "steelblue", alpha = 0.8) +
+  geom_histogram(bins = 30, fill = "steelblue", alpha = 0.8) +
   geom_vline(xintercept = sr_oracle, color = "red", linewidth = 1.2, linetype = "dashed") +
-  annotate("text", x = sr_oracle, y = Inf, vjust = 2, hjust = 1.3,
-           label = sprintf("Oracle SR = %.2f", sr_oracle), color = "red") +
-  labs(x = "Out-of-sample Sharpe ratio", y = "Count",
-       title = sprintf("Plug-in tangency SR distribution (N = %d, T = %d months)",
-                       length(mu_0), T_sim),
-       subtitle = "Red line: oracle Sharpe ratio under true parameters")
+  annotate(
+    "text", x = sr_oracle, y = Inf, vjust = 2, hjust = 1.3,
+    label = sprintf("Oracle SR = %.2f", sr_oracle), color = "red"
+  ) +
+  labs(
+    x = "Out-of-sample Sharpe ratio (monthly)", y = "Number of simulations",
+    title = sprintf(
+      "Plug-in tangency SR distribution (N = %d, T = %d months)",
+      length(mu_0), T_sim
+    ),
+    subtitle = "Red line: oracle Sharpe ratio under true parameters"
+  )
 ```
 
 ## How imposing restrictions helps
@@ -1257,44 +1350,49 @@ $$
 - **Expected finding**: naive $1/N$ often beats unconstrained plug-in out-of-sample (DeMiguel, Garlappi, and Uppal, 2009) 
 
 ```{r}
+#| label: backtest-plugin-naive-constrained
 #| echo: false
-library(quadprog)
-ret_wide <- returns_monthly |>
-  pivot_wider(names_from = symbol, values_from = ret) |> arrange(date)
-h_bt <- 60; gamma_bt <- 4
-N_bt <- ncol(ret_wide) - 1; T_bt <- nrow(ret_wide)
+risk_aversion <- 4
+n_assets <- ncol(returns_matrix)
+n_months <- nrow(returns_matrix)
 
-backtest <- map(seq(h_bt + 1, T_bt - 1), function(t) {
-  window <- ret_wide[(t - h_bt):(t - 1), -1] |> as.matrix()
-  r_next <- as.numeric(ret_wide[t + 1, -1])
-  mu_h   <- colMeans(window, na.rm = TRUE)
-  sig_h  <- cov(window)
-  iota_h <- rep(1, N_bt)
-  w_naive  <- rep(1 / N_bt, N_bt)
-  w_raw    <- tryCatch(solve(sig_h) %*% mu_h, error = function(e) NULL)
-  w_tan_bt <- if (!is.null(w_raw) && abs(sum(w_raw)) > 1e-8)
-    as.vector(w_raw / sum(w_raw)) else w_naive
-  Dmat  <- sig_h + diag(1e-8, N_bt)
-  Amat  <- cbind(iota_h, diag(N_bt))
-  w_con <- tryCatch(
-    solve.QP(Dmat, mu_h / gamma_bt, Amat, c(1, rep(0, N_bt)), meq = 1)$solution,
-    error = function(e) w_naive
+backtest <- map(seq(estimation_window_months + 1, n_months - 1), function(t) {
+  window <- returns_matrix[(t - estimation_window_months):(t - 1), ]
+  r_next <- returns_matrix[t + 1, ]
+  mu_h <- colMeans(window, na.rm = TRUE)
+  sig_h <- cov(window)
+  iota_h <- rep(1, n_assets)
+  w_naive <- rep(1 / n_assets, n_assets)
+  w_raw <- solve(sig_h) %*% mu_h
+  w_tan_bt <- as.vector(w_raw / sum(w_raw))
+  # solve.QP needs a strictly positive definite matrix; the tiny ridge
+  # guards against numerical round-off
+  Dmat <- sig_h + diag(1e-8, n_assets)
+  Amat <- cbind(iota_h, diag(n_assets))
+  w_con <- solve.QP(Dmat, mu_h / risk_aversion, Amat, c(1, rep(0, n_assets)), meq = 1)$solution
+  tibble(
+    naive = sum(w_naive * r_next),
+    tangency = sum(w_tan_bt * r_next),
+    constrained = sum(w_con * r_next)
   )
-  tibble(naive       = sum(w_naive   * r_next),
-         tangency    = sum(w_tan_bt  * r_next),
-         constrained = sum(w_con     * r_next))
-}) |> bind_rows()
+}) |>
+  bind_rows()
 
 backtest |>
   summarize(across(everything(), list(
-    Return = ~ 12 * mean(.),
-    Vol    = ~ sqrt(12) * sd(.),
-    Sharpe = ~ sqrt(12) * mean(.) / sd(.)
+    Return = \(x) months_per_year * mean(x),
+    Vol = \(x) sqrt(months_per_year) * sd(x),
+    Sharpe = \(x) sqrt(months_per_year) * mean(x) / sd(x)
   ), .names = "{.fn}_{.col}")) |>
   pivot_longer(everything(), names_to = c("metric", "strategy"), names_sep = "_") |>
   pivot_wider(names_from = strategy, values_from = value) |>
-  gt() |> fmt_number(columns = -metric, decimals = 2) |>
-  tab_header(title = "Out-of-sample performance comparison (h = 60 months)")
+  gt() |>
+  fmt_percent(columns = -metric, rows = metric != "Sharpe", decimals = 2) |>
+  fmt_number(columns = -metric, rows = metric == "Sharpe", decimals = 2) |>
+  tab_header(
+    title = str_glue("Out-of-sample performance comparison (h = {estimation_window_months} months)")
+  ) |>
+  tab_footnote(footnote = "All values are annualized.")
 ```
 
 ## Shrinkage: continuous regularization
