@@ -14,7 +14,7 @@ uv sync               # installs Python and every Python package of the course i
 
 Add a package with `uvr add tidymodels` or `uv add polars`, and commit `uvr.toml`, `uvr.lock`, `pyproject.toml` and `uv.lock`: your teammates then run `uvr sync` and `uv sync` to get exactly the same packages.
 
-To render a Quarto file that uses both languages from a terminal, activate the R environment and run Quarto through uv: `source .uvr/activate` (Windows: `.uvr\activate.ps1`), then `uv run quarto render file.qmd`.
+To render a Quarto file that uses both languages from a terminal, activate the R environment and run Quarto through uv: `source .uvr/activate` (Windows PowerShell: `. .\.uvr\activate.ps1`), then `uv run quarto render file.qmd`.
 
 ## Content of the repository
 

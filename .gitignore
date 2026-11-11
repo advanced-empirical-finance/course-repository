@@ -24,3 +24,6 @@ data/*
 !data/industries_ff_monthly.parquet
 !data/macro_predictors.parquet
 !data/cpi_monthly.parquet
+# CPZ light search: per-run logs and the results lock
+lecture-slides/factor-zoo/logs/
+lecture-slides/factor-zoo/results/.cpz_light_runs.lock
