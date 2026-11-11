@@ -206,7 +206,7 @@ for adversarial, label in [(False, "B4 Feed-forward SDF (unconditional moments)"
 
 out = Path("lecture-slides/factor-zoo/results")
 out.mkdir(parents=True, exist_ok=True)
-settings = {k: str(v) for k, v in vars(args).items()}
+settings = {k: str(v) for k, v in vars(args).items() if k != "prepare"}
 run_id = "_".join(f"{k}-{v}" for k, v in settings.items())
 scoreboard = (pl.DataFrame(rows)
     .with_columns(pl.col("^sr_.*$").round(2))
