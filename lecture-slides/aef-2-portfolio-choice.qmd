@@ -806,8 +806,14 @@ def roll_capm_estimation(data, months, min_obs):
 ## CAPM beta in the industry-cross section
 ```{r}
 #| echo: false
-beta <- read_parquet("../data/beta.parquet") |>
-  inner_join(crsp_monthly, join_by(date, permno)) |> filter(return_type =="monthly") 
+#| cache: true
+# Rolling CAPM betas: 60 months of data, at least 48
+beta <- crsp_monthly |>
+  select(permno, date, ret_excess) |>
+  inner_join(select(factors_ff_monthly, date, mkt_excess), join_by(date)) |>
+  estimate_betas("ret_excess ~ mkt_excess", lookback = months(60), min_obs = 48) |>
+  select(permno, date, beta = beta_mkt_excess) |>
+  inner_join(crsp_monthly, join_by(date, permno))
 beta |> group_by(industry, permno) |> summarise(beta = mean(beta), na.rm = TRUE, .groups = "drop") |> 
    ggplot(aes(x = reorder(industry, beta, FUN = median), y = beta)) +
   geom_boxplot() + coord_flip() +
@@ -818,9 +824,18 @@ beta |> group_by(industry, permno) |> summarise(beta = mean(beta), na.rm = TRUE,
 ```{python}
 #| echo: false
 #| eval: false
-beta = (pl.read_parquet("../data/beta.parquet")
-  .join(crsp_monthly, how="inner", on=["date", "permno"])
-  .filter(pl.col("return_type") == "monthly")
+# Rolling CAPM betas: 60 months of data, at least 48
+beta = (
+    tf.estimate_betas(
+        crsp_monthly.select("permno", "date", "ret_excess").join(
+            factors_ff_monthly.select("date", "mkt_excess"), on="date"
+        ),
+        model="ret_excess ~ mkt_excess",
+        lookback="60mo",
+        min_obs=48,
+    )
+    .select("permno", "date", pl.col("beta_mkt_excess").alias("beta"))
+    .join(crsp_monthly, how="inner", on=["date", "permno"])
 )
 ```
 

@@ -16,6 +16,11 @@ mandatory-assignments/MA_1_portfolio_choice_2026.qmd
 /.uvr/library/
 /.uvr/activate*
 
-# data/ is filled locally: public data via tidyfinance, proprietary files from Absalon
+# data/ holds the public datasets of the course (made by data-raw/public_data.R);
+# the licensed files from Absalon stay local and never go to GitHub
 data/*
 !data/.gitkeep
+!data/factors_ff3_monthly.parquet
+!data/industries_ff_monthly.parquet
+!data/macro_predictors.parquet
+!data/cpi_monthly.parquet
