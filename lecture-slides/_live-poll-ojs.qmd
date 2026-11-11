@@ -1,4 +1,5 @@
 ```{ojs}
+//| label: live-poll-helpers
 //| echo: false
 // Helpers for live polls and surveys; a deck includes this file once, on a
 // slide inside ::: {.content-visible when-profile="live"}. It needs
