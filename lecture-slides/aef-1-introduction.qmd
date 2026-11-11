@@ -342,7 +342,7 @@ Stick to R, Python (or Julia) because:
 ## R 
 
 - load the packages `tidyverse` and `tidyfinance`
-- Import data: `read_csv()`, `read_txt()`, .., or download with `tidyfinance`
+- Import data: `read_csv()`, `read_delim()`, ..., or download with `tidyfinance`
 ```{r}
 #| label: download-stock-prices-r
 library(tidyverse)

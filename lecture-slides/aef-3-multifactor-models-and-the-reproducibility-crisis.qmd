@@ -39,6 +39,7 @@ alternative to the Capital Asset Pricing Model
 ## Given these anomalies: Are markets efficient?
 
 ```{mermaid}
+%%| label: diagram-alpha-explanations
 %%| echo: false
 %%| fig-align: center
 flowchart TD
