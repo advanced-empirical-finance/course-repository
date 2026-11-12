@@ -12,7 +12,9 @@ lecture-slides/prototypes/*_files/
 **/*.quarto_ipynb_*
 mandatory-assignments/MA_1_portfolio_choice_2026.qmd
 .claude/settings.local.json
+# Trading game token: set_token() saves it here (R: .Renviron, Python: .env)
 .Renviron
+.env
 /.uvr/library/
 /.uvr/activate*
 
