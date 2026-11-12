@@ -1,4 +1,4 @@
-# The course repository for Advanced Empirical Finance 2026
+# The course repository for Advanced Empirical Finance
 
 This repo initializes the folder structure for the course *Advanced Empirical Finance: Topics and Data Science* so that you can start working immediately. We will work with R *and* Python to write code in this course. We will use Quarto, an open-source technical publishing system, to create beautiful articles, slides, blogs, and more to communicate our results. Follow the few installation steps in [Exercise 0](https://aef-course.ku.dk/exercises/technical-prerequisites.html) to ensure you have a running version of all the required software.
 
@@ -23,5 +23,7 @@ To render a Quarto file that uses both languages from a terminal, activate the R
 -   The folder `lecture-slides` contains all lecture slides and the corresponding `.qmd` files I used to render the slides.
 
 I will commit new changes regularly to the repository but alert you via 'Absalon' if any major change took place. To keep your local folder up-to-date, click on the `Source control` panel (`Str+Shift+G`). Then, click `.../Pull` to immediately update the local repository.
+
+Working in a team? Each team gets a private copy of this repository on GitHub that stays connected to it, for the course material, the assignments and the trading game. See [Collaboration with Git and GitHub](https://aef-course.ku.dk/additional-material/github-collaboration.html).
 
 
