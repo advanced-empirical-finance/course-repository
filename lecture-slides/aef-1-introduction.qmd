@@ -1,212 +1,47 @@
 ---
-subtitle: Introduction
+subtitle: Welcome, setup and financial data
+date: 2027-02-08
 filters:
   - timeline
 ---
 
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(nanoparquet)
+library(scales)
+
+# The sample of the course data and of the first case study
+start_date <- "2000-01-01"
+end_date <- "2025-12-31"
+symbols <- c("AAPL", "MSFT")
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+import polars as pl
+import tidyfinance as tf
+from mizani.formatters import comma_format
+from plotnine import (
+    aes,
+    facet_wrap,
+    geom_line,
+    ggplot,
+    labs,
+    scale_y_continuous,
+    theme,
+    theme_bw,
+)
+
+start_date = "2000-01-01"
+end_date = "2025-12-31"
+symbols = ["AAPL", "MSFT"]
+```
+
 # Welcome!
-
-## Kicking off Advanced Empirical Finance (AEF)
-
-- What is this course about?
-- How do we organize this course?
-- Set up R, Python, Quarto, and Positron
-- Tidy coding principles
-
-## What AEF is about
-
-**This course is about doing empirical finance: working with real data, from start to finish.**
-
-:::: {.columns}
-::: {.column width="33%"}
-**Theory**
-
-What should hold
-:::
-::: {.column width="33%"}
-**Econometrics**
-
-How to test it
-:::
-::: {.column width="33%"}
-**Data & code**
-
-What we actually find
-:::
-::::
-
-- AEF lives where the three meet: most results depend on choices made between the raw data and the final table
-- Empirical finance is finance measured against reality, and financial markets provide vast data to inform financial decisions
-
-**(How) can state-of-the-art methods improve financial decision making?**
-
-## Why I teach this course
-
-:::: {.columns}
-::: {.column width="33%"}
-**Decisions with large data**
-
-Portfolio choice for thousands of assets under transaction costs and estimation error (Hautsch & Voigt, 2019)
-
-Lectures 2 and 5 build on it
-:::
-::: {.column width="33%"}
-**Reproducibility**
-
-How the choices researchers make change their results: non-standard errors (Gruber, Kastner, Voigt & Weiss, 2026; Voigt & Scheuch, 2026)
-
-The reproducibility lecture builds on it
-:::
-::: {.column width="33%"}
-**Tidy Finance**
-
-The open-source book with R and Python side by side that this course builds on: [tidy-finance.org](https://www.tidy-finance.org)
-:::
-::::
-
-## Finance meets data science: how we learn
-
-You can do tech without statistics but you cannot do it without coding
-
-- The same tools all semester: tidy data, Quarto documents, R or Python
-- Room to experiment, in class and at home:
-  - weekly exercises, discussed in the exercise classes
-  - the trading game: your team manages a portfolio of US stocks, all semester long
-  - three mandatory assignments, each followed by peer feedback
-- Mistakes are part of the process: ask early, on Absalon or in office hours
-
-## Your roadmap
-
-<!-- Placeholder dates from spring 2026: update them for 2027 (also on "Mark the dates" and "Final Exam") -->
-
-::: timeline
-::: {.event data-label="8 Feb"}
-**Kick-off**
-
-Setup, data folder, trading game opens
-:::
-::: {.event data-label="1 Mar"}
-**Assignment 1**
-
-Trading costs start in the trading game
-:::
-::: {.event data-label="12 Apr"}
-**Assignment 2**
-:::
-::: {.event data-label="3 May"}
-**Assignment 3**
-:::
-::: {.event data-label="14 May"}
-**Trading game closes**
-:::
-::: {.event data-label="24–26 Jun"}
-**Exam**
-
-48 hours, written
-:::
-:::
-
-Every week: lectures, exercises, office hours. After each assignment: peer feedback.
-
-## Topics of this course
-
-- Optimal portfolio allocation
-- Backtesting of portfolio strategies
-- Risk premia and factor selection
-- Machine learning toolbox for financial forecasting
-- Risk management and volatility estimation
-
-At the end of the course, you should
-
-- Understand the current state of research in empirical asset pricing
-- Recognize the value of reproducible research (and know how to conduct a reproducible analysis)
-- Have your own ready-to-use state-of-the-art toolbox for empirical analysis
-
-## Objectives and tasks
-
-Guided coding assignments
-
-- Plan, perform, and implement data-science applications from scratch
-- Master and carry through relevant asset pricing models and solutions in new, unpredictable, and complex contexts
-- In plain words: *Learn how to use R or Python for empirical projects by conducting your own research!*
-
-The lecture builds on very recent academic papers
-
-- We discuss and criticize multifactor asset pricing, portfolio choice, and machine learning in asset pricing
-- The reading list is available on the [course homepage](https://aef-course.ku.dk/slides-index.html)
-- Be prepared to discuss the literature during the lecture
-
-## This course within the KU curriculum
-
-AEF closes the gap between core finance courses at KU
-
-- Financial Decision Making
-- Financial Econometrics A
-
-Related courses to consider
-
-- Introduction to Programming and Numerical Analysis
-- Various seminars in (applied) finance
-- Master thesis in our finance track (empirical finance? [Check my homepage](https://www.voigtstefan.me/blog/blog-thesis-supervision.html) and get in touch *early*)
-
-# Administration
-
-## Team and communication
-
-- Stefan ([stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk), [www.voigtstefan.me](https://www.voigtstefan.me))
-- Weekly office hours - a chance to ask questions (Thursdays, 11.00 - 12.00)
-- Show up to my office or online: [669 9264 2905 (password: 687063)](https://ucph-ku.zoom.us/j/66992642905?pwd=TjViN1VURXlUaUo1SEN5RndOQ1VOUT09)
-- Teaching assistants: Jacob ([jacob.wiberg.larsen@econ.ku.dk](mailto:jacob.wiberg.larsen@econ.ku.dk)) and Gabriel ([lmk109@econ.ku.dk](mailto:lmk109@econ.ku.dk))
-- Jacob and Gabriel moderate Absalon discussions and exercise classes, but it is *your* responsibility to actively engage in the exchange of ideas, code, and knowledge
-- We provide all exercises, slides, data, and other documents via Github / Absalon
-- **Rest of the team**: all the peers around you - connect and help each other out!
-
-- Lectures: CSS 25-01-53. Exercise classes: CSS 4-1-30
-- I record all lectures (no guarantee that things always work, and the ultimate priority is the crowd on campus)
-
-## This is how the course works
-
-- Lectures on Monday (even weeks) and every Thursday ([see timetable](https://kurser.ku.dk/course/a%C3%98kk08407u/)): state-of-the-art methods and theory
-- Lecture plan contains weekly coding assignments
-- I provide detailed solutions - but I *strongly recommend* that you solve everything on your own
-- If you alert me in due time, I will address some exercises or discuss the solutions
-- The exercise classes are in the style of open office-hours. The TAs are there to help you - but it is your responsibility to ask in advance if you have questions
-
-The learning curve is very steep, remember to reach out in case something is unclear
-
-## Mandatory Assignments
-
-- 7-day long coding assignments in which we transfer the theory into practice
-- You can write the assignments individually or in **groups of a maximum of three students** (you can sign up on the Absalon discussion board if you search for group members)
-- You should hand in one (!) .qmd (Quarto) script with commented source code and one (!) .pdf report in which you describe your methods and results (e.g., with figures, tables, equations, etc.)
-- **Handed-in report: max. 7 pages for .pdf file in total** (font size 12pt, use [these (click here)](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments) templates)
-- Answer all parts in English
-
-## Mark the dates: Mandatory Assignments
-
-1. mandatory assignment starts **March 1st**
-2. mandatory assignment starts **April 12th**
-3. mandatory assignment starts **May 3rd**
-
-- We will always upload the assignments (and data, where needed) on Absalon
-- Deadline: One week to work on your solutions
-- **Minimum requirement to get feedback:** Attempt to solve every task. Document your struggles if you do not finish an exercise. The code needs to run without any error or interruption so that your peers can focus on the content instead of fixing your bugs
-
-## Peer feedback
-
-- Peer feedback opens two days after the submission
-- Everybody provides feedback for **two** peer assignments individually (this is *one of the most critical steps towards success* - reserve time to give helpful feedback and learn from the answers of your peers)
-- The peer feedback period is open for seven days
-- If you receive feedback that you feel the reviewer should have drafted more carefully, flag it. I will be very strict in discarding useless submissions and comments
-
-##	Final Exam
-
-- To qualify for the exam, you have to hand in a minimum of two out of the three mandatory assignments *and* provide useful written peer feedback for a minimum of *two* out of the three mandatory assignments to *two* other assignments
-- Portfolio exam: **48 hours from June 24 to June 26**
-- The exam is a written assignment and consists of two parts: one selected mandatory assignment and a set of entirely new exercises
-- You will hand in a .pdf report and a .qmd file that replicates all results in your report
-
-# Where do we start?
 
 ## Who is in the room?
 
@@ -251,6 +86,513 @@ A short anonymous survey in the first lecture:
 - What do you mainly want to take away from this course?
 :::
 
+## What AEF is about
+
+**This course is about doing empirical finance: working with real data, from start to finish.**
+
+:::: {.columns}
+::: {.column width="33%"}
+**Theory**
+
+What should hold
+:::
+::: {.column width="33%"}
+**Econometrics**
+
+How to test it
+:::
+::: {.column width="33%"}
+**Data & code**
+
+What we actually find
+:::
+::::
+
+- AEF lives where the three meet: most results depend on choices made between the raw data and the final table
+- Empirical finance is finance measured against reality, and financial markets provide vast data to inform financial decisions
+
+**(How) can state-of-the-art methods improve financial decision making?**
+
+## Why I teach this course
+
+:::: {.columns}
+::: {.column width="33%"}
+**Decisions with large data**
+
+Portfolio choice for thousands of assets under transaction costs and estimation error (Hautsch & Voigt, 2019)
+:::
+::: {.column width="33%"}
+**Reproducibility**
+
+How the choices researchers make change their results: non-standard errors (Gruber, Kastner, Voigt & Weiss, 2026; Voigt & Scheuch, 2026)
+:::
+::: {.column width="33%"}
+**Tidy Finance**
+
+The open-source book with R and Python side by side that this course builds on: [tidy-finance.org](https://www.tidy-finance.org)
+:::
+::::
+
+## One thread through the course
+
+One object all semester: the **mean-variance efficient portfolio**, which is also the **stochastic discount factor** $m$ that prices every asset, $1 = E[mR]$
+
+:::: {.columns}
+::: {.column width="33%"}
+**From portfolio choice to pricing**
+
+Lectures 2–9
+
+The efficient portfolio and its estimation error; shrinkage and transaction costs; the SDF and the CAPM; factors, sorts and reproducibility
+:::
+::: {.column width="33%"}
+**Machine learning and the SDF**
+
+Lectures 10–16
+
+Overfitting and out-of-sample evaluation; shrinking the SDF; latent factors; trees, forests and neural networks on the factor zoo
+:::
+::: {.column width="33%"}
+**Volatility, risk and uncertainty**
+
+Lectures 17–21
+
+Volatility and covariances from high-frequency data; covariance forecasts for portfolio choice; the conference session
+:::
+::::
+
+## Your roadmap
+
+::: timeline
+::: {.event data-label="8 Feb"}
+**Kick-off**
+
+Trading game dry run until 12 Feb
+:::
+::: {.event data-label="16 Feb"}
+**Trading starts**
+:::
+::: {.event data-label="11–18 Mar"}
+**Assignment 1**
+
+Portfolio choice
+:::
+::: {.event data-label="19–26 Apr"}
+**Assignment 2**
+
+Machine learning, out of sample
+:::
+::: {.event data-label="3–10 May"}
+**Assignment 3**
+:::
+::: {.event data-label="14 May"}
+**Trading game closes**
+:::
+::: {.event data-label="after 20 May"}
+**Conference session**
+:::
+:::
+
+Easter break 22–26 March. The [lecture plan](https://aef-course.ku.dk/slides-index.html) has every date.
+
+# How the course works
+
+## Every week
+
+- **Lectures:** Mondays 8–10 in even weeks (CSS 1-1-18) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
+- **Exercises**, one page per week, in two parts:
+  - *Reproduce* a chapter of [Tidy Finance](https://www.tidy-finance.org) in R or Python; the solutions are in the book
+  - *An open question* without a fixed solution: you submit a figure or a number, and the next lecture discusses the results of the whole class
+- **Exercise classes:** open office hours, Mondays 8–10 in odd weeks (CSS 2-2-36). Bring your questions; nothing is presented
+
+The learning curve is steep: ask early, on Absalon or in the exercise classes
+
+## How you are assessed
+
+Continuous assessment: what you hand in and present during the semester counts
+
+- **Three mandatory assignments**, in teams of up to three
+- **Peer feedback** on the assignments of other teams, individually
+- **The conference session:** presentations and discussions
+
+**TBD:** weights and minimum requirements
+
+## Mandatory assignments
+
+| | Topic | Weeks |
+|---|---|---|
+| 1 | Portfolio choice | 11–18 March |
+| 2 | Machine learning in asset pricing, out of sample | 19–26 April |
+| 3 | **TBD** | 3–10 May |
+
+- One week each; the assignments and the data come through Absalon
+- Hand in one `.qmd` file and the PDF rendered from it: at most 7 pages, 12 pt, in English, from the [templates](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments)
+- Every assignment builds on your team's trading game decisions in one part
+- The bar is high: the [assignment quality criteria](https://aef-course.ku.dk/additional-material/assignment-quality-criteria.html) say what a good submission looks like
+
+## Peer feedback
+
+- Peer feedback opens two days after the deadline and stays open for seven days
+- Each of you gives feedback on **two** submissions of other teams
+- Start by reproducing their report: does it render from their files, and do the numbers match?
+- This is one of the most useful steps of the course: you see how others solved the same problem
+
+**TBD:** confirm the rules for 2027
+
+## The trading game
+
+<iframe src="https://aef-course.ku.dk/trading-game/intro/index.html" width="100%" height="560" style="border: 0;" title="The trading game in 60 seconds"></iframe>
+
+## The trading game: what matters
+
+- Your team runs a paper portfolio of US stocks, from $1,000,000, from 16 February to 14 May; the dry run is open until 12 February
+- You send a weight vector with a rationale whenever you like; the game trades it at the next open
+- The game is there to make you decide and to discuss decisions: every assignment builds on your team's decisions
+- **Conference session:** the teams with the best out-of-sample performance present their approach, and other students discuss it in front of faculty and quantitative traders; a jury picks the best team
+- Start here: [the rules](https://aef-course.ku.dk/trading-game/) and [Getting started](https://aef-course.ku.dk/trading-game/getting-started.html)
+
+## AI in this course
+
+- You may, and you are expected to, use AI assistants for code, text and review
+- In exchange, the bar is high: you answer for every line you hand in
+- The course repository contains `AGENTS.md`: your assistant reads the course rules from there
+- Never paste licensed data (CRSP) or your trading game token into a chat
+- How to work with an assistant: [AI assistants](https://aef-course.ku.dk/additional-material/positron-ai-assistant.html)
+
+## Team and contact
+
+- Stefan Voigt ([stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk), [www.voigtstefan.me](https://www.voigtstefan.me))
+- Teaching assistant: Nikolai Zakarias Zwisler ([xjb522@econ.ku.dk](mailto:xjb522@econ.ku.dk))
+- Questions about content go to the Absalon discussion board, so everyone benefits from the answer
+- **TBD:** office hours, and whether lectures are recorded
+- The rest of the team: your peers. Connect and help each other
+
+# Your setup
+
+## The toolbox
+
+| Tool | What it does |
+|---|---|
+| **R or Python** | The language you write your analysis in |
+| **Positron** | The editor: code, console, data viewer, Git and AI assistant in one place |
+| **Quarto** | Weaves text and code into one report: your hand-ins are Quarto files rendered to PDF |
+| **uv and uvr** | Install Python, R and exactly the course's package versions |
+| **Git and GitHub** | Version control and your team's repository |
+
+Set it up before the next lecture: [technical prerequisites](https://aef-course.ku.dk/exercises/technical-prerequisites.html)
+
+## One environment for everyone
+
+- The course repository records every package version: `uv.lock` for Python, `uvr.lock` for R
+- Two commands install exactly these versions on your computer:
+
+```{.sh}
+uvr sync
+uv sync
+```
+
+- Why it matters: your peers run your code for peer feedback; with the same versions, it runs on their computer too
+- Need another package? `uvr add <package>` or `uv add <package>`, then commit the lock files
+
+## Your team repository
+
+- Each team gets a private copy of the course repository on GitHub, created for you: course material, assignments and trading game code in one place
+- Send your team's GitHub usernames through the form on Absalon
+- Before every hand-in, a teammate renders your report from a fresh copy: the pull request is the natural place for this check
+- [Collaboration with Git and GitHub](https://aef-course.ku.dk/additional-material/github-collaboration.html) has every step
+
+## R or Python?
+
+:::: {.columns}
+::: {.column width="60%"}
+- Both are open source, have large communities and are standard in finance
+- Pick one; every exercise and every solution exists in both
+- **Tidy coding** matters more than the language: clean code in either is readable for everyone
+- You give feedback on R and Python submissions: with tidy code, you understand your peers' code even in the other language
+:::
+::: {.column width="40%"}
+![](figures/paths.jpg){width=100% fig-align="center"}
+:::
+::::
+
+# Financial data
+
+## Where the data come from
+
+- **CRSP** (Center for Research in Security Prices): every US common stock since 1926, from WRDS. Licensed: you get it through Absalon
+- **Public data**, downloaded with `tidyfinance`: the Fama-French factors and industry portfolios, the macroeconomic predictors of Welch and Goyal (2008), the consumer price index
+- Everything lives as parquet files in the `data` folder of the course repository, as in the Tidy Finance book
+
+| File | Content |
+|---|---|
+| `crsp_monthly.parquet` | CRSP monthly returns, market capitalization, exchange, industry (from Absalon) |
+| `factors_ff3_monthly.parquet` | Fama-French three factors and the risk-free rate |
+| `industries_ff_monthly.parquet` | Ten industry portfolios |
+| `macro_predictors.parquet` | Welch and Goyal (2008) predictors |
+| `cpi_monthly.parquet` | Consumer price index |
+
+## Reading the data
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: read-crsp-r
+crsp_monthly <- read_parquet("../data/crsp_monthly.parquet")
+cpi_monthly <- read_parquet("../data/cpi_monthly.parquet")
+```
+
+## Python
+
+```{python}
+#| label: read-crsp-py
+crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
+cpi_monthly = pl.read_parquet("../data/cpi_monthly.parquet")
+```
+:::
+
+- The CRSP file is licensed: never commit it, never upload it, never paste it into an AI tool. Git ignores it in the course repository
+- Read files with relative paths, so your code runs on your teammates' computers too
+
+## The CRSP universe: number of stocks
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: plot-stocks-by-exchange-r
+#| output-location: slide
+#| fig-width: 10
+#| fig-height: 5
+crsp_monthly |>
+  count(exchange, date) |>
+  ggplot(aes(x = date, y = n, color = exchange, linetype = exchange)) +
+  geom_line() +
+  labs(
+    x = NULL, y = "Number of stocks", color = NULL, linetype = NULL,
+    title = "Number of stocks in CRSP by listing exchange, monthly"
+  ) +
+  scale_y_continuous(labels = comma) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+## Python
+
+```{python}
+#| label: plot-stocks-by-exchange-py
+#| eval: false
+(
+    ggplot(
+        crsp_monthly.group_by("exchange", "date").len(),
+        aes(x="date", y="len", color="exchange", linetype="exchange"),
+    )
+    + geom_line()
+    + labs(
+        x="", y="Number of stocks", color="", linetype="",
+        title="Number of stocks in CRSP by listing exchange, monthly",
+    )
+    + scale_y_continuous(labels=comma_format())
+    + theme_bw()
+    + theme(legend_position="bottom")
+)
+```
+:::
+
+Your first exercise: reproduce this figure from your own `data` folder
+
+## The CRSP universe: market capitalization
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: plot-market-cap-by-exchange-r
+#| output-location: slide
+#| fig-width: 10
+#| fig-height: 5
+# mktcap is in million USD; cpi is 1 in December 2025
+crsp_monthly |>
+  left_join(cpi_monthly |> select(date, cpi), join_by(date)) |>
+  summarize(mktcap = sum(mktcap, na.rm = TRUE) / first(cpi), .by = c(date, exchange)) |>
+  ggplot(aes(x = date, y = mktcap / 1e6, color = exchange, linetype = exchange)) +
+  geom_line() +
+  labs(
+    x = NULL, y = "Trillion USD (December 2025 prices)", color = NULL, linetype = NULL,
+    title = "Market capitalization in CRSP by listing exchange, monthly"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+## Python
+
+```{python}
+#| label: plot-market-cap-by-exchange-py
+#| eval: false
+# mktcap is in million USD; cpi is 1 in December 2025
+market_cap = (
+    crsp_monthly.join(cpi_monthly.select("date", "cpi"), on="date", how="left")
+    .group_by("date", "exchange")
+    .agg(mktcap=(pl.col("mktcap").sum() / pl.col("cpi").first()) / 1e6)
+)
+(
+    ggplot(market_cap, aes(x="date", y="mktcap", color="exchange", linetype="exchange"))
+    + geom_line()
+    + labs(
+        x="", y="Trillion USD (December 2025 prices)", color="", linetype="",
+        title="Market capitalization in CRSP by listing exchange, monthly",
+    )
+    + theme_bw()
+    + theme(legend_position="bottom")
+)
+```
+:::
+
+# Tidy coding: the essentials
+
+## Tidy data and the pipe
+
+- **Tidy data:** each variable is a column, each observation a row, each value a cell. CRSP is tidy: one row per stock and month
+- **One verb per step, chained:** `|>` in R, method chaining in Python. The code reads like the analysis
+
+:::: {.columns}
+::: {.column width="50%"}
+```{r}
+#| label: count-stocks-latest-month-r
+# R: stocks per exchange in the latest month
+crsp_monthly |>
+  filter(date == max(date)) |>
+  count(exchange)
+```
+:::
+::: {.column width="50%"}
+```{python}
+#| label: count-stocks-latest-month-py
+# Python: stocks per exchange in the latest month
+(
+    crsp_monthly.filter(pl.col("date") == pl.col("date").max())
+    .group_by("exchange")
+    .len()
+    .sort("exchange")
+)
+```
+:::
+::::
+
+- Names say what a column holds (`trading_volume_usd`, not `tmp2`); the [quality criteria](https://aef-course.ku.dk/additional-material/assignment-quality-criteria.html) have the rest
+
+## A first case study: daily returns
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-daily-returns-r
+prices <- download_data(
+  domain = "Stock Prices",
+  symbols = symbols,
+  start_date = start_date,
+  end_date = end_date
+)
+
+returns <- prices |>
+  arrange(symbol, date) |>
+  mutate(ret = adjusted_close / lag(adjusted_close) - 1, .by = symbol) |>
+  select(symbol, date, ret) |>
+  drop_na(ret)
+```
+
+## Python
+
+```{python}
+#| label: compute-daily-returns-py
+prices = tf.download_data(
+    domain="Stock Prices",
+    symbols=symbols,
+    start_date=start_date,
+    end_date=end_date,
+)
+
+returns = (
+    prices.sort("symbol", "date")
+    .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
+    .select("symbol", "date", "ret")
+    .drop_nulls("ret")
+)
+```
+:::
+
+## Summaries by group
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: summarize-returns-r
+returns |>
+  summarize(
+    mean = mean(ret),
+    sd = sd(ret),
+    min = min(ret),
+    max = max(ret),
+    .by = symbol
+  )
+```
+
+## Python
+
+```{python}
+#| label: summarize-returns-py
+returns.group_by("symbol").agg(
+    mean=pl.col("ret").mean(),
+    sd=pl.col("ret").std(),
+    min=pl.col("ret").min(),
+    max=pl.col("ret").max(),
+).sort("symbol")
+```
+:::
+
+`group_by` and `summarize` (or `agg`) answer many questions in empirical finance
+
+## The grammar of graphics
+
+Data, a geometric shape, and aesthetics that map variables to it: `ggplot2` in R, `plotnine` in Python
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: plot-adjusted-prices-r
+#| output-location: slide
+#| fig-width: 10
+#| fig-height: 5
+prices |>
+  ggplot(aes(x = date, y = adjusted_close)) +
+  geom_line() +
+  facet_wrap(~symbol, scales = "free_y") +
+  labs(x = NULL, y = "USD", title = "Adjusted closing prices of Apple and Microsoft, daily") +
+  theme_bw()
+```
+
+## Python
+
+```{python}
+#| label: plot-adjusted-prices-py
+#| eval: false
+(
+    ggplot(prices, aes(x="date", y="adjusted_close"))
+    + geom_line()
+    + facet_wrap("symbol", scales="free_y")
+    + labs(x="", y="USD", title="Adjusted closing prices of Apple and Microsoft, daily")
+    + theme_bw()
+)
+```
+:::
+
+
+# Wrapping up
+
 ## Who is in the room: your answers
 
 ::: {.content-visible when-profile="live"}
@@ -278,338 +620,17 @@ if (is.null(background_chart)) {
 ```
 :::
 
-# Set up R, Python, Quarto, and Positron
-
-## Language-agnostic coding
-
-
-:::: {.columns}
-::: {.column width="60%"}
--	Focus on **tidy coding**, not just language proficiency
-- You can write clean, reproducible code in Python *and* R
-- Follow standard ground rules and irrespective of your preferences, code will be readable, understandable, and intuitive 
-
-- You will give feedback on Python and R submissions - stick to tidy coding principles, and you will be able to understand what the code of your peers is doing even if you are not an expert in their chosen language
-- Reversely, that means: Take tidy coding seriously to maximize your chance for valuable feedback
-:::
-::: {.column width="40%"}
-![](figures/paths.jpg){width=100% fig-align="center"}
-:::
-::::
-
-## Select your coding language
-
-Stick to R, Python (or Julia) because:
-
-- **Open source**: to avoid license issues (or work with computing clusters)
-- **Active community**: to benefit  from robust support & shared knowledge
-- **Industry standards**: to align with well-established tools (in finance)
-- **Versatility**: reproducibility, high-quality visualization & flexible data handling
-- Typically **less critical** in academia: **execution speed** in interactive sessions
-
-
-## What is Quarto?
-
-- R and Python are languages and environments for statistical computing
-- With Quarto you can embed code directly into the analysis. It is easy to share your reproducible R and Python output using Quarto
-
-![](figures/quarto.png){width=40% fig-align="center"}
-
-
-## Why Positron? Setup for this course
-
-- While *R* and *Python* run computations, *Positron* is an integrated development environment (IDE) that provides an interface by adding many convenient features and tools
-- Strongly recommend using Positron as an interface, but you can use other editors
-- Advanced embedding of version control (Github) and AI tools
-- You can use either Python or R and process your code with Quarto (there will be an asynchronous lecture on how to use Quarto)
-- We will all work in the same environment to ensure your peers can reproduce your results
-
-## Data science workflow: tidyverse and polars
-
-![](figures/tidyverse_workflow.png){width=60% fig-align="center"}
-
-- In R we work almost exclusively with tidyverse packages: ggplot, dplyr, readr, ...
-- The tidyverse is "a framework [...] that aims at doing the cleaning and preparing steps much easier"
-- [Wickham's and Grolemund's book *R for Data Science*](https://r4ds.hadley.nz/) explains everything we need
-- During this semester, we cover almost every topic from their book
-- Python library equivalents: `polars`, `numpy`, `plotnine`
-
-## Ready for a first case study?
-
-- Start by opening your Positron project
-
-::: {.panel-tabset  group="language"}
-## R 
-
-- load the packages `tidyverse` and `tidyfinance`
-- Import data: `read_csv()`, `read_delim()`, ..., or download with `tidyfinance`
-```{r}
-#| label: download-stock-prices-r
-library(tidyverse)
-library(tidyfinance)
-
-prices <- download_data(
-  "Stock Prices",
-  symbols = c("AAPL", "MSFT"),
-  start_date = "2000-01-01",
-  end_date = "2026-02-01"
-)
-```
-
-## Python
-
-- load the libraries `polars`, `tidyfinance`, and `plotnine`
-- Import data: `pl.read_csv()`, `pl.read_parquet()`, .., or download with `tidyfinance`
-```{python}
-#| label: download-stock-prices-py
-import polars as pl
-import tidyfinance as tf
-from mizani.formatters import label_dollar
-from plotnine import (
-    aes,
-    facet_wrap,
-    geom_line,
-    geom_point,
-    ggplot,
-    labs,
-    scale_y_continuous,
-    theme,
-    theme_bw,
-)
-
-prices = tf.download_data(
-    domain="Stock Prices",
-    symbols=["AAPL", "MSFT"],
-    start_date="2000-01-01",
-    end_date="2026-02-01",
-)
-```
-
-::: 
-
-## Give your code some air with `|>` and `.`
-
-- We replace `verb(subject, complement)` with `subject |> verb(complement)` (R) or `subject.verb(complement)` (Python)
-- No need to name unimportant variables
-- Clear readability
-
-:::{.panel-tabset  group="language"}
-
-## R
-
-```{r}
-#| label: compute-volume-usd-r
-prices <- prices |>
-  rename(traded_shares = volume) |>
-  mutate(volume_usd = traded_shares * close / 1000000) # Volume in million USD
-```
-
-- Do not get confused. Some teaching resources (and LLMs) use (outdated) `%>%` instead of `|>` in R!
-
-## Python
-
-```{python}
-#| label: compute-volume-usd-py
-prices = (
-    prices.rename({"volume": "traded_shares"})
-    # Volume in million USD
-    .with_columns(volume_usd=pl.col("traded_shares") * pl.col("close") / 1000000)
-)
-```
-::: 
-
-## Next steps
-
-:::{.panel-tabset  group="language"}
-
-## R 
-- Select or drop columns
-```{r}
-#| label: select-columns-r
-#| eval: false
-prices |> select(symbol, date, adjusted_close)
-prices |> select(-close)
-```
-
-- Working with `date` format
-```{r}
-#| label: extract-year-r
-#| eval: false
-prices <- prices |> mutate(year = year(date))
-```
-
-## Python
-- Select or drop columns
-```{python}
-#| label: select-columns-py
-#| eval: false
-prices.select("symbol", "date", "adjusted_close")
-prices.drop("close")
-```
-
-- Working with `date` format
-```{python}
-#| label: extract-year-py
-#| eval: false
-prices = prices.with_columns(year=pl.col("date").dt.year())
-```
-:::
-
-## Basic exploratory data analysis
-
-:::{.panel-tabset  group="language"}
-
-## R
-
-- `count`, `group_by` and `summarise` solve *many* data science questions
-- *How many daily observations per symbol?*
-```{r}
-#| label: count-observations-r
-prices |> count(symbol)
-```
-
-- *Which ticker had the highest average daily volume (in USD)?*
-
-```{r}
-#| label: compute-average-volume-r
-prices |>
-  group_by(symbol) |>
-  summarise(avg_volume = mean(volume_usd))
-```
-
-## Python
-
-- `len`, `group_by` and `agg` solve *many* data science questions
-- *How many daily observations per symbol?*
-```{python}
-#| label: count-observations-py
-prices.group_by("symbol").len().sort("symbol")
-```
-
-- *Which ticker had the highest average daily volume (in USD)?*
-
-```{python}
-#| label: compute-average-volume-py
-(
-    prices.group_by("symbol")
-    .agg(avg_volume=pl.col("volume_usd").mean())
-    .sort("symbol")
-)
-```
-
-::: 
-
-## Tidy data: "grammar" of data science workflows
-
-![](figures/tidydata.png){width=40% fig-align="center"}
-
-- Clear data structure to ensure similar workflows for everyday tasks
-- Tidy data is a standard way of mapping the meaning of a dataset to its structure
-- Each variable forms a column. Each observation forms a row. Each cell is a single measurement
-
-## Language-agnostic tidy coding principles
-
-::::{.columns}
-:::{.column width="45%"}
-```{r}
-#| label: compute-aapl-returns-r
-# R
-returns <- prices |>
-  filter(symbol == "AAPL") |>
-  arrange(date) |>
-  mutate(ret = adjusted_close / lag(adjusted_close) - 1) |>
-  select(symbol, date, ret) |>
-  drop_na(ret)
-returns
-```
-:::
-:::{.column width="45%"}
-```{python}
-#| label: compute-aapl-returns-py
-# Python
-returns = (
-    prices.filter(pl.col("symbol") == "AAPL")
-    .sort("date")
-    .with_columns(ret=pl.col("adjusted_close").pct_change())
-    .select("symbol", "date", "ret")
-    .drop_nulls("ret")
-)
-returns.head(10)
-```
-:::
-::::
-
-## Tidy coding principles in a nutshell
-
-- Great code is very subjective but the aim should be to make it human-readable
-- In this course I want you to think and reflect about *what* makes code useful?
-
-**Core principles to make code readable**
-
-1. chaining ( `|>` or `.`)
-1. intuitive naming conventions (`trading_volume_usd` instead of `tmp_Var_2`)
-1. Tidy data principles with a clear data structure
-1. Embed code directly into the analysis with `Quarto`
-
-## The grammar of graphics
-
-- `ggplot2`: *G*rammar of *g*raphics differentiates between the data and the representation: i) Data (data frame we plot), ii) Geometrics (geometric shape that represents the data, e.g. point, boxplot, histogram), iii) Aesthetics (color, size, shape)
-- Virtually unlimited possibilities, see [Cedric Scherer's blog](https://cedricscherer.netlify.app/top/dataviz/)
-
-:::{.panel-tabset  group="language"}
-
-## R 
-```{r}
-#| label: plot-trading-volume-r
-#| output-location: slide
-prices |>
-  ggplot(aes(x = date, y = volume_usd, color = symbol)) +
-  geom_point(size = 0.2) +
-  geom_line(linetype = "dotted") +
-  labs(
-    x = "Year",
-    y = "Volume (USD)",
-    title = "Daily trading volume",
-    color = NULL
-  ) +
-  facet_wrap(~symbol, scales = "free_x") +
-  theme_bw() +
-  scale_y_continuous(labels = scales::unit_format(unit = "M", prefix = "$")) +
-  theme(legend.position = "none")
-```
-
-- Many more themes here: https://ggplot2.tidyverse.org/reference/ggtheme.html
-
-## Python
-```{python}
-#| label: plot-trading-volume-py
-#| eval: false
-(
-    ggplot(prices, aes(x="date", y="volume_usd", color="symbol"))
-    + geom_point(size=0.2)
-    + geom_line(linetype="dotted")
-    + labs(x="Year", y="Volume (USD)", title="Daily trading volume", color=None)
-    + facet_wrap("~symbol", scales="free_x")
-    + theme_bw()
-    + scale_y_continuous(labels=label_dollar(suffix="M", precision=0))
-    + theme(legend_position="none")
-)
-```
-
-::: 
-
-
-
-## How to get help online and from peers
-
-Stick to the following roadmap if you encounter problems
-
-1. If you do not know what a command, e.g., `download_data()` is doing, type `?download_data` (R) or `?tf.download_data` (Python) in the console
-1. ChatGPT or the LLM of your choice will be able to help
-1. Check out the [tidyverse cheatsheets](https://www.rstudio.com/resources/cheatsheets/)
-1. Use the discussion board in Absalon (you are also *very* welcome to provide answers to your questions after you have solved them)
-
-ChatGPT and Github Copilot
-
-1. It is 2026. I **strongly recommend** using ChatGPT, Github Copilot and the like throughout the course for code-related questions
-1. I expect that you invest the time you save in making clever use of AI to ensure that your code and assignments are of outstanding quality
+## Before the next lecture
+
+1. **Setup:** Positron, uv and uvr, `uvr sync` and `uv sync`, TinyTeX: the [technical prerequisites](https://aef-course.ku.dk/exercises/technical-prerequisites.html)
+1. **Data:** put `crsp_monthly.parquet` from Absalon into the `data` folder of the course repository
+1. **Exercises:** [Introduction to Tidy Finance](https://aef-course.ku.dk/exercises/introduction.html): reproduce the number of stocks by exchange, then the open question: one figure of your own
+1. **Team:** form your team of up to three; send your GitHub usernames through the form on Absalon
+1. **Trading game:** try the tools in the dry run (open until 12 February). **TBD:** how teams get their token
+
+## Where to get help
+
+- **Absalon discussion board:** questions about content and code, so everyone benefits from the answer
+- **Exercise classes:** open office hours, Mondays 8–10 in odd weeks
+- **Your AI assistant:** with the course rules from `AGENTS.md`; you check what it writes
+- **The homepage:** [aef-course.ku.dk](https://aef-course.ku.dk) has the lecture plan, the exercises, the trading game and the guides
