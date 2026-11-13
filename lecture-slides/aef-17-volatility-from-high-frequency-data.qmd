@@ -1,14 +1,11 @@
 ---
 subtitle: Volatility from high-frequency data
 date: 2027-04-29
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Why do we care about volatility?" to "Small example: Value-at-risk"
+# - aef-6-high-frequency-econometrics.qmd: "High-frequency trading" to "TSRV example with second-level data"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Why do we care about volatility?" to "Small example: Value-at-risk"
-- aef-6-high-frequency-econometrics.qmd: "High-frequency trading" to "TSRV example with second-level data"
--->
 
 ## Today
 

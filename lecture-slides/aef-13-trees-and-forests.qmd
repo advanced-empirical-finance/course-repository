@@ -1,14 +1,11 @@
 ---
 subtitle: Return prediction with trees and forests
 date: 2027-04-15
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-4-machine-learning.qmd: "Nonlinear methods" up to "Hyperparameter tuning for random forests (Python)"
+# - aef-4-machine-learning.qmd: "Empirical Asset Pricing via Machine Learning" to "Results: Variable Importance"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-4-machine-learning.qmd: "Nonlinear methods" up to "Hyperparameter tuning for random forests (Python)"
-- aef-4-machine-learning.qmd: "Empirical Asset Pricing via Machine Learning" to "Results: Variable Importance"
--->
 
 ## Today
 

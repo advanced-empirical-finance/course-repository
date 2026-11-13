@@ -1,14 +1,11 @@
 ---
 subtitle: Shrinkage for portfolio choice
 date: 2027-02-22
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Multivariate volatility estimation" to "The optimal shrinkage intensity", "Recall Jagannathan and Ma?"
+# - aef-2-portfolio-choice.qmd: "Shrinkage: continuous regularization"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Multivariate volatility estimation" to "The optimal shrinkage intensity", "Recall Jagannathan and Ma?"
-- aef-2-portfolio-choice.qmd: "Shrinkage: continuous regularization"
--->
 
 ## Today
 

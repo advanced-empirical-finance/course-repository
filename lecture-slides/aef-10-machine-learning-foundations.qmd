@@ -1,13 +1,10 @@
 ---
 subtitle: Machine learning foundations
 date: 2027-03-18
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-4-machine-learning.qmd: from the start to "Advanced Tools" (bias-variance trade-off, ridge, lasso, cross-validation, tidymodels and scikit-learn)
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-4-machine-learning.qmd: from the start to "Advanced Tools" (bias-variance trade-off, ridge, lasso, cross-validation, tidymodels and scikit-learn)
--->
 
 ## Today
 

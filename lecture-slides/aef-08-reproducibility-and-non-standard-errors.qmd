@@ -1,14 +1,11 @@
 ---
 subtitle: Reproducibility and non-standard errors
 date: 2027-03-11
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-reproducibility-in-asset-pricing.qmd: the whole deck
+# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "From model proliferation to reproducibility" and "The reproducibility crisis"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-reproducibility-in-asset-pricing.qmd: the whole deck
-- aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "From model proliferation to reproducibility" and "The reproducibility crisis"
--->
 
 ## Today
 

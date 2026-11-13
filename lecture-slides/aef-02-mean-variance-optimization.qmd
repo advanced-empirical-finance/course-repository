@@ -1,14 +1,11 @@
 ---
 subtitle: Mean-variance optimization
 date: 2027-02-11
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-2-portfolio-choice.qmd: "Asset prices and returns" (general framework, distributional properties)
+# - aef-2-portfolio-choice.qmd: "Optimal portfolio allocation" up to "Compute the efficient tangency weight"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-2-portfolio-choice.qmd: "Asset prices and returns" (general framework, distributional properties)
-- aef-2-portfolio-choice.qmd: "Optimal portfolio allocation" up to "Compute the efficient tangency weight"
--->
 
 ## Today
 

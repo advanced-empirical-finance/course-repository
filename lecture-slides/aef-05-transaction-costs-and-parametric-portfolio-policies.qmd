@@ -1,14 +1,11 @@
 ---
 subtitle: Transaction costs and parametric portfolio policies
 date: 2027-02-25
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Large-scale portfolio allocation under model uncertainty and transaction costs" to "$L_1$ Transaction Costs", and "Application: Hautsch and Voigt (2019)"
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Parametric Portfolio Choice"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Large-scale portfolio allocation under model uncertainty and transaction costs" to "$L_1$ Transaction Costs", and "Application: Hautsch and Voigt (2019)"
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Parametric Portfolio Choice"
--->
 
 ## Today
 

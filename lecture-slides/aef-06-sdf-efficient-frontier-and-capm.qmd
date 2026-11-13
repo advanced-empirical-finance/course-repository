@@ -1,16 +1,13 @@
 ---
 subtitle: The SDF, the efficient frontier and the CAPM
 date: 2027-03-04
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "The fundamental equation"
+# - aef-2-portfolio-choice.qmd: "The security market line" to "CAPM - Example with simple linear regression"
+# - aef-2-portfolio-choice.qmd: "Accessing financial data" up to "CAPM beta in the industry-cross section"
+# - aef-2-portfolio-choice.qmd: "Testing the CAPM" to "Empirical problems (Discussion)"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "The fundamental equation"
-- aef-2-portfolio-choice.qmd: "The security market line" to "CAPM - Example with simple linear regression"
-- aef-2-portfolio-choice.qmd: "Accessing financial data" up to "CAPM beta in the industry-cross section"
-- aef-2-portfolio-choice.qmd: "Testing the CAPM" to "Empirical problems (Discussion)"
--->
 
 ## Today
 

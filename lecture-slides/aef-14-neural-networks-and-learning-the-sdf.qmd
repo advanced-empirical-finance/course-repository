@@ -1,14 +1,11 @@
 ---
 subtitle: Neural networks and learning the SDF
 date: 2027-04-19
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-4-machine-learning.qmd: "Neural networks" to "Beyond feed-forward networks"
+# - aef-4-machine-learning.qmd: "Interpreting ML models", "Economic structure vs. pure prediction", "Case studies"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-4-machine-learning.qmd: "Neural networks" to "Beyond feed-forward networks"
-- aef-4-machine-learning.qmd: "Interpreting ML models", "Economic structure vs. pure prediction", "Case studies"
--->
 
 ## Today
 
