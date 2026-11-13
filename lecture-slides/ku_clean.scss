@@ -371,13 +371,17 @@ $code-block-font-size: 0.75em !default;
   background: #f7f6f5;
   border-radius: 6px;
   padding: 0.7em 0.9em;
-  height: 100%;
   p {
     margin-top: 0.5em;
   }
   p:first-child {
     margin-top: 0;
   }
+}
+
+// Blocks side by side in columns end at the same height
+.reveal .columns .box {
+  height: 100%;
 }
 
 // The one point of a slide that must stick, e.g. the deal on AI
@@ -409,4 +413,9 @@ $code-block-font-size: 0.75em !default;
   background: $accent2;
   color: #fff;
   font-weight: normal;
+}
+
+// Sliders and other inputs of the live version: the label on one line
+.reveal form[class^="oi-"] {
+  --label-width: 300px;
 }
