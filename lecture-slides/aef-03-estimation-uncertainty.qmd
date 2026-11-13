@@ -36,6 +36,7 @@ theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank
 
 source("lecture-slides/_live-poll.R")
 exercise_survey <- "aef27-ex02-out-of-sample"
+lookahead_poll <- "aef27-l03-lookahead"
 ```
 
 ```{python}
@@ -107,7 +108,7 @@ true_tangency_weights <- as.vector(sigma_full_inv %*% mu_full) / sum(sigma_full_
 #| label: survey-setup
 #| include: false
 if (live) {
-  ojs_define(poll_base = poll_base, exercise_survey = exercise_survey)
+  ojs_define(poll_base = poll_base, exercise_survey = exercise_survey, lookahead_poll = lookahead_poll)
 }
 ```
 
@@ -417,7 +418,44 @@ share_below_naive <- simulated_tangency |>
 - Estimate $\hat\mu_t$ and $\hat\Sigma_t$ from the last `r window_length` months, form the weights $\hat\omega_t$, and earn $r_{p,t+1} = \hat\omega_t' r_{t+1}$ over the next month
 - Roll one month ahead and repeat; compare strategies by their out-of-sample returns
 
-![Rolling estimation window: weights from the last $h$ months, performance in the month after](figures/backtestoos.png){width=80% fig-align="center"}
+```{r}
+#| label: rolling-window-diagram
+#| echo: false
+#| dev: svglite
+#| fig-width: 10
+#| fig-height: 3.4
+# Schematic, not to scale: 12 cells stand for the 60-month window
+cells <- 12
+rebalancings <- 4
+windows <- expand_grid(row = 1:rebalancings, cell = 1:(cells + rebalancings)) |>
+  mutate(role = case_when(
+    cell >= row & cell < row + cells ~ "window",
+    cell == row + cells ~ "hold"
+  )) |>
+  drop_na(role)
+row_labels <- tibble(row = 1:rebalancings, label = c("Month t", "t + 1", "t + 2", "t + 3"))
+
+ggplot(windows, aes(x = cell, y = -row)) +
+  geom_tile(aes(fill = role), color = "white", linewidth = 1.2, height = 0.72) +
+  scale_fill_manual(values = c(window = light, hold = ku_red), guide = "none") +
+  geom_text(data = row_labels, aes(x = row - 0.8, label = label), hjust = 1, color = jet, size = 4.6) +
+  annotate(
+    "text", x = (1 + cells) / 2, y = -0.35, color = jet, size = 4.6,
+    label = "Estimate on the last 60 months"
+  ) +
+  annotate("text", x = cells + 1, y = -0.35, color = ku_red, size = 4.6, label = "Hold the next month") +
+  annotate(
+    "segment", x = cells + rebalancings + 1.2, xend = cells + rebalancings + 2.6,
+    y = -rebalancings, yend = -rebalancings, color = grey, linewidth = 0.6,
+    arrow = arrow(length = unit(0.12, "inches"), type = "closed")
+  ) +
+  annotate(
+    "text", x = cells + rebalancings + 2.8, y = -rebalancings, hjust = 0, color = grey, size = 4.4,
+    label = "until the end\nof the sample", lineheight = 0.95
+  ) +
+  coord_cartesian(xlim = c(-2.5, cells + rebalancings + 6), ylim = c(-rebalancings - 0.5, 0), clip = "off") +
+  theme_void()
+```
 
 ## Four strategies
 
@@ -644,6 +682,71 @@ backtest |>
   ) +
   theme(legend.position = "bottom")
 ```
+
+## What could go wrong in a backtest?
+
+::: {.content-visible when-profile="live"}
+:::: {.columns}
+::: {.column width="35%"}
+```{ojs}
+//| label: lookahead-poll-qr
+//| echo: false
+qrCode(`${poll_base}/?poll=${lookahead_poll}&type=text`, `${poll_base}/?poll=${lookahead_poll}`, 300)
+```
+
+Examples of information a backtest uses that an investor did not have. Up to 30 characters each
+:::
+::: {.column width="65%"}
+```{ojs}
+//| label: lookahead-poll-live
+//| echo: false
+lookahead = pollAnswers(lookahead_poll)
+{
+  if (lookahead === null) return md`*Cannot reach the poll on eumel.*`;
+  const seen = new Set();
+  const answers = lookahead.slice().reverse()
+    .map(d => String(d.value).trim())
+    .filter(v => v !== "" && !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase()))
+    .slice(0, 16);
+  return html`<div style="font-size: 0.95em">
+    <p>Answers so far: ${lookahead.length}</p>
+    <ul style="columns: 2">${answers.map(v => html`<li>${v}</li>`)}</ul>
+  </div>`;
+}
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+In the lecture, you collect examples: which information does a backtest use that an investor did not have at the time?
+:::
+
+## Look-ahead bias and other traps
+
+::: {.fragment}
+- **Survivorship:** our running example is guilty. We picked **today's** Dow Jones stocks; in 2000, nobody knew which firms would be in the index in 2025. Firms that failed or left the index are missing (CRSP keeps them, with their delisting returns)
+:::
+
+::: {.fragment}
+- **Data that did not exist yet:** annual reports appear months after the fiscal year ends; macro data and even the Fama-French factors are revised later; index memberships change
+:::
+
+::: {.fragment}
+- **Timing:** weights formed with the returns of month $t$ must not earn the return of month $t$; a signal from today's close cannot trade at today's close
+:::
+
+::: {.fragment}
+- **Full-sample choices:** standardizing with full-sample moments, or picking the window length, the risk aversion or the model after seeing the whole sample
+:::
+
+::: {.fragment}
+- **Many tries, one report:** test enough strategies and one of them looks great by chance (more with portfolio sorts and reproducibility)
+:::
+
+::: {.fragment}
+- **Frictions:** no transaction costs, free short sales and leverage (more with transaction costs)
+:::
 
 # Optimal versus naive diversification
 
