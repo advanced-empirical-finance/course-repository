@@ -1,0 +1,34 @@
+---
+subtitle: Estimation uncertainty
+date: 2027-02-18
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-2-portfolio-choice.qmd: "Portfolio backtesting" to "plug-in vs. 1/N vs. constrained"
+- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "What about parameter uncertainty?" to "Extensions and takeaways"
+-->
+
+## Today
+
+- Backtesting a portfolio strategy
+- Plug-in weights and their instability
+- Restrictions and the equal-weighted portfolio
+
+## Backtesting a portfolio strategy
+
+TBD
+
+## Plug-in weights and their instability
+
+TBD
+
+## Restrictions and the equal-weighted portfolio
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 2:** [Mean-variance optimization](https://aef-course.ku.dk/exercises/mean_variance.html)
+- **Read:** Ledoit & Wolf (2004); Jorion (1986)

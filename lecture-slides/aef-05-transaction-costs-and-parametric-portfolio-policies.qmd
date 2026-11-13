@@ -1,0 +1,34 @@
+---
+subtitle: Transaction costs and parametric portfolio policies
+date: 2027-02-25
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Large-scale portfolio allocation under model uncertainty and transaction costs" to "$L_1$ Transaction Costs", and "Application: Hautsch and Voigt (2019)"
+- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Parametric Portfolio Choice"
+-->
+
+## Today
+
+- Portfolio choice under transaction costs
+- Transaction costs as shrinkage
+- Parametric portfolio policies with stock characteristics
+
+## Portfolio choice under transaction costs
+
+TBD
+
+## Transaction costs as shrinkage
+
+TBD
+
+## Parametric portfolio policies with stock characteristics
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 3:** [Shrinkage and transaction costs](https://aef-course.ku.dk/exercises/portfolio_choice.html)
+- **Read:** Cochrane (2005), chapters 1 and 5–6
