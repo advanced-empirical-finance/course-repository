@@ -365,3 +365,48 @@ $code-block-font-size: 0.75em !default;
 .reveal div.sourceCode pre code {
   padding: 0.6em 0.8em;
 }
+
+// A light grey block, e.g. the three parts of the course side by side
+.reveal .box {
+  background: #f7f6f5;
+  border-radius: 6px;
+  padding: 0.7em 0.9em;
+  height: 100%;
+  p {
+    margin-top: 0.5em;
+  }
+  p:first-child {
+    margin-top: 0;
+  }
+}
+
+// The one point of a slide that must stick, e.g. the deal on AI
+.reveal .highlight {
+  border-left: 4px solid $accent2;
+  background: #f7f6f5;
+  padding: 0.5em 0.9em;
+  margin-top: 1em;
+  p {
+    margin: 0;
+  }
+}
+
+// A number to remember, e.g. the prize of the trading game
+.reveal .prize {
+  color: $accent2;
+  font-size: 2.2em;
+  font-weight: lighter;
+}
+
+// Initials in a KU red circle, e.g. on the team slide
+.reveal .initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: 50%;
+  background: $accent2;
+  color: #fff;
+  font-weight: normal;
+}

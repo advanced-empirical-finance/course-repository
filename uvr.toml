@@ -43,3 +43,5 @@ usethis = "*"
 xts = "*"
 aefsim = { git = "advanced-empirical-finance/aefsim", subdirectory = "r" }
 ranger = "*"
+ggridges = "*"
+svglite = "*"
