@@ -19,5 +19,7 @@ format:
     html-math-method: katex
     embed-resources: true
     code-line-numbers: false
+    # R data frames print as tables, like polars DataFrames in the Python tabs
+    df-print: kable
 execute:
   echo: true
