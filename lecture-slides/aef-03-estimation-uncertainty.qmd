@@ -1,26 +1,669 @@
 ---
 subtitle: Estimation uncertainty
 date: 2027-02-18
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-2-portfolio-choice.qmd: "Portfolio backtesting" to "plug-in vs. 1/N vs. constrained"
-# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "What about parameter uncertainty?" to "Extensions and takeaways"
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(nanoparquet)
+library(quadprog)
+library(patchwork)
+library(scales)
 
-- Backtesting a portfolio strategy
-- Plug-in weights and their instability
-- Restrictions and the equal-weighted portfolio
+# The sample of the running example, as in lecture 2
+start_date <- "2000-01-01"
+end_date <- "2025-12-31"
 
-## Backtesting a portfolio strategy
+# Backtest: estimate on the last 60 months, hold for one month
+window_length <- 60
 
-TBD
+# Simulation: sample lengths and number of samples
+sample_lengths <- c(60, 240)
+samples_shown <- 50
+samples_for_sharpe <- 1000
 
-## Plug-in weights and their instability
+months_per_year <- 12
 
-TBD
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
 
-## Restrictions and the equal-weighted portfolio
+source("lecture-slides/_live-poll.R")
+exercise_survey <- "aef27-ex02-out-of-sample"
+```
 
-TBD
+```{python}
+#| label: load-packages-py
+#| include: false
+import numpy as np
+import polars as pl
+from scipy.optimize import minimize
+
+window_length = 60
+```
+
+```{r}
+#| label: download-dj30-r
+#| include: false
+#| cache: true
+# The running example of lecture 2: today's Dow Jones stocks
+symbols <- download_data(
+  domain = "Index Constituents",
+  index = "Dow Jones Industrial Average"
+)
+
+prices_daily <- download_data(
+  domain = "Stock Prices",
+  symbols = symbols$symbol,
+  start_date = start_date,
+  end_date = end_date
+)
+```
+
+```{r}
+#| label: compute-monthly-returns-r
+#| include: false
+returns_monthly <- prices_daily |>
+  arrange(symbol, date) |>
+  mutate(date = floor_date(date, "month")) |>
+  summarize(price = last(adjusted_close), .by = c(symbol, date)) |>
+  mutate(ret = price / lag(price) - 1, .by = symbol) |>
+  drop_na(ret) |>
+  mutate(months = n(), .by = symbol) |>
+  filter(months == max(months)) |>
+  select(symbol, date, ret)
+
+risk_free <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  select(date, risk_free)
+
+n_stocks <- n_distinct(returns_monthly$symbol)
+n_months_sample <- n_distinct(returns_monthly$date)
+
+# Full-sample moments of excess returns: the in-sample view of lecture 2
+excess_full <- returns_monthly |>
+  left_join(risk_free, join_by(date)) |>
+  mutate(ret_excess = ret - risk_free) |>
+  select(symbol, date, ret_excess) |>
+  pivot_wider(names_from = symbol, values_from = ret_excess) |>
+  select(-date) |>
+  as.matrix()
+mu_full <- colMeans(excess_full)
+sigma_full <- cov(excess_full)
+sigma_full_inv <- solve(sigma_full)
+squared_sharpe <- as.numeric(t(mu_full) %*% sigma_full_inv %*% mu_full)
+true_sharpe <- sqrt(squared_sharpe * months_per_year)
+true_tangency_weights <- as.vector(sigma_full_inv %*% mu_full) / sum(sigma_full_inv %*% mu_full)
+```
+
+## Your tangency portfolios, out of sample
+
+```{r}
+#| label: survey-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, exercise_survey = exercise_survey)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+```{ojs}
+//| label: exercise-2-results-live
+//| echo: false
+submissions = surveyResults(exercise_survey)
+pairs = {
+  if (submissions === null) return [];
+  const value = id => (submissions.questions.find(q => q.id === id) || {}).values || [];
+  const inside = value("sharpe_in"), outside = value("sharpe_out");
+  return inside.map((x, i) => ({inside: x, outside: outside[i]}))
+    .filter(d => d.inside !== null && d.outside !== null);
+}
+Plot.plot({
+  width: 900,
+  height: 470,
+  x: {label: "Sharpe ratio 1990–1999 (estimation period)", domain: [-1, 4]},
+  y: {label: "Sharpe ratio 2000–2009 (weights kept fixed)", domain: [-1, 4]},
+  marks: [
+    Plot.line([{x: -1, y: -1}, {x: 4, y: 4}], {x: "x", y: "y", stroke: "#b3b3b3"}),
+    Plot.ruleY([0], {stroke: "#e6e3df"}),
+    Plot.dot(pairs, {x: "inside", y: "outside", fill: "#901A1E", r: 6, fillOpacity: 0.8}),
+    Plot.text([`${pairs.length} portfolios, ${pairs.filter(d => d.outside < d.inside).length} below the 45° line`],
+              {frameAnchor: "top-left", dx: 10, dy: 10, fontSize: 16, fill: "#3d3d3d"})
+  ]
+})
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+In exercise 2, you chose 10 to 30 stocks, estimated their tangency portfolio from 1990 to 1999, and kept the weights fixed from 2000 to 2009. In the lecture, we plot the two Sharpe ratios of every portfolio of the class
+:::
+
+# Where the error comes from
+
+## The plug-in principle
+
+- Lecture 2 used $\hat\mu$ and $\hat\Sigma$ as if they were the true $\mu$ and $\Sigma$: the **plug-in** portfolio
+
+$$
+\hat\omega = \omega(\hat\mu, \hat\Sigma) \qquad \text{instead of} \qquad \omega^* = \omega(\mu, \Sigma)
+$$
+
+- $\hat\omega$ is an estimate, too: it has a sampling distribution
+- On the Dow Jones stocks, the in-sample tangency portfolio promised a Sharpe ratio of `r number(true_sharpe, 0.01)` with `r sum(true_tangency_weights < 0)` short positions
+
+::: {.highlight}
+**Today:** how large is the estimation error, what does it cost, and what does a portfolio earn out of sample?
+:::
+
+## Whiteboard: how precise is an expected return?
+
+::: {.box}
+Monthly returns with mean $\mu$ and volatility $\sigma$, observed over $T$ months. What is the standard error of $\hat\mu$, annualized?
+:::
+
+```{r}
+#| label: standard-errors
+#| include: false
+stock_moments <- returns_monthly |>
+  summarize(
+    mu = mean(ret) * months_per_year,
+    sigma = sd(ret) * sqrt(months_per_year),
+    .by = symbol
+  )
+years <- n_months_sample / months_per_year
+typical_sigma <- median(stock_moments$sigma)
+typical_mu <- median(stock_moments$mu)
+typical_se <- typical_sigma / sqrt(years)
+```
+
+::: {.fragment}
+$$
+\text{SE}(\hat\mu_\text{annual}) = \frac{\sigma_\text{annual}}{\sqrt{\text{years}}}
+$$
+
+- It depends on the **length** of the sample, not on how often we observe: daily data do not help (Merton, 1980). Variances, in contrast, get more precise with more frequent data
+- A typical Dow Jones stock over `r number(years, 0.1)` years: expected return `r percent(typical_mu, 0.1)`, volatility `r percent(typical_sigma, 0.1)`, standard error **`r percent(typical_se, 0.1)`**. The 95% interval runs from `r percent(typical_mu - 1.96 * typical_se, 0.1)` to `r percent(typical_mu + 1.96 * typical_se, 0.1)`
+:::
+
+## Errors in expected returns hurt most
+
+- Small errors in $\hat\mu$ change the weights a lot; errors in variances and covariances matter much less (Chopra & Ziemba, 1993)
+- The optimizer goes long the assets whose expected returns we overestimated and short the ones we underestimated: "error maximization" (Michaud, 1989)
+- $\hat\Sigma^{-1}$ amplifies the errors, the more so the closer $N$ is to $T$: with `r n_stocks` stocks, a 60-month window has barely two observations per stock
+- The minimum-variance portfolio needs no $\hat\mu$ at all
+
+## Whiteboard: what plug-in weights cost
+
+::: {.box}
+With a risk-free asset, $\text{CE}(\omega) = \omega'\mu - \frac{\gamma}{2}\omega'\Sigma\omega$ for excess returns, so $\omega^* = \frac{1}{\gamma}\Sigma^{-1}\mu$. The plug-in investor holds $\hat\omega = \frac{1}{\gamma}\Sigma^{-1}\hat\mu$, with $\Sigma$ known and $\hat\mu$ from $T$ months. What is the expected loss in certainty equivalent?
+:::
+
+::: {.fragment}
+$$
+\text{CE}(\omega^*) - E\big[\text{CE}(\hat\omega)\big] = \frac{\gamma}{2}E\big[(\hat\omega - \omega^*)'\Sigma(\hat\omega - \omega^*)\big] = \frac{N}{2\gamma T}
+\qquad \text{CE}(\omega^*) = \frac{\theta^2}{2\gamma}
+$$
+
+- $\theta^2 = \mu'\Sigma^{-1}\mu$ is the squared Sharpe ratio of the tangency portfolio. The plug-in portfolio is worse than the risk-free asset alone if $N/T > \theta^2$ (Kan & Zhou, 2007), and $\hat\Sigma$ makes it worse
+- Dow Jones: $\theta^2 \approx$ `r number(squared_sharpe, 0.01)` per month (in sample, so too high), but $N/T$ = `r number(n_stocks / window_length, 0.01)` with a 60-month window
+:::
+
+# Same truth, different samples
+
+## The experiment
+
+- Pretend we know the truth: $\mu_0$ and $\Sigma_0$ are the sample moments of the `r n_stocks` Dow Jones stocks, 2000–2025
+- Draw $T$ months of returns from $N(\mu_0, \Sigma_0)$, estimate $\hat\mu$ and $\hat\Sigma$, and compute the efficient frontier and the tangency portfolio
+- Evaluate these **estimated** portfolios with the **true** $\mu_0$ and $\Sigma_0$: what would they really deliver?
+- Repeat for many samples, with $T$ = `r sample_lengths[1]` and `r sample_lengths[2]` months
+
+```{r}
+#| label: simulate-estimated-portfolios
+#| include: false
+set.seed(2027)
+iota <- rep(1, n_stocks)
+
+# Mean and volatility (annualized) of weights under the true moments
+evaluate <- function(omega) {
+  tibble(
+    mu = sum(omega * mu_full) * months_per_year,
+    sigma = sqrt(as.numeric(t(omega) %*% sigma_full %*% omega) * months_per_year)
+  )
+}
+
+# Frontier weights from (estimated) moments, by two-fund separation
+frontier_weights <- function(mu, sigma_inv, a = seq(-0.5, 2.5, by = 0.05)) {
+  omega_mvp <- rowSums(sigma_inv) / sum(sigma_inv)
+  omega_tan <- as.vector(sigma_inv %*% mu) / sum(sigma_inv %*% mu)
+  map(a, \(a) a * omega_tan + (1 - a) * omega_mvp)
+}
+
+true_frontier <- frontier_weights(mu_full, sigma_full_inv) |> map(evaluate) |> bind_rows()
+naive_sharpe <- with(evaluate(iota / n_stocks), mu / sigma)
+
+simulate_sample <- function(sample_length) {
+  draws <- matrix(rnorm(sample_length * n_stocks), sample_length) %*% chol(sigma_full)
+  draws <- sweep(draws, 2, mu_full, "+")
+  mu_hat <- colMeans(draws)
+  sigma_hat_inv <- solve(cov(draws))
+  omega_tan <- as.vector(sigma_hat_inv %*% mu_hat) / sum(sigma_hat_inv %*% mu_hat)
+  list(
+    frontier = frontier_weights(mu_hat, sigma_hat_inv) |> map(evaluate) |> bind_rows(),
+    tangency = evaluate(omega_tan),
+    weights = omega_tan
+  )
+}
+
+simulated <- expand_grid(sample_length = sample_lengths, sample = seq_len(samples_for_sharpe)) |>
+  mutate(result = map(sample_length, simulate_sample))
+
+simulated_frontiers <- simulated |>
+  filter(sample <= samples_shown) |>
+  mutate(frontier = map(result, "frontier")) |>
+  select(sample_length, sample, frontier) |>
+  unnest(frontier)
+simulated_tangency <- simulated |>
+  mutate(tangency = map(result, "tangency")) |>
+  select(sample_length, sample, tangency) |>
+  unnest(tangency) |>
+  mutate(sharpe = mu / sigma)
+simulated_weights <- simulated |>
+  filter(sample <= samples_shown) |>
+  mutate(weights = map(result, \(r) tibble(symbol = colnames(excess_full), weight = r$weights))) |>
+  select(sample_length, sample, weights) |>
+  unnest(weights)
+
+if (live) {
+  ojs_define(
+    true_frontier = true_frontier,
+    simulated_frontiers = simulated_frontiers,
+    simulated_tangency = simulated_tangency |> filter(sample <= samples_shown),
+    simulated_weights = simulated_weights,
+    true_weights = tibble(symbol = colnames(excess_full), weight = true_tangency_weights)
+  )
+}
+```
+
+## Estimated portfolios, true outcomes
+
+::: {.content-visible when-profile="live"}
+```{ojs}
+//| label: simulation-controls
+//| echo: false
+viewof sample_length = Inputs.radio([60, 240], {value: 60, label: "Months in each sample"})
+viewof sample = Inputs.range([1, 50], {step: 1, value: 1, width: 520, label: "Sample"})
+```
+
+:::: {.columns}
+::: {.column width="60%"}
+```{ojs}
+//| label: simulation-frontier-live
+//| echo: false
+frontier_now = transpose(simulated_frontiers).filter(d => d.sample_length === sample_length && d.sample === sample)
+tangency_now = transpose(simulated_tangency).filter(d => d.sample_length === sample_length && d.sample === sample)
+Plot.plot({
+  width: 600,
+  height: 430,
+  x: {label: "True volatility (annualized)", domain: [0, 0.6], tickFormat: "%"},
+  y: {label: "True expected excess return (annualized)", domain: [-0.2, 0.5], tickFormat: "%"},
+  marks: [
+    Plot.line(transpose(true_frontier), {x: "sigma", y: "mu", stroke: "#3d3d3d", strokeWidth: 2.5, clip: true}),
+    Plot.line(frontier_now, {x: "sigma", y: "mu", stroke: "#901A1E", strokeWidth: 2, clip: true}),
+    Plot.dot(tangency_now, {x: "sigma", y: "mu", fill: "#901A1E", r: 7, clip: true}),
+    Plot.text(["True frontier"], {frameAnchor: "top-left", dx: 10, dy: 10, fill: "#3d3d3d"}),
+    Plot.text(["Estimated frontier and tangency portfolio"], {frameAnchor: "top-left", dx: 10, dy: 30, fill: "#901A1E"})
+  ]
+})
+```
+:::
+::: {.column width="40%"}
+```{ojs}
+//| label: simulation-weights-live
+//| echo: false
+weights_now = transpose(simulated_weights).filter(d => d.sample_length === sample_length && d.sample === sample)
+Plot.plot({
+  width: 380,
+  height: 430,
+  marginLeft: 50,
+  x: {label: "Tangency weight", tickFormat: "%", domain: [-1, 1], clamp: true},
+  y: {label: null, domain: transpose(true_weights).sort((a, b) => b.weight - a.weight).map(d => d.symbol)},
+  marks: [
+    Plot.barX(weights_now, {x: "weight", y: "symbol", fill: "#901A1E", fillOpacity: 0.8}),
+    Plot.tickX(transpose(true_weights), {x: "weight", y: "symbol", stroke: "#3d3d3d", strokeWidth: 2}),
+    Plot.ruleX([0])
+  ]
+})
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: plot-simulated-frontiers
+#| echo: false
+#| fig-width: 11
+#| fig-height: 5.2
+sample_labels <- function(x) paste(x, "months in each sample")
+
+ggplot(mapping = aes(x = sigma, y = mu)) +
+  geom_path(
+    data = simulated_frontiers, aes(group = sample),
+    color = ku_red, alpha = 0.25, linewidth = 0.4
+  ) +
+  geom_point(
+    data = simulated_tangency |> filter(sample <= samples_shown),
+    color = ku_red, alpha = 0.6, size = 1.2
+  ) +
+  geom_path(data = true_frontier, color = jet, linewidth = 1.2) +
+  facet_wrap(~sample_length, labeller = as_labeller(sample_labels)) +
+  coord_cartesian(xlim = c(0, 0.6), ylim = c(-0.2, 0.5)) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "True volatility (annualized)", y = "True expected excess return (annualized)",
+    title = paste(samples_shown, "estimated frontiers and tangency portfolios (red), evaluated with the true moments; true frontier in black")
+  ) +
+  theme(plot.title = element_text(size = 13))
+```
+:::
+
+## What the plug-in tangency portfolio really earns
+
+```{r}
+#| label: plot-simulated-sharpe-ratios
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.6
+simulated_tangency |>
+  mutate(sample_length = fct_inorder(sample_labels(sample_length))) |>
+  ggplot(aes(x = sharpe)) +
+  geom_histogram(binwidth = 0.05, fill = ku_red, alpha = 0.8, boundary = 0) +
+  geom_vline(xintercept = true_sharpe, color = jet, linewidth = 1) +
+  geom_vline(xintercept = naive_sharpe, color = grey, linetype = "dashed", linewidth = 1) +
+  facet_wrap(~sample_length) +
+  coord_cartesian(xlim = c(-0.5, 1.6)) +
+  labs(
+    x = "True Sharpe ratio of the estimated tangency portfolio (annualized)", y = "Samples",
+    title = paste0(
+      "Solid: the best attainable Sharpe ratio, ", number(true_sharpe, 0.01),
+      ". Dashed: 1/N, ", number(naive_sharpe, 0.01)
+    )
+  )
+```
+
+```{r}
+#| label: simulation-summary
+#| include: false
+share_below_naive <- simulated_tangency |>
+  summarize(share = mean(sharpe < naive_sharpe), .by = sample_length)
+```
+
+- With `r sample_lengths[1]` months, `r percent(share_below_naive$share[1])` of the estimated tangency portfolios do worse than 1/N; with `r sample_lengths[2]` months, `r percent(share_below_naive$share[2])`
+- Caution: this truth is the in-sample view of today's Dow Jones stocks, with a Sharpe ratio of `r number(true_sharpe, 0.01)`. With realistic Sharpe ratios, the plug-in portfolio needs far longer samples
+
+# Backtesting the Dow Jones
+
+## Rolling windows
+
+- Out of sample: at every month $t$, use only data an investor had at the time
+- Estimate $\hat\mu_t$ and $\hat\Sigma_t$ from the last `r window_length` months, form the weights $\hat\omega_t$, and earn $r_{p,t+1} = \hat\omega_t' r_{t+1}$ over the next month
+- Roll one month ahead and repeat; compare strategies by their out-of-sample returns
+
+![Rolling estimation window: weights from the last $h$ months, performance in the month after](figures/backtestoos.png){width=80% fig-align="center"}
+
+## Four strategies
+
+- **Plug-in tangency:** $\hat\omega_\text{tan} \propto \hat\Sigma^{-1}\hat\mu$, from excess returns
+- **Plug-in minimum variance:** $\hat\omega_\text{mvp} \propto \hat\Sigma^{-1}\iota$, no expected returns
+- **1/N:** every stock gets the same weight, nothing estimated
+- **Minimum variance, no short sales:** no closed form, a quadratic program
+
+$$
+\min_\omega \ \omega'\hat\Sigma\omega \quad \text{s.t.} \quad \iota'\omega = 1, \ \ \omega_i \geq 0
+$$
+
+R: `solve.QP()` from quadprog. Python: `minimize()` from scipy
+
+## Excess returns, month by month
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: prepare-excess-returns-r
+risk_free <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  select(date, risk_free)
+
+excess_wide <- returns_monthly |>
+  left_join(risk_free, join_by(date)) |>
+  mutate(ret_excess = ret - risk_free) |>
+  pivot_wider(id_cols = date, names_from = symbol, values_from = ret_excess) |>
+  arrange(date)
+excess_matrix <- excess_wide |> select(-date) |> as.matrix()
+n_stocks <- ncol(excess_matrix)
+
+min_variance_no_short <- function(sigma) {
+  solve.QP(
+    Dmat = sigma, dvec = rep(0, n_stocks),
+    Amat = cbind(1, diag(n_stocks)), bvec = c(1, rep(0, n_stocks)), meq = 1
+  )$solution
+}
+```
+
+## Python
+
+```{python}
+#| label: prepare-excess-returns-py
+#| eval: false
+risk_free = pl.read_parquet("data/factors_ff3_monthly.parquet").select("date", "risk_free")
+
+excess_wide = (
+    returns_monthly.join(risk_free, on="date", how="left")
+    .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))
+    .pivot(on="symbol", index="date", values="ret_excess")
+    .sort("date")
+)
+excess_matrix = excess_wide.drop("date").to_numpy()
+n_months, n_stocks = excess_matrix.shape
+iota = np.ones(n_stocks)
+
+def min_variance_no_short(sigma):
+    return minimize(
+        lambda w: w @ sigma @ w, x0=iota / n_stocks, jac=lambda w: 2 * sigma @ w,
+        bounds=[(0, 1)] * n_stocks, method="SLSQP", options={"ftol": 1e-12},
+        constraints={"type": "eq", "fun": lambda w: w.sum() - 1},
+    ).x
+```
+:::
+
+## The backtest
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: run-backtest-r
+backtest <- map(seq(window_length + 1, nrow(excess_matrix)), \(t) {
+  window <- excess_matrix[(t - window_length):(t - 1), ]
+  mu_hat <- colMeans(window)
+  sigma_hat <- cov(window)
+  sigma_inv <- solve(sigma_hat)
+  returns_next <- excess_matrix[t, ]
+  weights <- list(
+    "Plug-in tangency" = as.vector(sigma_inv %*% mu_hat) / sum(sigma_inv %*% mu_hat),
+    "Plug-in minimum variance" = rowSums(sigma_inv) / sum(sigma_inv),
+    "1/N" = rep(1 / n_stocks, n_stocks),
+    "Minimum variance, no short sales" = min_variance_no_short(sigma_hat)
+  )
+  tibble(
+    date = excess_wide$date[t], strategy = names(weights), weights = weights,
+    ret_excess = map_dbl(weights, \(w) sum(w * returns_next))
+  )
+}) |>
+  bind_rows()
+```
+
+## Python
+
+```{python}
+#| label: run-backtest-py
+#| eval: false
+records = []
+for t in range(window_length, n_months):
+    window = excess_matrix[t - window_length:t]
+    mu_hat = window.mean(axis=0)
+    sigma_hat = np.cov(window, rowvar=False)
+    sigma_inv = np.linalg.inv(sigma_hat)
+    weights = {
+        "Plug-in tangency": sigma_inv @ mu_hat / (iota @ sigma_inv @ mu_hat),
+        "Plug-in minimum variance": sigma_inv @ iota / (iota @ sigma_inv @ iota),
+        "1/N": iota / n_stocks,
+        "Minimum variance, no short sales": min_variance_no_short(sigma_hat),
+    }
+    for strategy, w in weights.items():
+        records.append({"date": excess_wide["date"][t], "strategy": strategy,
+                        "ret_excess": w @ excess_matrix[t]})
+backtest = pl.DataFrame(records)
+```
+:::
+
+## Out of sample, `r format(min(backtest$date), "%B %Y")` to `r format(max(backtest$date), "%B %Y")`
+
+```{r}
+#| label: evaluate-backtest
+#| echo: false
+# Turnover: the weight changes needed each month, starting from last month's
+# weights after they drifted with last month's returns
+returns_matrix <- returns_monthly |>
+  pivot_wider(id_cols = date, names_from = symbol, values_from = ret) |>
+  arrange(date) |>
+  select(-date) |>
+  as.matrix()
+month_index <- set_names(seq_along(excess_wide$date), as.character(excess_wide$date))
+
+turnover_of <- function(weights, dates) {
+  c(NA, map_dbl(seq_along(weights)[-1], \(k) {
+    returns_before <- returns_matrix[month_index[[as.character(dates[k - 1])]], ]
+    drifted <- weights[[k - 1]] * (1 + returns_before)
+    sum(abs(weights[[k]] - drifted / sum(drifted)))
+  }))
+}
+
+performance <- backtest |>
+  arrange(strategy, date) |>
+  mutate(turnover = turnover_of(weights, date), .by = strategy) |>
+  summarize(
+    mean = mean(ret_excess) * months_per_year,
+    volatility = sd(ret_excess) * sqrt(months_per_year),
+    sharpe = mean / volatility,
+    turnover = mean(turnover, na.rm = TRUE),
+    .by = strategy
+  ) |>
+  arrange(desc(sharpe))
+
+performance |>
+  mutate(
+    across(c(mean, volatility), \(x) percent(x, 0.1, big.mark = ",")),
+    sharpe = number(sharpe, 0.01),
+    turnover = percent(turnover, 1, big.mark = ",")
+  ) |>
+  rename(
+    Strategy = strategy, `Excess return` = mean, Volatility = volatility,
+    `Sharpe ratio` = sharpe, `Turnover per month` = turnover
+  )
+```
+
+- Annualized, excess returns over the T-bill rate. Turnover: the sum of absolute weight changes at each rebalancing
+- 1/N, with nothing estimated, has the highest Sharpe ratio; the plug-in tangency portfolio is not investable
+
+## Why the plug-in tangency portfolio fails
+
+```{r}
+#| label: plot-tangency-weights-over-time
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.6
+tangency_weights <- backtest |>
+  filter(strategy == "Plug-in tangency") |>
+  mutate(weights = map(weights, \(w) tibble(symbol = colnames(excess_matrix), weight = w))) |>
+  unnest(weights)
+months_beyond <- tangency_weights |>
+  summarize(extreme = any(abs(weight) > 3), .by = date) |>
+  summarize(months = sum(extreme)) |>
+  pull(months)
+
+tangency_weights |>
+  ggplot(aes(x = date, y = weight, group = symbol)) +
+  geom_line(color = ku_red, alpha = 0.35) +
+  geom_hline(yintercept = 0, color = jet) +
+  coord_cartesian(ylim = c(-3, 3)) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = NULL, y = "Weight",
+    title = paste0(
+      "Plug-in tangency weights, one line per stock; ", months_beyond,
+      " months have a position beyond ±300%"
+    )
+  )
+```
+
+$\hat\omega_\text{tan}$ divides by $\iota'\hat\Sigma^{-1}\hat\mu$. When the estimated expected returns are close to zero on average, this sum is close to zero and the weights explode
+
+## Cumulative excess returns
+
+```{r}
+#| label: plot-cumulative-returns
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.8
+strategy_colors <- c(
+  "1/N" = jet,
+  "Minimum variance, no short sales" = ku_red,
+  "Plug-in minimum variance" = "#b3b3b3"
+)
+
+backtest |>
+  filter(strategy != "Plug-in tangency") |>
+  arrange(date) |>
+  mutate(value = cumprod(1 + ret_excess), .by = strategy) |>
+  ggplot(aes(x = date, y = value, color = strategy)) +
+  geom_line(linewidth = 0.9) +
+  scale_color_manual(values = strategy_colors) +
+  scale_y_continuous(labels = dollar) +
+  labs(
+    x = NULL, y = NULL, color = NULL,
+    title = "Value of $1 invested in excess of the T-bill rate (plug-in tangency left out)"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+# Optimal versus naive diversification
+
+## DeMiguel, Garlappi & Uppal (2009)
+
+- 14 models of optimal portfolio choice against 1/N, on seven empirical datasets
+- None of them beats 1/N consistently out of sample, in Sharpe ratio, certainty equivalent or turnover
+- With parameters calibrated to the US stock market, the sample-based mean-variance portfolio needs an estimation window of about **3,000 months** to beat 1/N with 25 assets, and about 6,000 months with 50 assets
+
+::: {.highlight}
+**Discussion:** Is 1/N naive? What information does it use? When would you still optimize?
+:::
+
+## What helps?
+
+- **Ignore the expected returns:** the minimum-variance portfolio estimates only $\Sigma$
+- **Constrain the weights:** no short sales stabilize the portfolio. Next lecture shows why: constraints act like shrinkage (Jagannathan & Ma, 2003)
+- **Combine:** a mix of the plug-in portfolio and 1/N (Kan & Zhou, 2007)
+- **Shrink the estimates:** Ledoit-Wolf for $\hat\Sigma$, Bayes-Stein for $\hat\mu$: next lecture
+
+::: {.highlight}
+Your trading game portfolio is an estimated portfolio, too
+:::
