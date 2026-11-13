@@ -236,9 +236,9 @@ The learning curve is steep: ask early, me directly, on Absalon or in the exerci
 
 | | Topic | Date |
 |---|---|---|
-| 1 | Portfolio choice | 11–18 March |
-| 2 | Machine learning in asset pricing | 19–26 April |
-| 3 | Volatility and covariances from high-frequency data | 3–10 May |
+| 1 | Portfolio choice | 25 February – 4 March |
+| 2 | Machine learning in asset pricing | 8–15 April |
+| 3 | Volatility and covariances from high-frequency data | 29 April – 6 May |
 
 - One week each; the assignments and the data come through Absalon
 - Hand in one `.qmd` file and the PDF rendered from it: at most 7 pages, 12 pt, in English, from the [templates](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments)
@@ -313,7 +313,7 @@ The 60-second introduction on the homepage: [aef-course.ku.dk/trading-game](http
 - Rules, tools and the dry run: [aef-course.ku.dk/trading-game](https://aef-course.ku.dk/trading-game/)
 
 ::: {.fragment}
-- **Conference session** after the last lecture: the teams with the best out-of-sample performance present their approach, and other students discuss it, in front of faculty and quantitative traders
+- **Conference session** in the last lecture, on 20 May: the teams with the best out-of-sample performance present their approach, and other students discuss it, in front of faculty and quantitative traders
 :::
 
 ::: {.fragment}
