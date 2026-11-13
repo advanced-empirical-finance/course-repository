@@ -3,7 +3,7 @@
 -- - a tabset (R | Python) becomes one slide per tab, e.g. "Reading the data (R)";
 -- - the output of a cell with output-location: slide goes on the next slide;
 -- - a timeline becomes a table of dates and events;
--- - an iframe is left out, so the slide needs a link next to it;
+-- - raw HTML (iframes, comments) is left out, so an iframe needs a link next to it;
 -- - every slide shrinks its content if it would not fit on the page.
 -- Other formats are left as they are.
 
@@ -105,8 +105,9 @@ function Pandoc(doc)
       end
     elseif block.t == "Div" and block.classes:includes("timeline") then
       blocks:insert(timeline_table(block))
-    elseif block.t == "RawBlock" and block.format == "html" and block.text:match("<iframe") then
-      -- left out: an iframe cannot be shown in a PDF
+    elseif block.t == "RawBlock" and block.format == "html" then
+      -- left out: iframes cannot be shown in a PDF, and a comment before
+      -- the first slide would make an empty page
     else
       blocks:extend(split_cell(block))
     end

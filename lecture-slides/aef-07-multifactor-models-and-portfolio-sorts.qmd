@@ -1,0 +1,35 @@
+---
+subtitle: Multifactor models and portfolio sorts
+date: 2027-03-08
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "Multifactor asset pricing models" to "Integrating Factor Models", without "Factor selection: Principal Components"
+- aef-2-portfolio-choice.qmd: "Portfolio sorts with rolling windows for CRSP", "Bad news for CAPM?", "How to use any factor structure for portfolio optimization"
+- aef-reproducibility-in-asset-pricing.qmd: "What a portfolio sort does"
+-->
+
+## Today
+
+- From the CAPM to multifactor models
+- Anomalies and arbitrage pricing
+- Portfolio sorts
+
+## From the CAPM to multifactor models
+
+TBD
+
+## Anomalies and arbitrage pricing
+
+TBD
+
+## Portfolio sorts
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 5:** [Portfolio sorts](https://aef-course.ku.dk/exercises/portfolio_sorts.html)
+- **Read:** Menkveld et al. (2024)

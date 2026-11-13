@@ -1,0 +1,38 @@
+---
+subtitle: Machine learning foundations
+date: 2027-03-18
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-4-machine-learning.qmd: from the start to "Advanced Tools" (bias-variance trade-off, ridge, lasso, cross-validation, tidymodels and scikit-learn)
+-->
+
+## Today
+
+- What machine learning adds to empirical finance
+- The bias-variance trade-off: ridge and lasso
+- Cross-validation for time series
+- Machine learning workflows in R and Python
+
+## What machine learning adds to empirical finance
+
+TBD
+
+## The bias-variance trade-off: ridge and lasso
+
+TBD
+
+## Cross-validation for time series
+
+TBD
+
+## Machine learning workflows in R and Python
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 6:** [Shrinkage estimation](https://aef-course.ku.dk/exercises/machine_learning.html)
+- **Read:** Kozak, Nagel & Santosh (2020)

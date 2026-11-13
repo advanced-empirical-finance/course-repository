@@ -1,0 +1,34 @@
+---
+subtitle: Shrinking the SDF
+date: 2027-04-05
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-4-machine-learning.qmd: "Characteristic selection and the factor zoo"
+- the factor zoo running example and scoreboard (course-homepage#16)
+-->
+
+## Today
+
+- The SDF in the factor zoo
+- Shrinkage priors for the SDF
+- Sparse in characteristics or in principal components?
+
+## The SDF in the factor zoo
+
+TBD
+
+## Shrinkage priors for the SDF
+
+TBD
+
+## Sparse in characteristics or in principal components?
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 6:** [Shrinkage estimation](https://aef-course.ku.dk/exercises/machine_learning.html)
+- **Read:** Lettau & Pelger (2020)

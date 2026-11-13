@@ -1,0 +1,34 @@
+---
+subtitle: Mean-variance optimization
+date: 2027-02-11
+---
+
+<!--
+Template for 2027: every TBD slide still needs its content.
+Material from the 2026 decks that belongs here:
+- aef-2-portfolio-choice.qmd: "Asset prices and returns" (general framework, distributional properties)
+- aef-2-portfolio-choice.qmd: "Optimal portfolio allocation" up to "Compute the efficient tangency weight"
+-->
+
+## Today
+
+- Returns and their distribution
+- The minimum-variance and the efficient portfolio
+- The efficient frontier, with and without a risk-free asset
+
+## Returns and their distribution
+
+TBD
+
+## The minimum-variance and the efficient portfolio
+
+TBD
+
+## The efficient frontier, with and without a risk-free asset
+
+TBD
+
+## Before the next lecture
+
+- **Exercise 2:** [Mean-variance optimization](https://aef-course.ku.dk/exercises/mean_variance.html)
+- **Read:** DeMiguel, Garlappi & Uppal (2009)
