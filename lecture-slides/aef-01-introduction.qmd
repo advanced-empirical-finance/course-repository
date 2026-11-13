@@ -303,7 +303,7 @@ ggplot() +
 
 ## The trading game
 
-<iframe src="https://aef-course.ku.dk/trading-game/intro/index.html" width="100%" height="520" style="border: 0;" title="The trading game in 60 seconds"></iframe>
+<iframe data-external="1" src="https://aef-course.ku.dk/trading-game/intro/index.html" width="800" height="565" style="border: 0; display: block; margin: 0 auto;" title="The trading game in 60 seconds"></iframe>
 
 The 60-second introduction on the homepage: [aef-course.ku.dk/trading-game](https://aef-course.ku.dk/trading-game/)
 
