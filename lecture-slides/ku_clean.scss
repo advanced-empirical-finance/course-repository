@@ -24,7 +24,9 @@ Note: This theme uses the Roboto font family, which it imports from Google
   preserving consistent font weights, you may also wish to remove "Roboto"
   from the choice set if the family is installed locally.
 */
-@import url('https://fonts.googleapis.com/css?family=Roboto:200,200i,300,300i,350,350i,400,400i&display=swap');
+// 700 is the bold weight. Without it, browsers fake bold text, and a PDF of
+// the slides then stores it as drawings instead of selectable text.
+@import url('https://fonts.googleapis.com/css?family=Roboto:200,200i,300,300i,350,350i,400,400i,700,700i&display=swap');
 
 $font-family-sans-serif: "Roboto", sans-serif !default;
 $presentation-heading-font: "Roboto", sans-serif !default;
@@ -40,6 +42,10 @@ $presentation-font-size-root: 32px;
 $body-color: $jet !default;
 $link-color: $accent !default;
 $selection-bg: #26351c !default;
+
+// Code blocks: on a light warm grey, without a border, large enough to read
+$code-block-bg: #f7f6f5 !default;
+$code-block-font-size: 0.75em !default;
 
 
 /*-- scss:rules --*/
@@ -347,4 +353,60 @@ $selection-bg: #26351c !default;
 @media (min-width: 1200px) {
   .reveal .slides section > h2 { font-size: 3.2rem; }
   .reveal .slides section > h3 { font-size: 1.8rem; }
+}
+
+// Code blocks line up with the text and need no frame
+.reveal div.sourceCode {
+  border: none;
+  border-radius: 4px;
+  margin-left: 0;
+  margin-right: 0;
+}
+.reveal div.sourceCode pre code {
+  padding: 0.6em 0.8em;
+}
+
+// A light grey block, e.g. the three parts of the course side by side
+.reveal .box {
+  background: #f7f6f5;
+  border-radius: 6px;
+  padding: 0.7em 0.9em;
+  height: 100%;
+  p {
+    margin-top: 0.5em;
+  }
+  p:first-child {
+    margin-top: 0;
+  }
+}
+
+// The one point of a slide that must stick, e.g. the deal on AI
+.reveal .highlight {
+  border-left: 4px solid $accent2;
+  background: #f7f6f5;
+  padding: 0.5em 0.9em;
+  margin-top: 1em;
+  p {
+    margin: 0;
+  }
+}
+
+// A number to remember, e.g. the prize of the trading game
+.reveal .prize {
+  color: $accent2;
+  font-size: 2.2em;
+  font-weight: lighter;
+}
+
+// Initials in a KU red circle, e.g. on the team slide
+.reveal .initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4em;
+  height: 2.4em;
+  border-radius: 50%;
+  background: $accent2;
+  color: #fff;
+  font-weight: normal;
 }

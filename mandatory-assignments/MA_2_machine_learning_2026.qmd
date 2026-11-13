@@ -44,7 +44,7 @@ library(dplyr)
 library(tidyr)
 
 # Only the columns needed here: the file is large.
-characteristics_file <- "../data/stock_characteristics_monthly.parquet"
+characteristics_file <- "data/stock_characteristics_monthly.parquet"
 columns <- read_parquet_schema(characteristics_file)$name
 characteristics_info <- read_parquet(characteristics_file, col_select = c("date", "permno")) |> count(date, permno)
 n_industries <- read_parquet(characteristics_file, col_select = "sic2") |> distinct() |> nrow()

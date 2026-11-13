@@ -1,14 +1,11 @@
 ---
 subtitle: Realized covariances for portfolio choice
 date: 2027-05-03
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-6-high-frequency-econometrics.qmd: "Realized Covariances" to "Blocked Realized Kernels"
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Dynamic multivariate models" to "Obvious extension: DCC"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-6-high-frequency-econometrics.qmd: "Realized Covariances" to "Blocked Realized Kernels"
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Dynamic multivariate models" to "Obvious extension: DCC"
--->
 
 ## Today
 
@@ -27,7 +24,3 @@ TBD
 ## Realized covariances for portfolio choice
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 11:** [Realized covariances](https://aef-course.ku.dk/exercises/realized_covariances.html)

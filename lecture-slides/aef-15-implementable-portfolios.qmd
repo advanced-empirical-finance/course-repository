@@ -1,14 +1,11 @@
 ---
 subtitle: From predictions to implementable portfolios
 date: 2027-04-22
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-4-machine-learning.qmd: "Out-of-sample replication and overfitting in practice"
+# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Parametric Portfolio Choice"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-4-machine-learning.qmd: "Out-of-sample replication and overfitting in practice"
-- aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Parametric Portfolio Choice"
--->
 
 ## Today
 
@@ -27,8 +24,3 @@ TBD
 ## Out-of-sample evaluation
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 9:** [Implementable portfolios](https://aef-course.ku.dk/exercises/implementable_portfolios.html)
-- **Read:** Andersen, Bollerslev, Diebold & Labys (2003)

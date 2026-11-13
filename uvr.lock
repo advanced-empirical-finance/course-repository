@@ -1,4 +1,4 @@
-manifest_fingerprint = "sha256:78bfbbf69221516a388404ff86ac575f8e00cdf93940851d6ce6b72a3d4bc2f6"
+manifest_fingerprint = "sha256:f8c23ee001ba0706ec0b5b4c851a4475eae34149f742377950801eb12949ab07"
 
 [r]
 version = "4.6.1"
@@ -690,11 +690,11 @@ requires = ["shape"]
 
 [[package]]
 name = "dials"
-version = "1.4.4"
+version = "1.4.5"
 source = "cran"
-raw_version = "1.4.4"
-url = "https://cran.r-project.org/src/contrib/dials_1.4.4.tar.gz"
-checksum = "md5:32ef415f6f0fbfd32f232128c59507af"
+raw_version = "1.4.5"
+url = "https://cran.r-project.org/src/contrib/dials_1.4.5.tar.gz"
+checksum = "md5:87a605298ab2a6b8828dcc67ea98b0c6"
 requires = [
     "scales",
     "cli",
@@ -708,6 +708,8 @@ requires = [
     "rlang",
     "sfd",
     "tibble",
+    "tidyr",
+    "tidyselect",
     "vctrs",
     "withr",
 ]
@@ -762,11 +764,11 @@ requires = [
 
 [[package]]
 name = "ellmer"
-version = "0.5.0"
+version = "0.5.2"
 source = "cran"
-raw_version = "0.5.0"
-url = "https://cran.r-project.org/src/contrib/ellmer_0.5.0.tar.gz"
-checksum = "md5:27f61f130720d7b77af84ded6a3afdba"
+raw_version = "0.5.2"
+url = "https://cran.r-project.org/src/contrib/ellmer_0.5.2.tar.gz"
+checksum = "md5:edf57ddc3978abb9125c11d71c9cb9b1"
 requires = [
     "cli",
     "coro",
@@ -809,11 +811,11 @@ checksum = "md5:f53773acd6ba9a86413e8c2dc6441544"
 
 [[package]]
 name = "flextable"
-version = "0.10.3"
+version = "0.10.4"
 source = "cran"
-raw_version = "0.10.3"
-url = "https://cran.r-project.org/src/contrib/flextable_0.10.3.tar.gz"
-checksum = "md5:997a956f5b228475e17d5826eacd241d"
+raw_version = "0.10.4"
+url = "https://cran.r-project.org/src/contrib/flextable_0.10.4.tar.gz"
+checksum = "md5:343112e39af9550612170a5242c14a6c"
 requires = [
     "data.table",
     "gdtools",
@@ -1069,6 +1071,19 @@ requires = [
     "scales",
     "withr",
     "Rcpp",
+]
+
+[[package]]
+name = "ggridges"
+version = "0.5.7"
+source = "cran"
+raw_version = "0.5.7"
+url = "https://cran.r-project.org/src/contrib/ggridges_0.5.7.tar.gz"
+checksum = "md5:9996e462bbbd47b7e93ef634657d9cbd"
+requires = [
+    "ggplot2",
+    "scales",
+    "withr",
 ]
 
 [[package]]
@@ -1540,11 +1555,11 @@ checksum = "md5:e449ab6441f74836e93869dd34cdf3ba"
 
 [[package]]
 name = "lava"
-version = "1.10.0"
+version = "1.11.0"
 source = "cran"
-raw_version = "1.10"
-url = "https://cran.r-project.org/src/contrib/lava_1.10.tar.gz"
-checksum = "md5:4e6838bc519c00a8dc00e615a3b226e7"
+raw_version = "1.11"
+url = "https://cran.r-project.org/src/contrib/lava_1.11.tar.gz"
+checksum = "md5:756ce1cbda5c8285881c77a85ff19587"
 requires = [
     "cli",
     "future.apply",
@@ -1809,11 +1824,11 @@ checksum = "md5:f894081f6d73822a362f156e849c9657"
 
 [[package]]
 name = "officer"
-version = "0.7.7"
+version = "0.7.8"
 source = "cran"
-raw_version = "0.7.7"
-url = "https://cran.r-project.org/src/contrib/officer_0.7.7.tar.gz"
-checksum = "md5:79150a61323b329b60e4115e72be6ea6"
+raw_version = "0.7.8"
+url = "https://cran.r-project.org/src/contrib/officer_0.7.8.tar.gz"
+checksum = "md5:062026af88a8872e3aa1a4ee569d3d95"
 requires = [
     "cli",
     "dplyr",
@@ -1837,11 +1852,11 @@ requires = ["askpass"]
 
 [[package]]
 name = "otel"
-version = "0.2.0"
+version = "0.3.0"
 source = "cran"
-raw_version = "0.2.0"
-url = "https://cran.r-project.org/src/contrib/otel_0.2.0.tar.gz"
-checksum = "md5:cecd0f434a6327dcf5ca0bc2da494d06"
+raw_version = "0.3.0"
+url = "https://cran.r-project.org/src/contrib/otel_0.3.0.tar.gz"
+checksum = "md5:b9c41923305ec69ba71e80b63e86ec02"
 
 [[package]]
 name = "padr"
@@ -1860,11 +1875,11 @@ requires = [
 
 [[package]]
 name = "pak"
-version = "0.11.1"
+version = "0.11.2"
 source = "cran"
-raw_version = "0.11.1"
-url = "https://cran.r-project.org/src/contrib/pak_0.11.1.tar.gz"
-checksum = "md5:201eaa969a601b2efc6253432a283741"
+raw_version = "0.11.2"
+url = "https://cran.r-project.org/src/contrib/pak_0.11.2.tar.gz"
+checksum = "md5:808f7dc401bd4d503f2323a8b199cefd"
 
 [[package]]
 name = "parallelly"
@@ -2573,6 +2588,25 @@ raw_version = "3.8-12"
 url = "https://cran.r-project.org/src/contrib/survival_3.8-12.tar.gz"
 checksum = "md5:3c59ccd42546b7d04d2e9804998ea7e8"
 requires = ["Matrix"]
+
+[[package]]
+name = "svglite"
+version = "2.2.2"
+source = "cran"
+raw_version = "2.2.2"
+url = "https://cran.r-project.org/src/contrib/svglite_2.2.2.tar.gz"
+checksum = "md5:c4e710e70a85b84907fbb80d94c30c16"
+requires = [
+    "base64enc",
+    "cli",
+    "lifecycle",
+    "rlang",
+    "systemfonts",
+    "textshaping",
+    "cpp11",
+    "systemfonts",
+    "textshaping",
+]
 
 [[package]]
 name = "sys"

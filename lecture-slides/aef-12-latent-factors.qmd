@@ -1,13 +1,10 @@
 ---
 subtitle: Latent factors
 date: 2027-04-08
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "Factor selection: Principal Components"
 ---
-
-<!--
-Template for 2027: every TBD slide still needs its content.
-Material from the 2026 decks that belongs here:
-- aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "Factor selection: Principal Components"
--->
 
 ## Today
 
@@ -26,8 +23,3 @@ TBD
 ## Latent factors and the SDF
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 7:** [Empirical asset pricing via machine learning](https://aef-course.ku.dk/exercises/gu_kelly_xiu.html)
-- **Read:** Gu, Kelly & Xiu (2020)

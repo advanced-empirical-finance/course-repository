@@ -41,7 +41,7 @@ $$\sigma_t^2 = \text{Var}\left(r_t|\mathcal{F}_{t-1}\right) = E\left(\varepsilon
 #| label: load-industry-returns
 #| echo: false
 # Ten Fama-French industry portfolios, monthly, as stored in data/
-industry_returns <- read_parquet("../data/industries_ff_monthly.parquet") |>
+industry_returns <- read_parquet("data/industries_ff_monthly.parquet") |>
   filter(between(date, start_date, end_date))
 
 returns <- industry_returns |>
@@ -426,11 +426,7 @@ The shrinkage target (Ledoit Wolf, 2004)
 
 ## Illustrating shrinkage 
 
-```{r}
-#| label: fig-ledoit-wolf-shrinkage
-#| echo: false
-knitr::include_graphics("figures/ledoit_wolf_2003_fig_1.jpg")
-```
+![](figures/ledoit_wolf_2003_fig_1.jpg){#fig-ledoit-wolf-shrinkage}
 
 - The optimal linear combination depends on unknown population quantities and, therefore, we must think of it as an ideal (or “oracle”) but infeasible estimator
 - Ledoit and Wolf derive feasible estimators (an exercise asks you to implement the estimator)
