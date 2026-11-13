@@ -5,14 +5,30 @@ author:
   orcid: 0000-0001-5619-3161
 date: today
 date-format: "[Spring] YYYY"
-format: revealjs
-theme: ku_clean.scss
-pdf-separate-fragments: false
-slide-number: true
-lightbox: true
-logo: ku_logo.png
-smaller: true
-html-math-method: mathjax
-embed-resources: true
+# Every deck renders twice: the reveal.js slides shown in the lecture (.html)
+# and a PDF for printing and annotating (.pdf, LaTeX beamer). Render one
+# format with --to revealjs or --to beamer.
+format:
+  revealjs:
+    theme: ku_clean.scss
+    pdf-separate-fragments: false
+    slide-number: true
+    lightbox: true
+    logo: ku_logo.png
+    smaller: true
+    html-math-method: mathjax
+    embed-resources: true
+  beamer:
+    pdf-engine: lualatex
+    aspectratio: 169
+    fontsize: 11pt
+    institute: University of Copenhagen and Danish Finance Institute (DFI)
+    classoption: handout
+    navigation: empty
+    incremental: false
+    include-in-header: beamer-ku.tex
+filters:
+  - path: beamer-slides.lua
+    at: pre-ast
 execute:
   echo: true
