@@ -10,6 +10,8 @@ Several decks at once: pass several HTML files. The PDF lands next to each
 HTML file. The script uses a browser that is already installed (Chromium,
 Chrome or Edge), so Playwright needs no browser download. A slide with an
 R | Python tabset becomes one page per tab, so the PDF shows both languages.
+An embedded page, such as the trading game video, is printed as it first
+appears, with a link: a click on it in the PDF opens it in the browser.
 """
 
 import pathlib
@@ -96,6 +98,29 @@ SPLIT_TABSETS = """
 """
 
 
+# After reveal.js has laid out the print pages: a link over every embedded
+# page (iframe), so that a click on it in the PDF opens it in the browser.
+LINK_IFRAMES = """
+() => {
+  let links = 0;
+  for (const frame of document.querySelectorAll('.pdf-page iframe')) {
+    const page = frame.closest('.pdf-page');
+    const p = page.getBoundingClientRect();
+    const f = frame.getBoundingClientRect();
+    const link = document.createElement('a');
+    link.href = frame.getAttribute('data-src') || frame.src;
+    Object.assign(link.style, {
+      position: 'absolute', zIndex: 10, left: (f.left - p.left) + 'px', top: (f.top - p.top) + 'px',
+      width: f.width + 'px', height: f.height + 'px',
+    });
+    page.appendChild(link);
+    links++;
+  }
+  return links;
+}
+"""
+
+
 def launch(playwright):
     for options in BROWSERS:
         path = options.get("executable_path")
@@ -124,6 +149,7 @@ def main(files):
             page.evaluate("() => document.fonts.ready")
             page.evaluate("() => window.MathJax && MathJax.startup ? MathJax.startup.promise : null")
             page.wait_for_timeout(2000)
+            page.evaluate(LINK_IFRAMES)
             page.pdf(path=str(pdf), prefer_css_page_size=True, print_background=True)
             pages = page.evaluate("() => document.querySelectorAll('.pdf-page').length")
             copies = page.evaluate("() => window.__tabsetCopies || 0")
