@@ -24,8 +24,3 @@ TBD
 ## Restrictions and the equal-weighted portfolio
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 2:** [Mean-variance optimization](https://aef-course.ku.dk/exercises/mean_variance.html)
-- **Read:** Ledoit & Wolf (2004); Jorion (1986)

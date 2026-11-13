@@ -23,8 +23,3 @@ TBD
 ## Latent factors and the SDF
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 7:** [Empirical asset pricing via machine learning](https://aef-course.ku.dk/exercises/gu_kelly_xiu.html)
-- **Read:** Gu, Kelly & Xiu (2020)

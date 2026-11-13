@@ -29,8 +29,3 @@ TBD
 ## Constraints as shrinkage
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 3:** [Shrinkage and transaction costs](https://aef-course.ku.dk/exercises/portfolio_choice.html)
-- **Read:** Brandt, Santa-Clara & Valkanov (2009)

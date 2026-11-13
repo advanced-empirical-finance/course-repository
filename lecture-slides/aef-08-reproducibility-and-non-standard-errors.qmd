@@ -24,7 +24,3 @@ TBD
 ## Non-standard errors
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 5:** [Portfolio sorts](https://aef-course.ku.dk/exercises/portfolio_sorts.html)

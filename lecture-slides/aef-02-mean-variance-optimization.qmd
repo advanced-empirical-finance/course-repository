@@ -24,8 +24,3 @@ TBD
 ## The efficient frontier, with and without a risk-free asset
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 2:** [Mean-variance optimization](https://aef-course.ku.dk/exercises/mean_variance.html)
-- **Read:** DeMiguel, Garlappi & Uppal (2009)

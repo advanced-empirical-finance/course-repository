@@ -24,8 +24,3 @@ TBD
 ## Learning the SDF with neural networks
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 8:** [Neural networks](https://aef-course.ku.dk/exercises/machine_learning_nonlinear.html)
-- **Read:** Jensen, Kelly, Malamud & Pedersen (2026)

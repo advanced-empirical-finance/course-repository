@@ -24,8 +24,3 @@ TBD
 ## Parametric portfolio policies with stock characteristics
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 3:** [Shrinkage and transaction costs](https://aef-course.ku.dk/exercises/portfolio_choice.html)
-- **Read:** Cochrane (2005), chapters 1 and 5–6

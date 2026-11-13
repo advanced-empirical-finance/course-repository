@@ -31,8 +31,3 @@ TBD
 ## Testing the CAPM
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 4:** [Beta estimation](https://aef-course.ku.dk/exercises/beta_estimation.html)
-- **Read:** Fama & French (1993)

@@ -29,8 +29,3 @@ TBD
 ## High-frequency data at KU
 
 TBD
-
-## Before the next lecture
-
-- **Exercise 10:** [(Co)variance estimation](https://aef-course.ku.dk/exercises/covariance_estimation.html)
-- **Read:** Hautsch, Kyj & Oomen (2012)
