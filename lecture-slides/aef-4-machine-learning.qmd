@@ -194,7 +194,7 @@ sample_months <- 40
 training_months <- 20
 polynomial_degrees <- c(1, 2, 5, 10, 19)
 
-returns_manuf <- read_parquet("../data/industries_ff_monthly.parquet") |>
+returns_manuf <- read_parquet("data/industries_ff_monthly.parquet") |>
   select(date, returns = manuf) |>
   slice_tail(n = sample_months) |>
   mutate(
@@ -326,7 +326,7 @@ $$\underbrace{r_{i, t}}_{\text{industry } i} = \gamma_{i, 0} + \gamma_{i, 1}' \u
 ```{r}
 #| label: prepare-case-study-data-r
 #| echo: false
-factors_q_file <- "../data/factors_q5_monthly.parquet"
+factors_q_file <- "data/factors_q5_monthly.parquet"
 # q-factors are not in data/: download them once, then read the stored copy
 if (!file.exists(factors_q_file)) {
   download_data(
@@ -340,7 +340,7 @@ if (!file.exists(factors_q_file)) {
 
 # Factor returns of month t, macro predictors of month t - 1: the factor
 # exposures vary with the macro state known when month t starts
-factors_ff3_monthly <- read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet")
 factors_ff <- factors_ff3_monthly |>
   select(-risk_free) |>
   rename_with(\(name) str_c("factor_ff_", name), -date)
@@ -348,13 +348,13 @@ factors_ff <- factors_ff3_monthly |>
 factors_q <- read_parquet(factors_q_file) |>
   select(-risk_free, -mkt_excess) |>
   rename_with(\(name) str_c("factor_q_", name), -date)
-macro_lagged <- read_parquet("../data/macro_predictors.parquet") |>
+macro_lagged <- read_parquet("data/macro_predictors.parquet") |>
   # rp_div is the market excess return of the following month
   select(-rp_div) |>
   rename_with(\(name) str_c("macro_", name), -date) |>
   mutate(date = date %m+% months(1))
 
-industries_ff_monthly <- read_parquet("../data/industries_ff_monthly.parquet") |>
+industries_ff_monthly <- read_parquet("data/industries_ff_monthly.parquet") |>
   pivot_longer(-date, names_to = "industry", values_to = "ret") |>
   arrange(desc(industry)) |>
   mutate(industry = as_factor(industry))
@@ -373,7 +373,7 @@ data <- industries_ff_monthly |>
 #| label: prepare-case-study-data-py
 #| echo: false
 #| eval: false
-factors_q_file = Path("../data/factors_q5_monthly.parquet")
+factors_q_file = Path("data/factors_q5_monthly.parquet")
 # q-factors are not in data/: download them once, then read the stored copy
 if not factors_q_file.exists():
     tf.download_data(
@@ -386,7 +386,7 @@ if not factors_q_file.exists():
 
 # Factor returns of month t, macro predictors of month t - 1: the factor
 # exposures vary with the macro state known when month t starts
-factors_ff3_monthly = pl.read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff3_monthly = pl.read_parquet("data/factors_ff3_monthly.parquet")
 factors_ff = factors_ff3_monthly.select(
     "date", pl.exclude("date", "risk_free").name.prefix("factor_ff_")
 )
@@ -395,7 +395,7 @@ factors_q = pl.read_parquet(factors_q_file).select(
     "date", pl.exclude("date", "risk_free", "mkt_excess").name.prefix("factor_q_")
 )
 macro_lagged = (
-    pl.read_parquet("../data/macro_predictors.parquet")
+    pl.read_parquet("data/macro_predictors.parquet")
     # rp_div is the market excess return of the following month
     .drop("rp_div")
     .select(
@@ -405,7 +405,7 @@ macro_lagged = (
 )
 
 data = (
-    pl.read_parquet("../data/industries_ff_monthly.parquet")
+    pl.read_parquet("data/industries_ff_monthly.parquet")
     .unpivot(index="date", variable_name="industry", value_name="ret")
     .join(factors_ff3_monthly.select("date", "risk_free"), on="date", how="left")
     .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))

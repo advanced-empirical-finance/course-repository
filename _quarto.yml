@@ -1,5 +1,7 @@
 project:
   title: "Advanced Empirical Finance: Topics and Data Science"
+  # Code runs from the repository root, so every file reads data/<file>.parquet
+  execute-dir: project
 execute:
   # Start a fresh Jupyter kernel for every render. Quarto's kept-alive kernel
   # breaks on Windows: "ConnectionReset" on the first render, or "No such file

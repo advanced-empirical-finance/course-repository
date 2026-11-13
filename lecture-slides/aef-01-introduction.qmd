@@ -48,7 +48,7 @@ symbols = ["AAPL", "MSFT"]
 ```{r}
 #| label: survey-setup
 #| echo: false
-source("_live-poll.R")
+source("lecture-slides/_live-poll.R")
 background_survey <- "aef27-l01-background"
 if (live) {
   ojs_define(poll_base = poll_base, background_survey = background_survey)
@@ -340,16 +340,16 @@ uv sync
 
 ```{r}
 #| label: read-crsp-r
-crsp_monthly <- read_parquet("../data/crsp_monthly.parquet")
-cpi_monthly <- read_parquet("../data/cpi_monthly.parquet")
+crsp_monthly <- read_parquet("data/crsp_monthly.parquet")
+cpi_monthly <- read_parquet("data/cpi_monthly.parquet")
 ```
 
 ## Python
 
 ```{python}
 #| label: read-crsp-py
-crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
-cpi_monthly = pl.read_parquet("../data/cpi_monthly.parquet")
+crsp_monthly = pl.read_parquet("data/crsp_monthly.parquet")
+cpi_monthly = pl.read_parquet("data/cpi_monthly.parquet")
 ```
 :::
 

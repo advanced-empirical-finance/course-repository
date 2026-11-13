@@ -16,7 +16,7 @@ format:
     lightbox: true
     logo: ku_logo.png
     smaller: true
-    html-math-method: mathjax
+    html-math-method: katex
     embed-resources: true
 revealjs-plugins:
   - chat-bubbles

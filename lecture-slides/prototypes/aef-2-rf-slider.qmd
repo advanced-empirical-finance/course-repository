@@ -7,7 +7,7 @@ subtitle: "Prototype: the risk-free rate and the tangency portfolio"
 #| echo: false
 library(tidyverse)
 library(tidyfinance)
-source("../_live-poll.R")
+source("lecture-slides/_live-poll.R")
 
 allocation_poll <- "aef27-l02-allocation"
 allocation_choices <- c(

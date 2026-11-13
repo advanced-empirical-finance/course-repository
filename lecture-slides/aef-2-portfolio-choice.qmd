@@ -607,7 +607,7 @@ $$\beta_i = \frac{\sigma_{im}}{\sigma_m^2}$$
 ```{r}
 #| label: load-ff3-factors-r
 #| echo: false
-factors_ff_monthly <- read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff_monthly <- read_parquet("data/factors_ff3_monthly.parquet")
 ```
 
 ```{r}
@@ -634,7 +634,7 @@ factors_ff_monthly |>
 #| label: load-ff3-factors-py
 #| echo: false
 #| eval: false
-factors_ff_monthly = pl.read_parquet("../data/factors_ff3_monthly.parquet")
+factors_ff_monthly = pl.read_parquet("data/factors_ff3_monthly.parquet")
 ```
 
 ## CAPM regression specification
@@ -738,14 +738,14 @@ ggplot(apple_monthly, aes(x = mkt_excess, y = ret_excess)) +
 
 ```{r}
 #| label: load-crsp-monthly-r
-crsp_monthly <- read_parquet("../data/crsp_monthly.parquet")
+crsp_monthly <- read_parquet("data/crsp_monthly.parquet")
 ```
 
 ## Python
 ```{python}
 #| label: load-crsp-monthly-py
 #| eval: false
-crsp_monthly = pl.read_parquet("../data/crsp_monthly.parquet")
+crsp_monthly = pl.read_parquet("data/crsp_monthly.parquet")
 ```
 :::
 
@@ -767,7 +767,7 @@ crsp_monthly |>
   ) +
   theme(legend.position = "bottom")
 
-cpi_monthly <- read_parquet("../data/cpi_monthly.parquet")
+cpi_monthly <- read_parquet("data/cpi_monthly.parquet")
 crsp_monthly |>
   left_join(cpi_monthly, join_by(date)) |>
   group_by(date, industry) |>
