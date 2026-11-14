@@ -455,8 +455,12 @@ $$
 
 ```{r}
 #| label: lasso-path-r
+# A tight convergence threshold, so that R and Python agree on the weights
 lasso_weights <- function(x, lambda) {
-  fit <- glmnet(x, rep(1, nrow(x)), lambda = lambda, intercept = FALSE, standardize = FALSE)
+  fit <- glmnet(
+    x, rep(1, nrow(x)), lambda = lambda, intercept = FALSE, standardize = FALSE,
+    control = list(thresh = 1e-12)
+  )
   as.vector(coef(fit))[-1]
 }
 
