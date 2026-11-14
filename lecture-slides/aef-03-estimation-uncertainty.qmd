@@ -701,7 +701,23 @@ Examples of information a backtest uses that an investor did not have. Up to 30 
 //| label: lookahead-poll-live
 //| echo: false
 lookahead = pollAnswers(lookahead_poll)
+lookahead_groups = fetchEvery3s(`${poll_base}/categorized?poll=${lookahead_poll}`)
 {
+  // Grouped by an AI on eumel (categorize.R): only groups with answers, so the
+  // next slide still reveals what the class missed. Hidden answers are counted
+  if (lookahead_groups !== null && lookahead_groups.ai) {
+    const groups = lookahead_groups.categories.filter(g => g.count > 0);
+    return html`<div style="font-size: 0.75em">
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px">
+        ${groups.map(g => html`<div style="background: #f7f6f5; border-radius: 6px; padding: 0.3em 0.6em">
+          <div><span style="color: #901A1E">${g.label}</span> <b>${g.count}</b></div>
+          <ul style="font-size: 0.8em; margin: 0.2em 0 0 1em">${g.examples.map(e => html`<li>${e}</li>`)}</ul>
+        </div>`)}
+      </div>
+      <p style="font-size: 0.75em; color: #666">Answers: ${lookahead_groups.total}, sorted: ${lookahead_groups.sorted}, hidden: ${lookahead_groups.hidden}</p>
+    </div>`;
+  }
+  // Without the AI: the answers as they come in
   if (lookahead === null) return md`*Cannot reach the poll on eumel.*`;
   const seen = new Set();
   const answers = lookahead.slice().reverse()
