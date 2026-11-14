@@ -24,10 +24,7 @@
   vertical-align: middle;
   margin-right: 0.3em;
 }
-.reveal .your-turn-badge::before {
-  content: "\270B";
-  margin-right: 0.35em;
-}
+/* no emoji in the badge: the PDF printer on eumel has no emoji font */
 
 /* "Your turn" block next to the chat */
 .reveal .your-turn p {
@@ -95,3 +92,8 @@
 .reveal .cloud.c5 { bottom: 0; left: 6%; transform: rotate(2deg); }
 .reveal .cloud.c6 { bottom: 0; right: 14%; transform: rotate(-4deg); }
 
+
+/* the chat must fit on one printed page next to the exercise box */
+.reveal .chat {
+  font-size: 0.8em;
+}
