@@ -31,3 +31,6 @@ data/*
 # CPZ light search: per-run logs and the results lock
 lecture-slides/factor-zoo/logs/
 lecture-slides/factor-zoo/results/.cpz_light_runs.lock
+
+# Made by aef-07 on every render, from CRSP
+lecture-slides/figures/beta-sort-step-*.png

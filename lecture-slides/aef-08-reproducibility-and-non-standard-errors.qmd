@@ -1,9 +1,9 @@
 ---
 subtitle: Reproducibility and non-standard errors
-date: 2027-03-11
+# Date to be set: Thu 1 Apr or Thu 13 May are free (the lecture moved from Thu 11 Mar)
 # Template for 2027: every TBD slide still needs its content.
 # Material from the 2026 decks that belongs here:
-# - aef-reproducibility-in-asset-pricing.qmd: the whole deck
+# - aef-reproducibility-in-asset-pricing.qmd: the whole deck, except "Where do factors come from?" and "What a portfolio sort does", which lecture 7 covers (with a sort on beta); build on that sort: "every step is a choice"
 # - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "From model proliferation to reproducibility" and "The reproducibility crisis"
 ---
 
