@@ -336,10 +336,10 @@ shrunk_weights |>
 
 # Constraints as shrinkage
 
-## Whiteboard: why no short sales help
+## Whiteboard: why no short sales help (Jagannathan & Ma, 2003)
 
 ::: {.box}
-Minimum variance with $\omega_i \geq 0$ (Jagannathan & Ma, 2003). With multipliers $\lambda_i \geq 0$, and $\lambda_i = 0$ whenever $\omega_i > 0$, the first-order conditions are
+Minimum variance with $\omega_i \geq 0$. With multipliers $\lambda_i \geq 0$, and $\lambda_i = 0$ whenever $\omega_i > 0$, the first-order conditions are
 $$
 \Sigma\omega - \lambda = \lambda_0\iota
 $$
