@@ -1,7 +1,6 @@
 ---
 subtitle: Reproducibility and non-standard errors
-date: 2027-04-01
-# Date to be set: Thu 1 Apr or Thu 13 May are free; the title slide shows only the year
+date: 2027-03-18
 revealjs-plugins:
   - chat-bubbles
 ---
@@ -332,7 +331,7 @@ In the lecture: your estimates by weighting scheme, number of portfolios, the st
 
 ![](figures/factor-zoo-cumulative.png){width=72% fig-align="center"}
 
-- Lecture 7: a portfolio sort turns any characteristic that predicts returns into a factor. Hence the zoo
+- Lectures 7 and 8: a portfolio sort turns any characteristic that predicts returns into a factor. Hence the zoo
 - Cochrane (2011): "Now we have a zoo of new factors"
 - Do we really believe in 500+ risk factors? See [this sheet](https://docs.google.com/spreadsheets/d/1mws1bU56ZAc8aK7Dvz696LknM0Vp4Rojc3n61q2-keY/edit?gid=0#gid=0) for the census
 

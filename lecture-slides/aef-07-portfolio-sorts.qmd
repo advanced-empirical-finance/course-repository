@@ -1,7 +1,7 @@
 ---
-subtitle: Multifactor models and portfolio sorts
-date: 2027-03-11
-# The first hour is the assignment 1 discussion, so the lecture itself has one hour.
+subtitle: Portfolio sorts
+date: 2027-03-05
+# Fri 5 Mar replaces Mon 8 Mar (Stefan away). Two hours: the sort on beta below is about one; more to come.
 ---
 
 ```{r}
@@ -57,11 +57,8 @@ factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
 
 ## Today
 
-- Assignment 1 discussion (first hour)
 - Sorting stocks on beta
-- From one factor to many
-
-# Assignment 1 discussion
+- TBD: the second hour
 
 # Sorting stocks on beta
 
@@ -402,38 +399,8 @@ sml_panel + alpha_panel
 - Betas from `r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`, average excess returns only from `r percent(annual$mean[1], 0.1)` to `r percent(annual$mean[n_portfolios], 0.1)` a year. The CAPM predicts `r percent(annual$capm_mean[1], 0.1)` to `r percent(annual$capm_mean[n_portfolios], 0.1)`: the line is too flat
 - High minus low: alpha `r percent(hml_capm$coefficients$intercept * months_per_year, 0.1)` a year (t = `r number(hml_capm$tstats$intercept, 0.01)`). GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: a clear pattern, but `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))` is not enough to reject the CAPM with ten correlated portfolios
 
-# From one factor to many
+# TBD: the second hour
 
-## Whiteboard: many factors
+## TBD
 
-::: {.box}
-Suppose the SDF is linear in $K$ factors, $m = a - b'f$. What does $E[m\,R^e_i] = 0$ imply for expected returns?
-:::
-
-::: {.fragment}
-$$
-E[R^e_i] = \beta_i'\lambda, \qquad \beta_i = \text{Var}(f)^{-1}\text{Cov}(f, R^e_i), \qquad \lambda = \frac{\text{Var}(f)\,b}{E[m]}
-$$
-
-- If the factors are excess returns, each factor prices itself: $\lambda = E[f]$. In $R^e_{i,t} = \alpha_i + \beta_i'f_t + \varepsilon_{i,t}$, the model says $\alpha_i = 0$ for every asset, and GRS tests all alphas at once
-- **Arbitrage pricing theory** (Ross, 1976): if returns have a factor structure and there is no arbitrage, expected returns are approximately $\beta_i'\lambda$
-:::
-
-## Where do factors come from?
-
-- We do not observe betas. A characteristic $z_i$ (size, book-to-market, past returns) is useful when it tells us something about the betas: $E[R^e_i] = \beta(z_i)'\lambda$
-- Value firms are often close to distress and lose most in bad states: high beta, high premium
-- A **portfolio sort turns a characteristic into a factor**: the top portfolio minus the bottom portfolio. Fama & French (1993) add SMB (small minus big) and HML (high minus low book-to-market) to the market: the three-factor model
-- Today's sort on beta itself: low-beta stocks earn too much, high-beta stocks too little. Frazzini & Pedersen (2014) find the same in many markets and asset classes and turn it into a factor, *betting against beta*
-
-## Anomalies
-
-| Anomaly | Finding | Key reference(s) |
-|---|---|---|
-| Betting against beta | $\alpha$ declining in $\beta$ across many asset classes | Frazzini & Pedersen (2014) |
-| Size | Small stocks outperform large stocks | Banz (1981); Fama & French (1992) |
-| Value | High book-to-market stocks outperform growth stocks | Rosenberg, Reid & Lanstein (1985); Fama & French (1992) |
-| Momentum | Intermediate-term winners outperform losers | Jegadeesh & Titman (1993); Carhart (1997) |
-| Liquidity | Illiquid stocks earn a return premium | Pástor & Stambaugh (2003) |
-
-- Hundreds more have been published since: the *factor zoo*. Which of them survive is a question for the lecture on reproducibility; how to use many characteristics at once, for the machine learning lectures
+TBD

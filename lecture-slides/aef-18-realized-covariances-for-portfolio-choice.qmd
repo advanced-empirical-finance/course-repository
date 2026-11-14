@@ -1,6 +1,6 @@
 ---
 subtitle: Realized covariances for portfolio choice
-date: 2027-05-03
+date: 2027-05-13
 # Template for 2027: every TBD slide still needs its content.
 # Material from the 2026 decks that belongs here:
 # - aef-6-high-frequency-econometrics.qmd: "Realized Covariances" to "Blocked Realized Kernels"
