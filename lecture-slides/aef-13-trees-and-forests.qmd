@@ -2,26 +2,423 @@
 subtitle: Return prediction with trees and forests
 date: 2027-04-09
 # Fri 9 Apr replaces Thu 15 Apr (Stefan away)
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-4-machine-learning.qmd: "Nonlinear methods" up to "Hyperparameter tuning for random forests (Python)"
-# - aef-4-machine-learning.qmd: "Empirical Asset Pricing via Machine Learning" to "Results: Variable Importance"
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(rpart)
+library(tidymodels)
+library(scales)
+
+# The factor zoo of lectures 10 to 12
+sample_start <- ymd("1973-01-01")
+sample_end <- ymd("2023-12-31")
+test_start <- ymd("2000-01-01")
+n_folds <- 5
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+
+# Forecasts: the macro predictors, the trees of the forest, and the grid
+macro_names <- c("dp", "tbl", "tms", "dfy", "svar")
+n_trees <- 100
+forest_grid <- expand_grid(mtry = c(1, 3, 7), min_n = c(500, 2000))
+
+months_per_year <- 12
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+from datetime import date
+
+import numpy as np
+import polars as pl
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import GridSearchCV, GroupKFold
+from sklearn.tree import DecisionTreeRegressor
+
+n_folds = 5
+```
+
+```{r}
+#| label: lectures-10-to-12-code
+#| include: false
+# The data and functions of lectures 10 to 12
+osap_url <- paste0(
+  "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
+  "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
+)
+osap_file <- "data/osap_long_short_returns.parquet"
+if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+anomalies <- read_parquet(osap_file) |>
+  mutate(date = floor_date(as.Date(date), "month")) |>
+  filter(between(date, sample_start, sample_end)) |>
+  select(date, where(\(x) !anyNA(x)))
+returns <- as.matrix(select(anomalies, -date)) / 100
+estimation <- anomalies$date < test_start
+x_estimation <- returns[estimation, ]
+
+sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
+ridge_weights <- function(x, lambda) {
+  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+}
+folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
+cv_sharpe <- function(fit_weights, lambda) {
+  map_dbl(seq_len(n_folds), \(k) {
+    weights <- fit_weights(x_estimation[folds != k, ], lambda)
+    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
+  }) |>
+    mean(na.rm = TRUE)
+}
+ridge_lambda <- ridge_lambdas[which.max(map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda)))]
+ridge_sharpe <- c(
+  estimation = sharpe_ratio(returns[estimation, ] %*% ridge_weights(x_estimation, ridge_lambda)),
+  test = sharpe_ratio(returns[!estimation, ] %*% ridge_weights(x_estimation, ridge_lambda))
+)
+```
 
 ## Today
 
-- Regression trees
-- Random forests and bagging
-- Empirical asset pricing via machine learning
+- Two uses of machine learning in asset pricing
+- Gu, Kelly & Xiu (2020): machine learning forecasts of stock returns
+- Regression trees and random forests
+- From forecasts to a portfolio
 
-## Regression trees
+## Two uses of machine learning
 
-TBD
+- **Lectures 10 to 12:** estimate the SDF, the best portfolio of the zoo, directly. Its weights are constant
+- **Today:** forecast each return, $E_t[r_{i,t+1}] = g(z_{i,t})$, with characteristics and the state of the economy in $z_{i,t}$. The function $g$ may be nonlinear and contain interactions
+- A forecast is not yet a portfolio: we need a second step from forecasts to weights
 
-## Random forests and bagging
+::: {.highlight}
+Does a flexible forecast of returns beat a well-shrunk SDF?
+:::
 
-TBD
+# Gu, Kelly & Xiu (2020)
 
 ## Empirical asset pricing via machine learning
 
-TBD
+- **Data:** almost 30,000 US stocks, March 1957 to December 2016, more than 6,200 a month on average
+- **Predictors:** 94 characteristics, each interacted with 8 macro predictors (Welch & Goyal), plus 74 industry dummies: $94 \times (8 + 1) + 74 = 920$
+- **Samples:** training 1957–1974, validation 1975–1986, test 1987–2016. The models are refitted every year on a growing training sample; the validation sample rolls forward
+- **Methods:** OLS, partial least squares, principal component regression, elastic net, generalized linear models, random forests, gradient boosted trees, and neural networks with one to five layers
+- Exercise 7 prepares their data with CRSP
+
+## Their forecasts
+
+```{r}
+#| label: plot-gkx-r2
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.4
+# Gu, Kelly & Xiu (2020), Table 1, all stocks: monthly out-of-sample R^2 in percent
+gkx_r2 <- tibble(
+  method = c("OLS", "OLS-3", "PLS", "PCR", "ENet", "GLM", "RF", "GBRT", "NN1", "NN2", "NN3", "NN4", "NN5"),
+  r2 = c(-3.46, 0.16, 0.27, 0.26, 0.11, 0.19, 0.33, 0.34, 0.33, 0.39, 0.40, 0.39, 0.36)
+) |>
+  mutate(
+    method = factor(method, levels = method),
+    group = case_when(
+      method %in% c("RF", "GBRT") ~ "Trees",
+      str_starts(method, "NN") ~ "Neural networks",
+      TRUE ~ "Linear"
+    )
+  )
+gkx_r2 |>
+  filter(method != "OLS") |>
+  ggplot(aes(x = method, y = r2, fill = group)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = number(r2, 0.01)), vjust = -0.4, size = 4) +
+  scale_fill_manual(
+    values = c("Linear" = "#b3b3b3", "Trees" = jet, "Neural networks" = ku_red),
+    breaks = c("Linear", "Trees", "Neural networks")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(x = NULL, y = "Out-of-sample R² (% a month)", fill = NULL) +
+  theme(legend.position = "bottom")
+```
+
+- OLS with all 920 predictors: $R^2_{oos}$ = `r number(gkx_r2$r2[1], 0.01)`%. OLS-3 with size, book-to-market and momentum only: `r number(gkx_r2$r2[2], 0.01)`%
+- Trees and networks forecast best, around 0.3 to 0.4% a month. Small, but for stock returns a large number
+
+## What predicts, and what it pays
+
+- **The same few predictors** matter for all methods: price trends (short-term reversal, momentum, industry momentum), liquidity (market value, dollar volume, bid-ask spread) and volatility
+- **Portfolios:** sort stocks each month into deciles of the forecast and buy the top, sell the bottom decile. Value-weighted, the four-layer network earns an out-of-sample Sharpe ratio of **1.35**, OLS-3 0.61; equal-weighted 2.45 and 0.83
+- **Costs:** these portfolios turn over more than 100% of their value a month (their Table 8). Lecture 15 comes back to this
+
+# Trees and forests
+
+## Whiteboard: regression trees
+
+::: {.box}
+Split the sample in two, by one predictor and one threshold, so that the forecast errors fall most. Then split each half again
+:::
+
+::: {.fragment}
+$$
+\min_{j,\,s} \ \sum_{i:\, z_{ij} < s} (r_i - \bar r_{\text{left}})^2 + \sum_{i:\, z_{ij} \ge s} (r_i - \bar r_{\text{right}})^2
+$$
+
+- Each leaf forecasts the average return of its observations. Nonlinearities and interactions come for free: a split on momentum, then on last month's return
+- **Depth** sets the complexity: deep trees fit the noise of the sample, and a small change in the data changes the whole tree
+:::
+
+## The zoo as a panel
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: build-panel-r
+# Macro predictors of month t - 1, known when month t starts, scaled with
+# the estimation sample
+macro <- read_parquet("data/macro_predictors.parquet") |>
+  transmute(date = date %m+% months(1), across(all_of(macro_names))) |>
+  mutate(across(all_of(macro_names), \(x) (x - mean(x[date < test_start])) / sd(x[date < test_start])))
+
+panel <- anomalies |>
+  pivot_longer(-date, names_to = "anomaly", values_to = "ret") |>
+  mutate(ret = ret / 100) |>
+  arrange(anomaly, date) |>
+  mutate(
+    ret_lag_1 = lag(ret),
+    momentum_12 = slider::slide_dbl(lag(ret), mean, .before = 11, .complete = TRUE),
+    .by = anomaly
+  ) |>
+  left_join(macro, join_by(date)) |>
+  drop_na()
+```
+
+## Python
+
+```{python}
+#| label: build-panel-py
+#| eval: false
+# Macro predictors of month t - 1, known when month t starts, scaled with
+# the estimation sample
+macro_names = ["dp", "tbl", "tms", "dfy", "svar"]
+macro = (pl.read_parquet("data/macro_predictors.parquet")
+    .select(pl.col("date").dt.offset_by("1mo"), *macro_names))
+in_estimation = pl.col("date") < date(2000, 1, 1)
+macro = macro.with_columns(
+    [((pl.col(c) - pl.col(c).filter(in_estimation).mean()) / pl.col(c).filter(in_estimation).std()).alias(c)
+     for c in macro_names])
+
+panel = (anomalies.select("date", *complete)
+    .unpivot(index="date", variable_name="anomaly", value_name="ret")
+    .with_columns(pl.col("ret") / 100)
+    .sort("anomaly", "date")
+    .with_columns(ret_lag_1=pl.col("ret").shift(1).over("anomaly"),
+                  momentum_12=pl.col("ret").shift(1).rolling_mean(12).over("anomaly"))
+    .join(macro, on="date", how="left")
+    .drop_nulls())
+```
+:::
+
+One row per anomaly and month: the return $r_{i,t+1}$, last month's return, the average return over the last 12 months (factor momentum) and five macro predictors. `anomalies` and `complete` as in lecture 10
+
+## A tree on the zoo
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: fit-tree-r
+train <- panel |> filter(date < test_start)
+tree <- rpart(
+  ret ~ momentum_12 + ret_lag_1, data = train,
+  control = rpart.control(maxdepth = 2, minbucket = 500, cp = 0)
+)
+```
+
+## Python
+
+```{python}
+#| label: fit-tree-py
+#| eval: false
+train = panel.filter(pl.col("date") < date(2000, 1, 1))
+tree = DecisionTreeRegressor(max_depth=2, min_samples_leaf=500).fit(
+    train.select("momentum_12", "ret_lag_1"), train["ret"])
+```
+:::
+
+```{r}
+#| label: plot-tree
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.3
+# The leaves of the tree as rectangles in the plane of its two predictors
+frame <- tree$frame
+splits <- tree$splits
+leaf_bounds <- function(node) {
+  bounds <- list(momentum_12 = c(-Inf, Inf), ret_lag_1 = c(-Inf, Inf))
+  path <- path.rpart(tree, node, print.it = FALSE)[[1]][-1]
+  for (rule in path) {
+    parts <- regmatches(rule, regexec("^(\\w+)(<|>=)(.+)$", rule))[[1]]
+    value <- as.numeric(parts[4])
+    if (parts[3] == "<") bounds[[parts[2]]][2] <- value else bounds[[parts[2]]][1] <- value
+  }
+  bounds
+}
+leaves <- as.numeric(rownames(frame)[frame$var == "<leaf>"])
+range_m <- quantile(train$momentum_12, c(0.005, 0.995))
+range_r <- quantile(train$ret_lag_1, c(0.005, 0.995))
+leaf_data <- map(leaves, \(node) {
+  b <- leaf_bounds(node)
+  tibble(
+    xmin = max(b$momentum_12[1], range_m[1]), xmax = min(b$momentum_12[2], range_m[2]),
+    ymin = max(b$ret_lag_1[1], range_r[1]), ymax = min(b$ret_lag_1[2], range_r[2]),
+    forecast = frame$yval[rownames(frame) == node], n = frame$n[rownames(frame) == node]
+  )
+}) |>
+  bind_rows()
+
+ggplot(leaf_data) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = forecast), color = "white") +
+  geom_text(aes(x = (xmin + xmax) / 2, y = (ymin + ymax) / 2, label = paste0(number(forecast * 100, 0.01), "% a month")), color = "white", size = 4.5) +
+  scale_fill_gradient(low = "#b3b3b3", high = ku_red, labels = percent) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Average return over the last 12 months (factor momentum)", y = "Last month's return", fill = "Forecast") +
+  theme(legend.position = "none")
+```
+
+- The first split is on factor momentum: anomalies that did well over the last year keep doing well (Ehsani & Linnainmaa, 2022). Among them, last month's winners earn most
+
+## Random forests
+
+- **Bagging:** grow many deep trees, each on a bootstrap sample of the data, and average their forecasts. Averaging removes much of the variance of single trees
+- **Random predictors:** at each split, a tree may use only a random subset of `mtry` predictors. The trees differ more, so their average gains more
+- **Tuning parameters:** the number of predictors per split (`mtry`) and the smallest node that may still be split (`min_n`). Choose them by cross-validation on consecutive blocks of time, as in lecture 11
+
+## Tuning a forest in R and Python
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: tune-forest-r
+#| cache: true
+#| cache.extra: !expr list(forest_grid, n_trees, n_folds, macro_names, sample_end)
+# Five consecutive blocks of months, as in lecture 11
+train <- train |> mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds)))
+forest_model <- rand_forest(mtry = tune(), min_n = tune(), trees = n_trees) |>
+  set_engine("ranger", seed = 2027) |>
+  set_mode("regression")
+forest_workflow <- workflow() |>
+  add_formula(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar) |>
+  add_model(forest_model)
+forest_tuning <- tune_grid(
+  forest_workflow, resamples = group_vfold_cv(train, group = block, v = n_folds), grid = forest_grid
+)
+forest_fit <- forest_workflow |>
+  finalize_workflow(select_best(forest_tuning, metric = "rmse")) |>
+  fit(train)
+```
+
+## Python
+
+```{python}
+#| label: tune-forest-py
+#| eval: false
+# Five consecutive blocks of months, as in lecture 11
+features = ["ret_lag_1", "momentum_12", *macro_names]
+months = train["date"].rank("dense")
+blocks = np.ceil(months / (months.max() / n_folds)).to_numpy()
+search = GridSearchCV(
+    RandomForestRegressor(n_estimators=100, random_state=2027, n_jobs=-1),
+    {"max_features": [1, 3, 7], "min_samples_split": [500, 2000]},
+    cv=GroupKFold(n_splits=n_folds), scoring="neg_root_mean_squared_error",
+)
+search.fit(train.select(features), train["ret"], groups=blocks)
+```
+:::
+
+`r n_trees` trees per forest for the tuning; `ranger` and scikit-learn draw different random trees, so their forecasts differ a little
+
+# From forecasts to a portfolio
+
+## Forecasts as expected returns
+
+```{r}
+#| label: forecast-portfolios
+#| include: false
+test_rows <- panel$date >= test_start
+best_forest <- select_best(forest_tuning, metric = "rmse")
+forecasts <- list(
+  "OLS" = predict(lm(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar, data = train), panel),
+  "Tree of depth 2" = predict(tree, panel),
+  "Random forest" = predict(forest_fit, panel)$.pred
+)
+
+# Each month: the mean-variance weights with the forecasts as expected
+# returns, the covariance matrix of the estimation sample and the ridge
+# penalty of lecture 11
+covariance <- cov(x_estimation)
+forecast_row <- function(method, forecast) {
+  oos_r2 <- 1 - sum((panel$ret[test_rows] - forecast[test_rows])^2) / sum(panel$ret[test_rows]^2)
+  portfolio <- panel |>
+    mutate(forecast = forecast) |>
+    select(date, anomaly, forecast, ret) |>
+    nest(data = -date) |>
+    mutate(ret = map_dbl(data, \(d) {
+      order <- match(colnames(returns), d$anomaly)
+      weights <- solve(covariance + ridge_lambda * diag(ncol(returns)), d$forecast[order])
+      sum(weights * d$ret[order])
+    }))
+  tibble(
+    method = method, oos_r2 = oos_r2,
+    estimation = sharpe_ratio(portfolio$ret[portfolio$date < test_start]),
+    test = sharpe_ratio(portfolio$ret[portfolio$date >= test_start])
+  )
+}
+forecast_rows <- imap(forecasts, \(forecast, method) forecast_row(method, forecast)) |>
+  list_rbind()
+```
+
+$$
+\omega_t = (\hat\Sigma + \lambda I)^{-1}\,\hat\mu_t \qquad \hat\mu_t: \text{the forecasts for all anomalies in month } t
+$$
+
+```{r}
+#| label: forecast-table
+#| echo: false
+forecast_rows |>
+  transmute(
+    Forecast = method,
+    `Out-of-sample R²` = percent(oos_r2, 0.01),
+    `Sharpe ratio 1974–1999` = number(estimation, 0.01),
+    `Sharpe ratio 2000–2023` = number(test, 0.01)
+  )
+```
+
+- The covariance matrix and the penalty are those of the ridge SDF of lecture 11 (Sharpe ratio `r number(ridge_sharpe[["test"]], 0.01)` in the test sample); only the expected returns change every month
+- The tuned forest uses `r best_forest$mtry` of the 7 predictors per split and nodes of at least `r best_forest$min_n` anomaly-months. No forecast portfolio comes near the static ridge SDF
+
+## Scoreboard
+
+```{r}
+#| label: scoreboard
+#| echo: false
+tibble(
+  Portfolio = c("Ridge (prior on Sharpe ratios)", paste("Forecasts:", forecast_rows$method)),
+  Inputs = c(paste(ncol(returns), "anomalies"), rep("7 predictors", nrow(forecast_rows))),
+  estimation = c(ridge_sharpe[["estimation"]], forecast_rows$estimation),
+  test = c(ridge_sharpe[["test"]], forecast_rows$test)
+) |>
+  mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
+  rename(`Sharpe ratio, estimation` = estimation, `Sharpe ratio 2000–2023` = test)
+```
+
+- Forecasts need 12 months of history, so their estimation sample starts in 1974; the rows of lectures 10 to 12 stay on the scoreboard
+- **Lecture 14:** a neural network for the forecasts, and a network that learns the SDF directly
