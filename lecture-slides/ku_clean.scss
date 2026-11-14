@@ -419,3 +419,103 @@ $code-block-font-size: 0.75em !default;
 .reveal form[class^="oi-"] {
   --label-width: 300px;
 }
+
+// A label for student activities, e.g. "Your turn" or "Exercise 5"
+.reveal .your-turn-badge {
+  display: inline-block;
+  background: $accent2;
+  color: #fff;
+  border-radius: 1.2em;
+  padding: 0.08em 0.75em;
+  font-size: 0.72em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  margin-right: 0.3em;
+}
+
+// The task next to the badge, a little smaller than the slide text
+.reveal .your-turn p {
+  margin: 0.2em 0;
+  font-size: 0.8em;
+}
+
+// Chat bubbles (the chat-bubbles plugin): small enough that a chat fits on
+// one printed page; a file sent in the chat is a white card
+.reveal .chat {
+  font-size: 0.8em;
+}
+.reveal .chat .attachment {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 0.35em 0.7em;
+  line-height: 1.3;
+  p {
+    margin: 0;
+  }
+}
+
+// Very small code next to a chat or a figure
+.reveal .small-code {
+  pre {
+    font-size: 0.42em;
+    margin: 0.15em 0;
+    line-height: 1.2;
+  }
+  .panel-tabset .nav-tabs {
+    font-size: 0.6em;
+    margin-bottom: 0.2em;
+  }
+  .panel-tabset .tab-content {
+    padding: 0;
+  }
+}
+
+// Thought clouds that fade in around a block, e.g. the choices behind an
+// estimate; .c1 to .c6 place them
+.reveal .cloud-stage {
+  position: relative;
+  min-height: 170px;
+  margin-top: 0.4em;
+}
+.reveal .cloud {
+  position: absolute;
+  z-index: 5;
+  padding: 0.3em 0.9em;
+  font-size: 0.68em;
+  line-height: 1.2;
+  color: #0D366B;
+  background: #EEF3F9;
+  border: 1.5px solid #7BA7D1;
+  border-radius: 55% 45% 50% 50% / 60% 55% 45% 40%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    background: #EEF3F9;
+    border: 1.5px solid #7BA7D1;
+    border-radius: 50%;
+  }
+  &::before {
+    width: 0.55em;
+    height: 0.55em;
+    bottom: -0.55em;
+    left: 1.1em;
+  }
+  &::after {
+    width: 0.3em;
+    height: 0.3em;
+    bottom: -1em;
+    left: 0.7em;
+  }
+  &.c1 { top: 0; left: 2%; transform: rotate(-3deg); }
+  &.c2 { top: 0; right: 4%; transform: rotate(2deg); }
+  &.c3 { top: 36%; left: 30%; transform: rotate(3deg); }
+  &.c4 { top: 36%; right: -2%; transform: rotate(-2deg); }
+  &.c5 { bottom: 0; left: 6%; transform: rotate(2deg); }
+  &.c6 { bottom: 0; right: 14%; transform: rotate(-4deg); }
+}

@@ -2,9 +2,6 @@
 subtitle: Reproducibility and non-standard errors
 date: 2027-04-01
 # Date to be set: Thu 1 Apr or Thu 13 May are free; the title slide shows only the year
-format:
-  revealjs:
-    css: aef-reproducibility.css
 revealjs-plugins:
   - chat-bubbles
 ---
