@@ -1,7 +1,7 @@
 ```{ojs}
 //| label: live-poll-helpers
 //| echo: false
-// Helpers for live polls and surveys; a deck includes this file once, on a
+// Helpers for the live version (polls, surveys, math); a deck includes this file once, on a
 // slide inside ::: {.content-visible when-profile="live"}. It needs
 // poll_base from R: if (live) ojs_define(poll_base = poll_base)
 QRCode = require("qrcode-generator@1.4.4")
@@ -110,5 +110,27 @@ function surveyCharts(results) {
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px">${charts}</div>
     <p style="font-size: 0.6em; margin: 0">Answers so far: ${results.respondents}</p>
   </div>`;
+}
+```
+
+```{ojs}
+//| label: live-math
+//| echo: false
+// The interactive charts hide KaTeX's global, so Quarto cannot typeset the
+// math of the live version. Load KaTeX here and typeset every formula
+liveMath = {
+  const katex = await require("katex@0.13.11/dist/katex.min.js");
+  if (!document.querySelector("link[data-live-katex]")) {
+    document.head.append(html`<link rel="stylesheet" data-live-katex
+      href="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.css">`);
+  }
+  for (const element of document.querySelectorAll("span.math")) {
+    if (element.querySelector(".katex")) continue;
+    katex.render(element.textContent, element, {
+      displayMode: element.classList.contains("display"),
+      throwOnError: false
+    });
+  }
+  return html`<span></span>`;
 }
 ```
