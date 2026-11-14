@@ -10,7 +10,6 @@ date-format: "MMMM YYYY"
 format:
   revealjs:
     theme: ku_clean.scss
-    css: aef-reproducibility.css
     pdf-separate-fragments: false
     slide-number: true
     lightbox: true

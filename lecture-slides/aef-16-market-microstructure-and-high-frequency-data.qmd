@@ -1,0 +1,26 @@
+---
+subtitle: Market microstructure and high-frequency data
+date: 2027-04-29
+# Template for 2027: every TBD slide still needs its content.
+# Material from the 2026 decks that belongs here:
+# - aef-6-high-frequency-econometrics.qmd: "High-frequency trading" to "Historical perspective on high-frequency (ETF) trading data" (equity microstructure, a NASDAQ trading day, LOBSTER at KU)
+# - roadmap (course-repository#5): LOBSTER order book data for the Dow 30
+---
+
+## Today
+
+- How stocks trade: the limit order book
+- High-frequency data from LOBSTER
+- Liquidity, spreads and price impact
+
+## How stocks trade: the limit order book
+
+TBD
+
+## High-frequency data from LOBSTER
+
+TBD
+
+## Liquidity, spreads and price impact
+
+TBD
