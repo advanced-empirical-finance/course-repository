@@ -1,27 +1,439 @@
 ---
 subtitle: Multifactor models and portfolio sorts
-date: 2027-03-08
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "Multifactor asset pricing models" to "Integrating Factor Models", without "Factor selection: Principal Components"
-# - aef-2-portfolio-choice.qmd: "Portfolio sorts with rolling windows for CRSP", "Bad news for CAPM?", "How to use any factor structure for portfolio optimization"
-# - aef-reproducibility-in-asset-pricing.qmd: "What a portfolio sort does"
+date: 2027-03-11
+# The first hour is the assignment 1 discussion, so the lecture itself has one hour.
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(tidyfinance)
+library(scales)
+library(patchwork)
+
+# Betas as in exercise 4: CAPM regressions on the last 60 months, at least 48
+window_length <- 60
+min_months <- 48
+
+# Ten portfolios; the month that shows the sort step by step
+n_portfolios <- 10
+illustration_month <- as.Date("2020-04-01")
+
+months_per_year <- 12
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+
+source("lecture-slides/_live-poll.R")
+alpha_poll <- "aef27-l07-beta-alpha"
+alpha_choices <- c("High-beta stocks", "Neither", "Low-beta stocks")
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+import polars as pl
+import tidyfinance as tf
+
+window_length = 60
+min_months = 48
+n_portfolios = 10
+```
+
+```{r}
+#| label: load-data-r
+#| include: false
+crsp_monthly <- read_parquet("data/crsp_monthly.parquet") |>
+  select(permno, date, ret_excess, mktcap_lag, exchange)
+factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  select(date, mkt_excess)
+```
 
 ## Today
 
-- From the CAPM to multifactor models
-- Anomalies and arbitrage pricing
-- Portfolio sorts
+- Assignment 1 discussion (first hour)
+- Sorting stocks on beta
+- From one factor to many
 
-## From the CAPM to multifactor models
+# Assignment 1 discussion
 
-TBD
+# Sorting stocks on beta
 
-## Anomalies and arbitrage pricing
+## Where the CAPM stands
 
-TBD
+- **Lecture 6:** ten industries, 1960–2025. Higher betas came with barely higher average returns, but the GRS test could not reject the CAPM: the industries are too similar to each other and to the market
+- **Today:** all US stocks in CRSP, sorted into `r n_portfolios` portfolios by their beta
+- The betas are those of exercise 4: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`)
 
-## Portfolio sorts
+::: {.highlight}
+The CAPM says: the higher the beta, the higher the average return, one for one with the market premium
+:::
 
-TBD
+## Betas for every stock and month
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: estimate-betas-r
+#| cache: true
+betas <- crsp_monthly |>
+  inner_join(factors_ff3_monthly, join_by(date)) |>
+  estimate_betas("ret_excess ~ mkt_excess", months(window_length), min_obs = min_months)
+```
+
+## Python
+
+```{python}
+#| label: estimate-betas-py
+#| eval: false
+betas = tf.estimate_betas(
+    crsp_monthly.join(factors_ff3_monthly, on="date"),
+    "ret_excess ~ mkt_excess", lookback=f"{window_length}mo", min_obs=min_months,
+)
+```
+:::
+
+- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 4 does it window by window, with the same numbers
+- `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks, `r year(min(betas$date))`–`r year(max(betas$date))`; the median beta is `r number(median(betas$beta_mkt_excess), 0.01)`
+
+## What a portfolio sort does
+
+```{r}
+#| label: plot-sort-steps
+#| include: false
+# One month, step by step: last month's betas against this month's returns
+month_data <- crsp_monthly |>
+  filter(date == illustration_month) |>
+  inner_join(
+    betas |> filter(date == illustration_month %m-% months(1)) |> select(permno, beta_lag = beta_mkt_excess),
+    join_by(permno)
+  )
+month_data <- month_data |>
+  mutate(portfolio = assign_portfolio(month_data, "beta_lag", breakpoint_options(n_portfolios = n_portfolios)))
+breakpoints <- month_data |>
+  summarize(low = min(beta_lag), high = max(beta_lag), .by = portfolio) |>
+  arrange(portfolio)
+month_portfolios <- month_data |>
+  summarize(
+    ret_excess = weighted.mean(ret_excess, mktcap_lag),
+    low = min(beta_lag), high = max(beta_lag),
+    .by = portfolio
+  ) |>
+  arrange(portfolio)
+spread <- month_portfolios$ret_excess[n_portfolios] - month_portfolios$ret_excess[1]
+
+beta_range <- quantile(month_data$beta_lag, c(0.002, 0.998))
+return_range <- quantile(month_data$ret_excess, c(0.01, 0.99))
+step_base <- ggplot(month_data, aes(x = beta_lag, y = ret_excess)) +
+  geom_point(color = grey, alpha = 0.25, size = 0.8) +
+  coord_cartesian(xlim = beta_range, ylim = return_range) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Beta, estimated until the end of last month",
+    y = "Excess return this month",
+    title = paste("All stocks with a beta,", format(illustration_month, "%B %Y"))
+  )
+step_breaks <- step_base +
+  geom_vline(xintercept = breakpoints$high[-n_portfolios], color = jet, linetype = "dashed")
+step_means <- step_breaks +
+  geom_segment(
+    data = month_portfolios, aes(x = low, xend = high, y = ret_excess, yend = ret_excess),
+    color = ku_red, linewidth = 1.6
+  )
+step_spread <- step_means +
+  annotate(
+    "segment", x = beta_range[2] * 0.97, xend = beta_range[2] * 0.97,
+    y = month_portfolios$ret_excess[1], yend = month_portfolios$ret_excess[n_portfolios],
+    arrow = arrow(ends = "both", length = unit(0.2, "cm")), color = ku_red
+  ) +
+  annotate(
+    "label", x = beta_range[2] * 0.95, y = mean(range(month_portfolios$ret_excess)),
+    label = paste("High minus low:", percent(spread, 0.1)), hjust = 1, color = ku_red
+  )
+
+steps <- list(step_base, step_breaks, step_means, step_spread)
+walk2(steps, seq_along(steps), \(step, k) {
+  ggsave(
+    paste0("lecture-slides/figures/beta-sort-step-", k, ".png"), step,
+    width = 7.5, height = 5, dpi = 200, bg = "white"
+  )
+})
+```
+
+:::::{.columns}
+
+::: {.column width="36%"}
+
+- Each month, rank the stocks by **last month's beta**, which investors know when they form the portfolios
+- **Breakpoints** split them into `r n_portfolios` groups of equal size
+- Each portfolio's return is the **value-weighted** average return of its stocks
+- **High minus low:** the top portfolio minus the bottom portfolio
+
+::: {.fragment fragment-index=3}
+In `r format(illustration_month, "%B %Y")` the market rose by `r percent(factors_ff3_monthly$mkt_excess[factors_ff3_monthly$date == illustration_month], 0.1)`: high-beta stocks rose most. Repeat every month and average
+:::
+
+:::
+::: {.column width="64%"}
+
+:::: {.r-stack}
+::: {.fragment .fade-out fragment-index=1}
+![](figures/beta-sort-step-1.png){width=100%}
+:::
+::: {.fragment .fade-in-then-out fragment-index=1}
+![](figures/beta-sort-step-2.png){width=100%}
+:::
+::: {.fragment .fade-in-then-out fragment-index=2}
+![](figures/beta-sort-step-3.png){width=100%}
+:::
+::: {.fragment .fade-in fragment-index=3}
+![](figures/beta-sort-step-4.png){width=100%}
+:::
+::::
+
+:::
+::::
+
+## Sorting on beta in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: sort-on-beta-r
+# Sort on last month's beta, which investors know when they form portfolios
+beta_lag <- betas |>
+  transmute(permno, date = date %m+% months(1), beta_lag = beta_mkt_excess)
+
+beta_portfolios <- crsp_monthly |>
+  inner_join(beta_lag, join_by(permno, date)) |>
+  compute_portfolio_returns(
+    "beta_lag", "univariate",
+    breakpoint_options_main = breakpoint_options(n_portfolios = n_portfolios)
+  ) |>
+  left_join(factors_ff3_monthly, join_by(date))
+```
+
+## Python
+
+```{python}
+#| label: sort-on-beta-py
+#| eval: false
+# Sort on last month's beta, which investors know when they form portfolios
+beta_lag = betas.select(
+    "permno", pl.col("date").dt.offset_by("1mo"), beta_lag=pl.col("beta_mkt_excess")
+)
+
+beta_portfolios = (
+    tf.compute_portfolio_returns(
+        crsp_monthly.join(beta_lag, on=["permno", "date"]),
+        "beta_lag", "univariate",
+        breakpoint_options_main=tf.breakpoint_options(n_portfolios=n_portfolios),
+    )
+    .join(factors_ff3_monthly, on="date", how="left")
+)
+```
+:::
+
+`compute_portfolio_returns()` sets the breakpoints each month and returns the value-weighted (`ret_excess_vw`), equal-weighted and capped value-weighted excess returns of each portfolio
+
+## The CAPM for each portfolio
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: estimate-capm-r
+capm <- beta_portfolios |>
+  nest(data = -portfolio) |>
+  mutate(
+    fit = map(data, \(d) {
+      estimate_model(d, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats"))
+    }),
+    alpha = map_dbl(fit, \(f) f$coefficients$intercept),
+    t_alpha = map_dbl(fit, \(f) f$tstats$intercept),
+    beta = map_dbl(fit, \(f) f$coefficients$mkt_excess),
+    mean = map_dbl(data, \(d) mean(d$ret_excess_vw))
+  ) |>
+  select(portfolio, alpha, t_alpha, beta, mean) |>
+  arrange(portfolio)
+```
+
+## Python
+
+```{python}
+#| label: estimate-capm-py
+#| eval: false
+rows = []
+for (portfolio,), data in beta_portfolios.group_by("portfolio"):
+    fit = tf.estimate_model(data, "ret_excess_vw ~ mkt_excess", output=["coefficients", "tstats"])
+    rows.append({"portfolio": portfolio, "alpha": fit["coefficients"]["intercept"][0],
+                 "t_alpha": fit["tstats"]["intercept"][0],
+                 "beta": fit["coefficients"]["mkt_excess"][0],
+                 "mean": data["ret_excess_vw"].mean()})
+capm = pl.DataFrame(rows).sort("portfolio")
+```
+:::
+
+The same regression as for the industries in lecture 6, now for the `r n_portfolios` beta portfolios, with `estimate_model()` from tidyfinance
+
+## Which stocks have the higher alpha?
+
+```{r}
+#| label: poll-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, alpha_poll = alpha_poll, alpha_choices = alpha_choices)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="40%"}
+```{ojs}
+//| label: alpha-poll-qr
+//| echo: false
+pollQR(alpha_poll, alpha_choices)
+```
+:::
+::: {.column width="60%"}
+```{ojs}
+//| label: alpha-poll-live
+//| echo: false
+alpha_answers = pollAnswers(alpha_poll)
+pollBars(alpha_answers, alpha_choices)
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+Ten portfolios sorted on beta, `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))`: which have the higher CAPM alpha?
+
+```{r}
+#| label: alpha-poll-choices
+#| echo: false
+#| results: asis
+cat(paste0("- ", alpha_choices, collapse = "\n"), "\n")
+```
+:::
+
+## Ten beta portfolios
+
+```{r}
+#| label: summarize-beta-portfolios
+#| include: false
+market_premium <- beta_portfolios |>
+  distinct(date, mkt_excess) |>
+  pull(mkt_excess) |>
+  mean()
+
+high_minus_low <- beta_portfolios |>
+  select(portfolio, date, ret_excess_vw) |>
+  compute_long_short_returns() |>
+  left_join(factors_ff3_monthly, join_by(date))
+hml_capm <- estimate_model(
+  high_minus_low, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats")
+)
+
+# GRS test of all ten alphas, as in lecture 6
+portfolios_wide <- beta_portfolios |>
+  arrange(portfolio, date) |>
+  select(portfolio, date, ret_excess_vw, mkt_excess) |>
+  pivot_wider(names_from = portfolio, values_from = ret_excess_vw) |>
+  arrange(date)
+y <- portfolios_wide |> select(-date, -mkt_excess) |> as.matrix()
+x <- portfolios_wide$mkt_excess
+n_months <- nrow(y)
+
+fit <- lm(y ~ x)
+alpha <- coef(fit)[1, ]
+sigma_resid <- crossprod(residuals(fit)) / n_months
+sharpe_market_2 <- mean(x)^2 / mean((x - mean(x))^2)
+
+grs <- (n_months - n_portfolios - 1) / n_portfolios *
+  as.numeric(t(alpha) %*% solve(sigma_resid, alpha)) / (1 + sharpe_market_2)
+p_value <- 1 - pf(grs, n_portfolios, n_months - n_portfolios - 1)
+```
+
+```{r}
+#| label: plot-beta-portfolios
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.3
+annual <- capm |>
+  mutate(
+    se_alpha = alpha / t_alpha,
+    across(c(alpha, se_alpha, mean), \(x) x * months_per_year),
+    capm_mean = beta * market_premium * months_per_year
+  )
+
+sml_panel <- ggplot(annual, aes(x = beta)) +
+  geom_abline(intercept = 0, slope = market_premium * months_per_year, color = ku_red, linewidth = 0.9) +
+  geom_point(aes(y = mean), color = jet, size = 2.5) +
+  geom_text(aes(y = mean, label = portfolio), nudge_y = 0.006, color = jet, size = 3.5) +
+  annotate(
+    "text", x = 1.55, y = 1.55 * market_premium * months_per_year + 0.008,
+    label = "CAPM", color = ku_red, hjust = 1
+  ) +
+  scale_x_continuous(limits = c(0, NA)) +
+  scale_y_continuous(labels = percent, limits = c(0, NA)) +
+  labs(x = "Beta of the portfolio", y = "Average excess return (annualized)")
+
+alpha_panel <- ggplot(annual, aes(x = factor(portfolio), y = alpha)) +
+  geom_hline(yintercept = 0, color = grey) +
+  geom_errorbar(aes(ymin = alpha - 1.96 * se_alpha, ymax = alpha + 1.96 * se_alpha), width = 0.25, color = grey) +
+  geom_point(color = ku_red, size = 2.5) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Beta portfolio (1 = lowest)", y = "CAPM alpha (annualized)")
+
+sml_panel + alpha_panel
+```
+
+- Betas from `r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`, average excess returns only from `r percent(annual$mean[1], 0.1)` to `r percent(annual$mean[n_portfolios], 0.1)` a year. The CAPM predicts `r percent(annual$capm_mean[1], 0.1)` to `r percent(annual$capm_mean[n_portfolios], 0.1)`: the line is too flat
+- High minus low: alpha `r percent(hml_capm$coefficients$intercept * months_per_year, 0.1)` a year (t = `r number(hml_capm$tstats$intercept, 0.01)`). GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: a clear pattern, but `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))` is not enough to reject the CAPM with ten correlated portfolios
+
+# From one factor to many
+
+## Whiteboard: many factors
+
+::: {.box}
+Suppose the SDF is linear in $K$ factors, $m = a - b'f$. What does $E[m\,R^e_i] = 0$ imply for expected returns?
+:::
+
+::: {.fragment}
+$$
+E[R^e_i] = \beta_i'\lambda, \qquad \beta_i = \text{Var}(f)^{-1}\text{Cov}(f, R^e_i), \qquad \lambda = \frac{\text{Var}(f)\,b}{E[m]}
+$$
+
+- If the factors are excess returns, each factor prices itself: $\lambda = E[f]$. In $R^e_{i,t} = \alpha_i + \beta_i'f_t + \varepsilon_{i,t}$, the model says $\alpha_i = 0$ for every asset, and GRS tests all alphas at once
+- **Arbitrage pricing theory** (Ross, 1976): if returns have a factor structure and there is no arbitrage, expected returns are approximately $\beta_i'\lambda$
+:::
+
+## Where do factors come from?
+
+- We do not observe betas. A characteristic $z_i$ (size, book-to-market, past returns) is useful when it tells us something about the betas: $E[R^e_i] = \beta(z_i)'\lambda$
+- Value firms are often close to distress and lose most in bad states: high beta, high premium
+- A **portfolio sort turns a characteristic into a factor**: the top portfolio minus the bottom portfolio. Fama & French (1993) add SMB (small minus big) and HML (high minus low book-to-market) to the market: the three-factor model
+- Today's sort on beta itself: low-beta stocks earn too much, high-beta stocks too little. Frazzini & Pedersen (2014) find the same in many markets and asset classes and turn it into a factor, *betting against beta*
+
+## Anomalies
+
+| Anomaly | Finding | Key reference(s) |
+|---|---|---|
+| Betting against beta | $\alpha$ declining in $\beta$ across many asset classes | Frazzini & Pedersen (2014) |
+| Size | Small stocks outperform large stocks | Banz (1981); Fama & French (1992) |
+| Value | High book-to-market stocks outperform growth stocks | Rosenberg, Reid & Lanstein (1985); Fama & French (1992) |
+| Momentum | Intermediate-term winners outperform losers | Jegadeesh & Titman (1993); Carhart (1997) |
+| Liquidity | Illiquid stocks earn a return premium | Pástor & Stambaugh (2003) |
+
+- Hundreds more have been published since: the *factor zoo*. Which of them survive is a question for the lecture on reproducibility; how to use many characteristics at once, for the machine learning lectures
