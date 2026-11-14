@@ -413,7 +413,7 @@ GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: the ten industri
 
 ## What else is wrong with the CAPM?
 
-- **Power:** industries are similar to each other and to the market. Portfolios sorted on size, value or momentum reject the CAPM clearly: next lecture
+- **Power:** industries are similar to each other and to the market. Portfolios sorted on size and book-to-market have large CAPM alphas (Fama & French, 1993). Next lecture: all stocks, sorted on beta
 - **A flat security market line:** low-beta stocks earn too much, high-beta stocks too little (Fama & French, 2004; Frazzini & Pedersen, 2014)
 - **The market is unobservable:** a test of the CAPM tests the proxy, here the CRSP value-weighted index (Roll, 1977)
 - **Betas move over time:** exercise 4 estimates them with rolling windows for every CRSP stock
