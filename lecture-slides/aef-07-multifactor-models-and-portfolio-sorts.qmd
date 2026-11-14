@@ -9,7 +9,7 @@ date: 2027-03-11
 #| include: false
 library(tidyverse)
 library(nanoparquet)
-library(slider)
+library(tidyfinance)
 library(scales)
 library(patchwork)
 
@@ -39,8 +39,10 @@ alpha_choices <- c("High-beta stocks", "Neither", "Low-beta stocks")
 #| label: load-packages-py
 #| include: false
 import polars as pl
-import statsmodels.formula.api as smf
+import tidyfinance as tf
 
+window_length = 60
+min_months = 48
 n_portfolios = 10
 ```
 
@@ -48,34 +50,9 @@ n_portfolios = 10
 #| label: load-data-r
 #| include: false
 crsp_monthly <- read_parquet("data/crsp_monthly.parquet") |>
-  select(permno, date, ret_excess, mktcap_lag)
+  select(permno, date, ret_excess, mktcap_lag, exchange)
 factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
   select(date, mkt_excess)
-```
-
-```{r}
-#| label: estimate-betas-r
-#| include: false
-#| cache: true
-# Rolling CAPM betas for every stock and month: the OLS slope from sums over
-# the last 60 calendar months, the same numbers as lm() on each window
-rolling_sum <- function(x, month) slide_index_sum(x, month, before = window_length - 1)
-
-betas <- crsp_monthly |>
-  inner_join(factors_ff3_monthly, join_by(date)) |>
-  drop_na(ret_excess) |>
-  mutate(month = year(date) * months_per_year + month(date)) |>
-  arrange(permno, date) |>
-  mutate(
-    n = rolling_sum(rep(1, n()), month),
-    sum_x = rolling_sum(mkt_excess, month),
-    sum_y = rolling_sum(ret_excess, month),
-    sum_xx = rolling_sum(mkt_excess^2, month),
-    sum_xy = rolling_sum(mkt_excess * ret_excess, month),
-    .by = permno
-  ) |>
-  filter(n >= min_months) |>
-  transmute(permno, date, beta = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x^2))
 ```
 
 ## Today
@@ -92,11 +69,39 @@ betas <- crsp_monthly |>
 
 - **Lecture 6:** ten industries, 1960–2025. Higher betas came with barely higher average returns, but the GRS test could not reject the CAPM: the industries are too similar to each other and to the market
 - **Today:** all US stocks in CRSP, sorted into `r n_portfolios` portfolios by their beta
-- The betas are those of exercise 4: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`). That gives `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks
+- The betas are those of exercise 4: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`)
 
 ::: {.highlight}
 The CAPM says: the higher the beta, the higher the average return, one for one with the market premium
 :::
+
+## Betas for every stock and month
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: estimate-betas-r
+#| cache: true
+betas <- crsp_monthly |>
+  inner_join(factors_ff3_monthly, join_by(date)) |>
+  estimate_betas("ret_excess ~ mkt_excess", months(window_length), min_obs = min_months)
+```
+
+## Python
+
+```{python}
+#| label: estimate-betas-py
+#| eval: false
+betas = tf.estimate_betas(
+    crsp_monthly.join(factors_ff3_monthly, on="date"),
+    "ret_excess ~ mkt_excess", lookback=f"{window_length}mo", min_obs=min_months,
+)
+```
+:::
+
+- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 4 does it window by window, with the same numbers
+- `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks, `r year(min(betas$date))`–`r year(max(betas$date))`; the median beta is `r number(median(betas$beta_mkt_excess), 0.01)`
 
 ## What a portfolio sort does
 
@@ -107,10 +112,11 @@ The CAPM says: the higher the beta, the higher the average return, one for one w
 month_data <- crsp_monthly |>
   filter(date == illustration_month) |>
   inner_join(
-    betas |> filter(date == illustration_month %m-% months(1)) |> select(permno, beta_lag = beta),
+    betas |> filter(date == illustration_month %m-% months(1)) |> select(permno, beta_lag = beta_mkt_excess),
     join_by(permno)
-  ) |>
-  mutate(portfolio = ((row_number(beta_lag) - 1) * n_portfolios) %/% n() + 1)
+  )
+month_data <- month_data |>
+  mutate(portfolio = assign_portfolio(month_data, "beta_lag", breakpoint_options(n_portfolios = n_portfolios)))
 breakpoints <- month_data |>
   summarize(low = min(beta_lag), high = max(beta_lag), .by = portfolio) |>
   arrange(portfolio)
@@ -204,15 +210,13 @@ In `r format(illustration_month, "%B %Y")` the market rose by `r percent(factors
 #| label: sort-on-beta-r
 # Sort on last month's beta, which investors know when they form portfolios
 beta_lag <- betas |>
-  mutate(date = date %m+% months(1)) |>
-  rename(beta_lag = beta)
+  transmute(permno, date = date %m+% months(1), beta_lag = beta_mkt_excess)
 
 beta_portfolios <- crsp_monthly |>
   inner_join(beta_lag, join_by(permno, date)) |>
-  mutate(portfolio = ((row_number(beta_lag) - 1) * n_portfolios) %/% n() + 1, .by = date) |>
-  summarize(
-    ret_excess = weighted.mean(ret_excess, mktcap_lag),
-    .by = c(portfolio, date)
+  compute_portfolio_returns(
+    "beta_lag", "univariate",
+    breakpoint_options_main = breakpoint_options(n_portfolios = n_portfolios)
   ) |>
   left_join(factors_ff3_monthly, join_by(date))
 ```
@@ -223,25 +227,22 @@ beta_portfolios <- crsp_monthly |>
 #| label: sort-on-beta-py
 #| eval: false
 # Sort on last month's beta, which investors know when they form portfolios
-beta_lag = (
-    betas.with_columns(pl.col("date").dt.offset_by("1mo"))
-    .rename({"beta": "beta_lag"})
+beta_lag = betas.select(
+    "permno", pl.col("date").dt.offset_by("1mo"), beta_lag=pl.col("beta_mkt_excess")
 )
 
 beta_portfolios = (
-    crsp_monthly.join(beta_lag, on=["permno", "date"])
-    .with_columns(
-        portfolio=((pl.col("beta_lag").rank("ordinal") - 1) * n_portfolios // pl.len())
-        .over("date") + 1
+    tf.compute_portfolio_returns(
+        crsp_monthly.join(beta_lag, on=["permno", "date"]),
+        "beta_lag", "univariate",
+        breakpoint_options_main=tf.breakpoint_options(n_portfolios=n_portfolios),
     )
-    .group_by("portfolio", "date")
-    .agg(ret_excess=(pl.col("ret_excess") * pl.col("mktcap_lag")).sum() / pl.col("mktcap_lag").sum())
     .join(factors_ff3_monthly, on="date", how="left")
 )
 ```
 :::
 
-`betas` holds the betas of exercise 4 (`permno`, `date`, `beta`). Each month, the ranks of the betas, cut into ten equal parts, give the portfolio
+`compute_portfolio_returns()` sets the breakpoints each month and returns the value-weighted (`ret_excess_vw`), equal-weighted and capped value-weighted excess returns of each portfolio
 
 ## The CAPM for each portfolio
 
@@ -253,13 +254,15 @@ beta_portfolios = (
 capm <- beta_portfolios |>
   nest(data = -portfolio) |>
   mutate(
-    fit = map(data, \(d) summary(lm(ret_excess ~ mkt_excess, data = d))$coefficients),
-    alpha = map_dbl(fit, \(f) f["(Intercept)", "Estimate"]),
-    se_alpha = map_dbl(fit, \(f) f["(Intercept)", "Std. Error"]),
-    beta = map_dbl(fit, \(f) f["mkt_excess", "Estimate"]),
-    mean = map_dbl(data, \(d) mean(d$ret_excess))
+    fit = map(data, \(d) {
+      estimate_model(d, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats"))
+    }),
+    alpha = map_dbl(fit, \(f) f$coefficients$intercept),
+    t_alpha = map_dbl(fit, \(f) f$tstats$intercept),
+    beta = map_dbl(fit, \(f) f$coefficients$mkt_excess),
+    mean = map_dbl(data, \(d) mean(d$ret_excess_vw))
   ) |>
-  select(portfolio, alpha, se_alpha, beta, mean) |>
+  select(portfolio, alpha, t_alpha, beta, mean) |>
   arrange(portfolio)
 ```
 
@@ -270,15 +273,16 @@ capm <- beta_portfolios |>
 #| eval: false
 rows = []
 for (portfolio,), data in beta_portfolios.group_by("portfolio"):
-    fit = smf.ols("ret_excess ~ mkt_excess", data=data.to_pandas()).fit()
-    rows.append({"portfolio": portfolio, "alpha": fit.params["Intercept"],
-                 "se_alpha": fit.bse["Intercept"], "beta": fit.params["mkt_excess"],
-                 "mean": data["ret_excess"].mean()})
+    fit = tf.estimate_model(data, "ret_excess_vw ~ mkt_excess", output=["coefficients", "tstats"])
+    rows.append({"portfolio": portfolio, "alpha": fit["coefficients"]["intercept"][0],
+                 "t_alpha": fit["tstats"]["intercept"][0],
+                 "beta": fit["coefficients"]["mkt_excess"][0],
+                 "mean": data["ret_excess_vw"].mean()})
 capm = pl.DataFrame(rows).sort("portfolio")
 ```
 :::
 
-The same regression as for the industries in lecture 6, now for the `r n_portfolios` beta portfolios
+The same regression as for the industries in lecture 6, now for the `r n_portfolios` beta portfolios, with `estimate_model()` from tidyfinance
 
 ## Which stocks have the higher alpha?
 
@@ -334,18 +338,18 @@ market_premium <- beta_portfolios |>
   mean()
 
 high_minus_low <- beta_portfolios |>
-  filter(portfolio %in% c(1, n_portfolios)) |>
-  mutate(leg = if_else(portfolio == 1, "low", "high")) |>
-  select(date, leg, ret_excess, mkt_excess) |>
-  pivot_wider(names_from = leg, values_from = ret_excess) |>
-  mutate(ret_excess = high - low)
-hml_mean <- summary(lm(ret_excess ~ 1, data = high_minus_low))$coefficients
-hml_capm <- summary(lm(ret_excess ~ mkt_excess, data = high_minus_low))$coefficients
+  select(portfolio, date, ret_excess_vw) |>
+  compute_long_short_returns() |>
+  left_join(factors_ff3_monthly, join_by(date))
+hml_capm <- estimate_model(
+  high_minus_low, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats")
+)
 
 # GRS test of all ten alphas, as in lecture 6
 portfolios_wide <- beta_portfolios |>
   arrange(portfolio, date) |>
-  pivot_wider(names_from = portfolio, values_from = ret_excess) |>
+  select(portfolio, date, ret_excess_vw, mkt_excess) |>
+  pivot_wider(names_from = portfolio, values_from = ret_excess_vw) |>
   arrange(date)
 y <- portfolios_wide |> select(-date, -mkt_excess) |> as.matrix()
 x <- portfolios_wide$mkt_excess
@@ -368,6 +372,7 @@ p_value <- 1 - pf(grs, n_portfolios, n_months - n_portfolios - 1)
 #| fig-height: 4.3
 annual <- capm |>
   mutate(
+    se_alpha = alpha / t_alpha,
     across(c(alpha, se_alpha, mean), \(x) x * months_per_year),
     capm_mean = beta * market_premium * months_per_year
   )
@@ -395,7 +400,7 @@ sml_panel + alpha_panel
 ```
 
 - Betas from `r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`, average excess returns only from `r percent(annual$mean[1], 0.1)` to `r percent(annual$mean[n_portfolios], 0.1)` a year. The CAPM predicts `r percent(annual$capm_mean[1], 0.1)` to `r percent(annual$capm_mean[n_portfolios], 0.1)`: the line is too flat
-- High minus low: alpha `r percent(hml_capm["(Intercept)", "Estimate"] * months_per_year, 0.1)` a year (t = `r number(hml_capm["(Intercept)", "t value"], 0.01)`). GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: a clear pattern, but `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))` is not enough to reject the CAPM with ten correlated portfolios
+- High minus low: alpha `r percent(hml_capm$coefficients$intercept * months_per_year, 0.1)` a year (t = `r number(hml_capm$tstats$intercept, 0.01)`). GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: a clear pattern, but `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))` is not enough to reject the CAPM with ten correlated portfolios
 
 # From one factor to many
 
