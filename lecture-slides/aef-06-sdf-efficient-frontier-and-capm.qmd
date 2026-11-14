@@ -1,33 +1,419 @@
 ---
 subtitle: The SDF, the efficient frontier and the CAPM
 date: 2027-03-04
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "The fundamental equation"
-# - aef-2-portfolio-choice.qmd: "The security market line" to "CAPM - Example with simple linear regression"
-# - aef-2-portfolio-choice.qmd: "Accessing financial data" up to "CAPM beta in the industry-cross section"
-# - aef-2-portfolio-choice.qmd: "Testing the CAPM" to "Empirical problems (Discussion)"
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(ggrepel)
+library(scales)
 
-- The fundamental pricing equation and the SDF
-- The efficient frontier and the SDF
-- The CAPM, betas and the security market line
-- Testing the CAPM
+months_per_year <- 12
 
-## The fundamental pricing equation and the SDF
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
 
-TBD
+source("lecture-slides/_live-poll.R")
+beta_poll <- "aef27-l06-beta"
+beta_choices <- c("Yes clearly", "A little", "No relation", "The opposite")
+```
 
-## The efficient frontier and the SDF
+```{python}
+#| label: load-packages-py
+#| include: false
+import numpy as np
+import polars as pl
+import statsmodels.formula.api as smf
+from scipy.stats import f as f_distribution
+```
 
-TBD
+## From portfolios to prices
 
-## The CAPM, betas and the security market line
+- Lectures 2 to 5: given expected returns, **which portfolio** should an investor hold?
+- Now the other way round: given how investors choose, **which expected returns** do assets earn?
+- Both questions meet in the same object: the efficient (tangency) portfolio
 
-TBD
+::: {.highlight}
+**Today:** one equation that prices every asset, its link to the efficient frontier, and the CAPM as its best-known special case
+:::
 
-## Testing the CAPM
+# The stochastic discount factor
 
-TBD
+## Whiteboard: the fundamental equation
+
+::: {.box}
+An investor with utility $u(c)$ can buy an asset at price $p_t$ that pays $x_{t+1}$ next period. When is she indifferent about buying a little more? (Cochrane, 2005, chapter 1)
+:::
+
+::: {.fragment}
+$$
+p_t = E_t\big[m_{t+1}\,x_{t+1}\big] \qquad m_{t+1} = \beta\,\frac{u'(c_{t+1})}{u'(c_t)}
+$$
+
+- For returns: $1 = E[mR]$; the risk-free rate is $R_f = 1/E[m]$; for excess returns: $0 = E[mR^e]$
+- Expected excess returns come from the covariance with $m$:
+
+$$
+E[R^e_i] = -R_f\,\text{Cov}(m, R^e_i)
+$$
+
+- An asset that pays off in bad times, when $m$ is high, insures the investor and earns a low return
+:::
+
+## Whiteboard: the SDF and the efficient frontier
+
+::: {.box}
+Which $m$ prices $N$ given assets, and how volatile must it be? (Cochrane, 2005, chapters 5 and 6)
+:::
+
+::: {.fragment}
+- An SDF that is linear in returns, $m = a + b'R$, prices the assets if and only if the portfolio with weights proportional to $b$ is **mean-variance efficient**: the tangency portfolio of lecture 2 is an SDF
+- $|E[R^e]| \leq \frac{\sigma(m)}{E(m)}\,\sigma(R^e)$ for every excess return, so
+
+$$
+\frac{\sigma(m)}{E(m)} \geq \max \text{ Sharpe ratio}
+$$
+
+- This is the **Hansen-Jagannathan bound** (Hansen & Jagannathan, 1991): the higher the best attainable Sharpe ratio, the more volatile any SDF must be
+:::
+
+## The bound in the data
+
+```{r}
+#| label: prepare-industries
+#| include: false
+factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet")
+
+industries <- read_parquet("data/industries_ff_monthly.parquet") |>
+  pivot_longer(-date, names_to = "industry", values_to = "ret") |>
+  left_join(factors_ff3_monthly, join_by(date)) |>
+  mutate(ret_excess = ret - risk_free)
+
+industries_wide <- industries |>
+  pivot_wider(id_cols = date, names_from = industry, values_from = ret_excess) |>
+  left_join(factors_ff3_monthly |> select(date, mkt_excess), join_by(date)) |>
+  arrange(date)
+
+# Maximum Sharpe ratio of the market and the ten industries (in sample)
+excess_all <- industries_wide |> select(-date) |> as.matrix()
+mu_all <- colMeans(excess_all)
+sigma_all <- crossprod(sweep(excess_all, 2, mu_all)) / nrow(excess_all)
+max_sharpe <- sqrt(as.numeric(t(mu_all) %*% solve(sigma_all) %*% mu_all) * months_per_year)
+market_sharpe <- with(factors_ff3_monthly, mean(mkt_excess) / sd(mkt_excess) * sqrt(months_per_year))
+first_year <- year(min(industries$date))
+last_year <- year(max(industries$date))
+```
+
+- The market and the ten Fama-French industry portfolios, `r first_year`–`r last_year`: the market alone has a Sharpe ratio of `r number(market_sharpe, 0.01)` a year, the tangency portfolio of all eleven `r number(max_sharpe, 0.01)`
+- So any SDF that prices these assets has $\sigma(m)/E(m) \geq$ `r number(max_sharpe, 0.01)` a year
+- With $m = \beta\,u'(c_{t+1})/u'(c_t)$ and power utility, $\sigma(m) \approx \gamma\,\sigma(\Delta c)$. Consumption growth varies by about 1–2% a year, so $\gamma$ must be implausibly large: the **equity premium puzzle** (Mehra & Prescott, 1985)
+
+# The CAPM
+
+## Whiteboard: the CAPM as an SDF
+
+::: {.box}
+Suppose the market portfolio is mean-variance efficient. What does that imply for $m$, and for expected returns?
+:::
+
+::: {.fragment}
+$$
+m = a - b\,R_m \qquad \Longleftrightarrow \qquad E[R^e_i] = \beta_i\,E[R^e_m], \qquad \beta_i = \frac{\text{Cov}(R_i, R_m)}{\text{Var}(R_m)}
+$$
+
+- The **security market line**: only the covariance with the market earns a premium; idiosyncratic risk does not (Sharpe, 1964; Lintner, 1965)
+- In a regression $R^e_{i,t} = \alpha_i + \beta_i R^e_{m,t} + \varepsilon_{i,t}$, the CAPM says $\alpha_i = 0$ for every asset
+:::
+
+## Do high-beta industries earn more?
+
+```{r}
+#| label: poll-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, beta_poll = beta_poll, beta_choices = beta_choices)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="40%"}
+```{ojs}
+//| label: beta-poll-qr
+//| echo: false
+pollQR(beta_poll, beta_choices)
+```
+:::
+::: {.column width="60%"}
+```{ojs}
+//| label: beta-poll-live
+//| echo: false
+beta_answers = pollAnswers(beta_poll)
+pollBars(beta_answers, beta_choices)
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+Ten industries, 1960–2025: do the industries with high market betas have higher average excess returns?
+
+```{r}
+#| label: beta-poll-choices
+#| echo: false
+#| results: asis
+cat(paste0("- ", beta_choices, collapse = "\n"), "\n")
+```
+:::
+
+## Betas and alphas of ten industries
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: estimate-capm-r
+capm <- industries |>
+  nest(data = -industry) |>
+  mutate(
+    fit = map(data, \(d) summary(lm(ret_excess ~ mkt_excess, data = d))$coefficients),
+    alpha = map_dbl(fit, \(f) f["(Intercept)", "Estimate"]),
+    t_alpha = map_dbl(fit, \(f) f["(Intercept)", "t value"]),
+    beta = map_dbl(fit, \(f) f["mkt_excess", "Estimate"]),
+    mean = map_dbl(data, \(d) mean(d$ret_excess))
+  ) |>
+  select(industry, alpha, t_alpha, beta, mean)
+```
+
+## Python
+
+```{python}
+#| label: estimate-capm-py
+#| eval: false
+factors_ff3_monthly = pl.read_parquet("data/factors_ff3_monthly.parquet")
+industries = (
+    pl.read_parquet("data/industries_ff_monthly.parquet")
+    .unpivot(index="date", variable_name="industry", value_name="ret")
+    .join(factors_ff3_monthly, on="date")
+    .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))
+)
+
+rows = []
+for (industry,), data in industries.group_by("industry"):
+    fit = smf.ols("ret_excess ~ mkt_excess", data=data.to_pandas()).fit()
+    rows.append({"industry": industry, "alpha": fit.params["Intercept"],
+                 "t_alpha": fit.tvalues["Intercept"], "beta": fit.params["mkt_excess"],
+                 "mean": data["ret_excess"].mean()})
+capm = pl.DataFrame(rows).sort("industry")
+```
+:::
+
+`industries` holds the monthly excess returns of the ten Fama-French industries, with the market excess return from `factors_ff3_monthly.parquet`
+
+## The security market line
+
+```{r}
+#| label: plot-security-market-line
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5
+market_mean <- mean(factors_ff3_monthly$mkt_excess) * months_per_year
+capm_annual <- capm |>
+  mutate(mean = mean * months_per_year, alpha = alpha * months_per_year)
+
+ggplot(capm_annual, aes(x = beta, y = mean)) +
+  geom_abline(intercept = 0, slope = market_mean, color = ku_red, linewidth = 0.9) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = grey, linetype = "dashed", linewidth = 0.7) +
+  geom_point(color = jet, size = 2.5) +
+  geom_text_repel(aes(label = industry), color = grey, size = 4, seed = 1) +
+  annotate("point", x = 1, y = market_mean, color = ku_red, size = 4) +
+  annotate("text", x = 1.015, y = market_mean - 0.0025, label = "Market", hjust = 0, color = ku_red) +
+  coord_cartesian(xlim = c(0.45, 1.35), ylim = c(0.045, 0.095)) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Market beta", y = "Average excess return (annualized)",
+    title = paste0("Ten industries, ", first_year, "–", last_year, ": the CAPM line in red, the fitted line dashed")
+  )
+```
+
+## Pricing with the CAPM's SDF
+
+```{r}
+#| label: sdf-pricing-errors
+#| include: false
+# With m = 1 - b (f - E[f]) for the market excess return f, the pricing error
+# of asset i is E[m R_i] = E[R_i] - b Cov(f, R_i). The CAPM's b prices the
+# market: b* = E[f] / Var(f)
+f <- industries_wide$mkt_excess
+sdf_inputs <- industries_wide |>
+  select(-date) |>
+  pivot_longer(everything(), names_to = "asset", values_to = "ret_excess") |>
+  mutate(asset = if_else(asset == "mkt_excess", "market", asset)) |>
+  summarize(
+    mean = mean(ret_excess),
+    covariance = mean((ret_excess - mean(ret_excess)) * (f - mean(f))),
+    .by = asset
+  )
+b_capm <- mean(f) / mean((f - mean(f))^2)
+
+if (live) {
+  ojs_define(sdf_inputs = sdf_inputs, b_capm = b_capm, months_per_year = months_per_year)
+}
+```
+
+- Take $m = 1 - b\,(R^e_m - E[R^e_m])$. The pricing error of asset $i$ is $E[m R^e_i] = E[R^e_i] - b\,\text{Cov}(R^e_m, R^e_i)$
+- $b = 0$: a risk-neutral investor, the errors are the average excess returns. With the CAPM's $b^*$, the market is priced exactly and the errors of the industries are their alphas
+
+::: {.content-visible when-profile="live"}
+```{ojs}
+//| label: sdf-slider
+//| echo: false
+viewof b_ratio = Inputs.range([0, 2], {step: 0.05, value: 0, width: 520, label: "Price of market risk b / b*"})
+```
+
+```{ojs}
+//| label: sdf-errors-live
+//| echo: false
+errors = transpose(sdf_inputs).map(d => ({
+  asset: d.asset,
+  error: (d.mean - b_ratio * b_capm * d.covariance) * months_per_year
+}))
+Plot.plot({
+  width: 900,
+  height: 300,
+  x: {label: null, domain: transpose(sdf_inputs).map(d => d.asset)},
+  y: {label: "Pricing error, % a year", tickFormat: d => (d * 100).toFixed(0), domain: [-0.1, 0.1], clamp: true},
+  marks: [
+    Plot.barY(errors, {x: "asset", y: "error", fill: d => d.asset === "market" ? "#901A1E" : "#666666"}),
+    Plot.ruleY([0])
+  ]
+})
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: plot-sdf-pricing-errors
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.2
+sdf_inputs |>
+  cross_join(tibble(b = c(0, b_capm), sdf = c("b = 0 (risk neutral)", "b = b* (CAPM)"))) |>
+  mutate(
+    error = (mean - b * covariance) * months_per_year,
+    asset = fct_inorder(asset),
+    sdf = fct_inorder(sdf)
+  ) |>
+  ggplot(aes(x = asset, y = error, fill = sdf)) +
+  geom_col(position = "dodge", width = 0.75) +
+  geom_hline(yintercept = 0, color = jet) +
+  scale_fill_manual(values = c("#b3b3b3", ku_red)) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL, y = "Pricing error (annualized)", fill = NULL) +
+  theme(legend.position = "top")
+```
+:::
+
+# Testing the CAPM
+
+## Alphas
+
+```{r}
+#| label: table-alphas
+#| echo: false
+capm_annual |>
+  arrange(desc(beta)) |>
+  transmute(
+    Industry = industry,
+    Beta = number(beta, 0.01),
+    `Average excess return` = percent(mean, 0.1),
+    `Alpha (annualized)` = percent(alpha, 0.1),
+    `t-statistic of alpha` = number(t_alpha, 0.01)
+  )
+```
+
+- Low-beta industries tend to have positive alphas, high-beta industries negative ones: the security market line is flatter than the CAPM says
+
+## Whiteboard: the GRS test
+
+::: {.box}
+Test all alphas at once, $H_0: \alpha_1 = \ldots = \alpha_N = 0$, from $T$ months of time-series regressions on the market
+:::
+
+::: {.fragment}
+$$
+\text{GRS} = \frac{T - N - 1}{N}\,\frac{\hat\alpha'\hat\Sigma^{-1}\hat\alpha}{1 + \hat\mu_m^2/\hat\sigma_m^2} \sim F(N, T - N - 1)
+\qquad
+\hat\alpha'\hat\Sigma^{-1}\hat\alpha = \widehat{SR}^2_\text{market + assets} - \widehat{SR}^2_\text{market}
+$$
+
+- $\hat\Sigma$ is the covariance matrix of the residuals (Gibbons, Ross & Shanken, 1989)
+- The test asks lecture 2's question: does adding the assets to the market raise the highest attainable Sharpe ratio?
+:::
+
+## GRS for the ten industries
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-grs-r
+y <- industries_wide |> select(-date, -mkt_excess) |> as.matrix()
+x <- industries_wide$mkt_excess
+n_months <- nrow(y)
+n_assets <- ncol(y)
+
+fit <- lm(y ~ x)
+alpha <- coef(fit)[1, ]
+sigma_resid <- crossprod(residuals(fit)) / n_months
+sharpe_market_2 <- mean(x)^2 / mean((x - mean(x))^2)
+
+grs <- (n_months - n_assets - 1) / n_assets *
+  as.numeric(t(alpha) %*% solve(sigma_resid, alpha)) / (1 + sharpe_market_2)
+p_value <- 1 - pf(grs, n_assets, n_months - n_assets - 1)
+```
+
+## Python
+
+```{python}
+#| label: compute-grs-py
+#| eval: false
+wide = (
+    industries.pivot(on="industry", index="date", values="ret_excess")
+    .join(factors_ff3_monthly.select("date", "mkt_excess"), on="date")
+    .sort("date")
+)
+y = wide.drop("date", "mkt_excess").to_numpy()
+x = wide["mkt_excess"].to_numpy()
+n_months, n_assets = y.shape
+
+design = np.column_stack([np.ones(n_months), x])
+coef, *_ = np.linalg.lstsq(design, y, rcond=None)
+alpha = coef[0]
+residuals = y - design @ coef
+sigma_resid = residuals.T @ residuals / n_months
+sharpe_market_2 = x.mean() ** 2 / x.var()
+
+grs = ((n_months - n_assets - 1) / n_assets
+       * alpha @ np.linalg.solve(sigma_resid, alpha) / (1 + sharpe_market_2))
+p_value = 1 - f_distribution.cdf(grs, n_assets, n_months - n_assets - 1)
+```
+:::
+
+GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: the ten industries do not reject the CAPM. The tangency portfolio raises the Sharpe ratio from `r number(market_sharpe, 0.01)` to `r number(max_sharpe, 0.01)`, but over `r n_months` months that is not enough evidence
+
+## What else is wrong with the CAPM?
+
+- **Power:** industries are similar to each other and to the market. Portfolios sorted on size, value or momentum reject the CAPM clearly: next lecture
+- **A flat security market line:** low-beta stocks earn too much, high-beta stocks too little (Fama & French, 2004; Frazzini & Pedersen, 2014)
+- **The market is unobservable:** a test of the CAPM tests the proxy, here the CRSP value-weighted index (Roll, 1977)
+- **Betas move over time:** exercise 4 estimates them with rolling windows for every CRSP stock
