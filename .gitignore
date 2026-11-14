@@ -6,6 +6,8 @@
 *.live.html
 # Prototype renders
 lecture-slides/prototypes/*.html
+lecture-slides/*_cache/
+lecture-slides/*_files/
 lecture-slides/prototypes/*_cache/
 lecture-slides/prototypes/*_files/
 **/*.quarto_ipynb

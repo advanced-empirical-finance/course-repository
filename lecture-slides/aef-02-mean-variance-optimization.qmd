@@ -1,26 +1,733 @@
 ---
 subtitle: Mean-variance optimization
 date: 2027-02-11
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-2-portfolio-choice.qmd: "Asset prices and returns" (general framework, distributional properties)
-# - aef-2-portfolio-choice.qmd: "Optimal portfolio allocation" up to "Compute the efficient tangency weight"
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(nanoparquet)
+library(ggrepel)
+library(patchwork)
+library(scales)
 
-- Returns and their distribution
-- The minimum-variance and the efficient portfolio
-- The efficient frontier, with and without a risk-free asset
+# The sample of the running example
+start_date <- "2000-01-01"
+end_date <- "2025-12-31"
 
-## Returns and their distribution
+# Monthly to annual: expected returns times 12, volatilities times sqrt(12)
+months_per_year <- 12
 
-TBD
+# Risk-free rates (per year) for the figure on how the tangency portfolio moves
+risk_free_rates_shown <- c(0, 0.04, 0.08)
 
-## The minimum-variance and the efficient portfolio
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
 
-TBD
+source("lecture-slides/_live-poll.R")
+allocation_poll <- "aef27-l02-allocation"
+allocation_choices <- c(
+  "Equally across all", "By market value", "Last year's winners", "Lowest volatility", "Something else"
+)
+```
 
-## The efficient frontier, with and without a risk-free asset
+```{python}
+#| label: load-packages-py
+#| include: false
+import numpy as np
+import polars as pl
+import tidyfinance as tf
 
-TBD
+start_date = "2000-01-01"
+end_date = "2025-12-31"
+```
+
+## How would you split \$1 across the Dow Jones 30?
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="40%"}
+```{ojs}
+//| label: allocation-poll-qr
+//| echo: false
+pollQR(allocation_poll, allocation_choices)
+```
+:::
+::: {.column width="60%"}
+```{ojs}
+//| label: allocation-poll-live
+//| echo: false
+allocation = pollAnswers(allocation_poll)
+pollBars(allocation, allocation_choices)
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: allocation-poll-choices
+#| echo: false
+#| results: asis
+cat(paste0("- ", allocation_choices, collapse = "\n"), "\n")
+```
+:::
+
+# The running example
+
+## The Dow Jones 30
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: download-dj30-r
+#| cache: true
+symbols <- download_data(
+  domain = "Index Constituents",
+  index = "Dow Jones Industrial Average"
+)
+
+prices_daily <- download_data(
+  domain = "Stock Prices",
+  symbols = symbols$symbol,
+  start_date = start_date,
+  end_date = end_date
+)
+```
+
+## Python
+
+```{python}
+#| label: download-dj30-py
+#| eval: false
+symbols = tf.download_data(
+    domain="Index Constituents",
+    index="Dow Jones Industrial Average",
+)
+
+prices_daily = tf.download_data(
+    domain="Stock Prices",
+    symbols=symbols["symbol"].to_list(),
+    start_date=start_date,
+    end_date=end_date,
+)
+```
+:::
+
+## From daily prices to monthly returns
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-monthly-returns-r
+returns_monthly <- prices_daily |>
+  arrange(symbol, date) |>
+  mutate(date = floor_date(date, "month")) |>
+  summarize(price = last(adjusted_close), .by = c(symbol, date)) |>
+  mutate(ret = price / lag(price) - 1, .by = symbol) |>
+  drop_na(ret) |>
+  mutate(months = n(), .by = symbol) |>
+  filter(months == max(months)) |>
+  select(symbol, date, ret)
+```
+
+## Python
+
+```{python}
+#| label: compute-monthly-returns-py
+#| eval: false
+returns_monthly = (
+    prices_daily.sort("symbol", "date")
+    .with_columns(date=pl.col("date").dt.truncate("1mo"))
+    .group_by("symbol", "date", maintain_order=True)
+    .agg(price=pl.col("adjusted_close").last())
+    .with_columns(ret=pl.col("price").pct_change().over("symbol"))
+    .drop_nulls("ret")
+    .with_columns(months=pl.len().over("symbol"))
+    .filter(pl.col("months") == pl.col("months").max())
+    .select("symbol", "date", "ret")
+)
+```
+:::
+
+```{r}
+#| label: sample-size
+#| include: false
+n_stocks <- n_distinct(returns_monthly$symbol)
+n_months <- n_distinct(returns_monthly$date)
+first_month <- format(min(returns_monthly$date), "%B %Y")
+last_month <- format(max(returns_monthly$date), "%B %Y")
+```
+
+`r n_stocks` of today's 30 stocks have a return in every month from `r first_month` to `r last_month`: `r n_months` months. The same data as in the Tidy Finance chapter [Modern portfolio theory](https://www.tidy-finance.org/chapters/modern-portfolio-theory.html) and in exercise 2
+
+## Returns and portfolios
+
+- $N$ assets with returns $r_t$ ($N \times 1$), expected returns $\mu = E(r_t)$ and covariance matrix $\Sigma = \text{Cov}(r_t)$
+- A portfolio $\omega$ ($N \times 1$) invests all wealth: $\iota'\omega = 1$, with $\iota$ a vector of ones
+- Its return is $r_{p,t} = \omega' r_t$, with
+
+$$
+E(r_{p,t}) = \omega'\mu \qquad \text{Var}(r_{p,t}) = \omega'\Sigma\omega
+$$
+
+- In practice, we replace $\mu$ and $\Sigma$ with their sample estimates
+
+$$
+\hat\mu = \frac{1}{T}\sum_{t=1}^T r_t \qquad \hat\Sigma = \frac{1}{T-1}\sum_{t=1}^T (r_t - \hat\mu)(r_t - \hat\mu)'
+$$
+
+## Expected returns and the covariance matrix
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: estimate-moments-r
+returns_matrix <- returns_monthly |>
+  pivot_wider(names_from = symbol, values_from = ret) |>
+  select(-date) |>
+  as.matrix()
+
+mu <- colMeans(returns_matrix)
+sigma <- cov(returns_matrix)
+```
+
+## Python
+
+```{python}
+#| label: estimate-moments-py
+#| eval: false
+returns_matrix = (
+    returns_monthly.pivot(on="symbol", index="date", values="ret")
+    .drop("date")
+    .to_numpy()
+)
+
+mu = returns_matrix.mean(axis=0)
+sigma = np.cov(returns_matrix, rowvar=False)
+```
+:::
+
+## `r n_stocks` stocks, one risk-return trade-off?
+
+```{r}
+#| label: plot-risk-return
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5.2
+assets <- tibble(
+  symbol = colnames(returns_matrix),
+  mu = mu * months_per_year,
+  sigma = sqrt(diag(sigma) * months_per_year)
+)
+
+ggplot(assets, aes(x = sigma, y = mu, label = symbol)) +
+  geom_point(color = jet) +
+  geom_text_repel(size = 3.6, color = grey, seed = 1) +
+  scale_x_continuous(labels = percent, limits = c(0, NA)) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Volatility (annualized)", y = "Expected return (annualized)",
+    title = paste0("Dow Jones stocks, monthly returns ", first_month, " to ", last_month)
+  )
+```
+
+## Diversification
+
+```{r}
+#| label: plot-diversification
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.4
+# Variance of an equal-weighted portfolio of n stocks with average variance
+# and average covariance: (1 / n) * variance + (1 - 1 / n) * covariance
+average_variance <- mean(diag(sigma))
+average_covariance <- mean(sigma[upper.tri(sigma)])
+
+diversification <- tibble(n = 1:n_stocks) |>
+  mutate(
+    volatility = sqrt(
+      (average_variance / n + (1 - 1 / n) * average_covariance) * months_per_year
+    )
+  )
+volatility_floor <- sqrt(average_covariance * months_per_year)
+
+ggplot(diversification, aes(x = n, y = volatility)) +
+  geom_hline(yintercept = volatility_floor, color = ku_red, linetype = "dashed") +
+  annotate(
+    "text", x = n_stocks, y = volatility_floor, vjust = 1.8, hjust = 1, color = ku_red,
+    label = "Risk that diversification cannot remove: the average covariance"
+  ) +
+  geom_line(color = jet, linewidth = 0.8) +
+  geom_point(color = jet) +
+  scale_y_continuous(labels = percent, limits = c(0, NA)) +
+  labs(
+    x = "Number of stocks in an equal-weighted portfolio", y = "Volatility (annualized)",
+    title = "Diversification: the volatility of an average equal-weighted portfolio"
+  )
+```
+
+One stock: `r percent(sqrt(average_variance * months_per_year), 0.1)` volatility on average; `r n_stocks` stocks: `r percent(last(diversification$volatility), 0.1)`. Variances diversify away, covariances do not
+
+# Mean-variance optimization
+
+## Mean-variance preferences
+
+- Investors like expected return and dislike variance (Markowitz, 1952)
+- With risk aversion $\gamma$, the certainty equivalent of a portfolio is
+
+$$
+\text{CE}(\omega) = \omega'\mu - \frac{\gamma}{2}\,\omega'\Sigma\omega
+$$
+
+- Exact for quadratic utility or normally distributed returns, an approximation otherwise
+- Equivalent problem: the lowest variance for a given expected return. Exercise 2 asks you to show it
+
+::: {.highlight}
+**The question of today:** which portfolios should a mean-variance investor hold?
+:::
+
+## Whiteboard: the minimum-variance portfolio
+
+::: {.box}
+$$
+\omega_\text{mvp} = \arg\min_\omega \ \omega'\Sigma\omega \quad \text{s.t.} \quad \iota'\omega = 1
+$$
+:::
+
+::: {.fragment}
+$$
+\omega_\text{mvp} = \frac{\Sigma^{-1}\iota}{\iota'\Sigma^{-1}\iota} \qquad \text{Var}(r_\text{mvp}) = \frac{1}{\iota'\Sigma^{-1}\iota}
+$$
+
+- It needs only $\Sigma$, no expected returns
+:::
+
+Written out: Tidy Finance, [Proofs: minimum variance portfolio](https://www.tidy-finance.org/chapters/proofs.html#minimum-variance-portfolio)
+
+## The minimum-variance portfolio of the Dow Jones 30
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-mvp-r
+iota <- rep(1, ncol(sigma))
+sigma_inv <- solve(sigma)
+
+omega_mvp <- as.vector(sigma_inv %*% iota) / sum(sigma_inv %*% iota)
+```
+
+## Python
+
+```{python}
+#| label: compute-mvp-py
+#| eval: false
+iota = np.ones(len(mu))
+sigma_inv = np.linalg.inv(sigma)
+
+omega_mvp = sigma_inv @ iota / (iota @ sigma_inv @ iota)
+```
+:::
+
+```{r}
+#| label: plot-mvp-weights
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.8
+mvp_mu <- sum(omega_mvp * mu) * months_per_year
+mvp_sigma <- sqrt(as.numeric(t(omega_mvp) %*% sigma %*% omega_mvp) * months_per_year)
+
+tibble(symbol = colnames(returns_matrix), weight = omega_mvp) |>
+  ggplot(aes(x = fct_reorder(symbol, weight), y = weight, fill = weight > 0)) +
+  geom_col() +
+  scale_fill_manual(values = c(`TRUE` = ku_red, `FALSE` = grey), guide = "none") +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = NULL, y = "Weight",
+    title = paste0(
+      "Minimum-variance weights: expected return ", percent(mvp_mu, 0.1),
+      ", volatility ", percent(mvp_sigma, 0.1), " (annualized)"
+    )
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+## Whiteboard: the efficient portfolio
+
+::: {.box}
+$$
+\omega_\text{eff}(\bar\mu) = \arg\min_\omega \ \omega'\Sigma\omega \quad \text{s.t.} \quad \iota'\omega = 1, \ \ \omega'\mu = \bar\mu
+$$
+:::
+
+::: {.fragment}
+With $C = \iota'\Sigma^{-1}\iota$, $D = \iota'\Sigma^{-1}\mu$ and $E = \mu'\Sigma^{-1}\mu$:
+
+$$
+\omega_\text{eff}(\bar\mu) = \omega_\text{mvp} + \frac{\bar\mu - D/C}{E - D^2/C}\left(\Sigma^{-1}\mu - \frac{D}{C}\Sigma^{-1}\iota\right)
+$$
+
+- **Two-fund separation:** every efficient portfolio is a combination of two efficient portfolios, e.g. $a\,\omega_\text{eff}(\bar\mu) + (1 - a)\,\omega_\text{mvp}$
+:::
+
+Written out: Tidy Finance, [Proofs: efficient portfolio](https://www.tidy-finance.org/chapters/proofs.html#efficient-portfolio)
+
+## The efficient frontier of the Dow Jones 30
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-efficient-frontier-r
+C <- as.numeric(t(iota) %*% sigma_inv %*% iota)
+D <- as.numeric(t(iota) %*% sigma_inv %*% mu)
+E <- as.numeric(t(mu) %*% sigma_inv %*% mu)
+
+# An efficient portfolio with three times the expected return of the mvp
+mu_bar <- 3 * sum(omega_mvp * mu)
+omega_eff <- omega_mvp + (mu_bar - D / C) / (E - D^2 / C) *
+  as.vector(sigma_inv %*% mu - D / C * sigma_inv %*% iota)
+
+efficient_frontier <- tibble(a = seq(-0.4, 1.9, by = 0.01)) |>
+  mutate(
+    omega = map(a, \(a) a * omega_eff + (1 - a) * omega_mvp),
+    mu = map_dbl(omega, \(omega) sum(omega * mu)),
+    sigma = map_dbl(omega, \(omega) sqrt(t(omega) %*% sigma %*% omega))
+  )
+```
+
+## Python
+
+```{python}
+#| label: compute-efficient-frontier-py
+#| eval: false
+C = iota @ sigma_inv @ iota
+D = iota @ sigma_inv @ mu
+E = mu @ sigma_inv @ mu
+
+# An efficient portfolio with three times the expected return of the mvp
+mu_bar = 3 * omega_mvp @ mu
+omega_eff = omega_mvp + (mu_bar - D / C) / (E - D**2 / C) * (
+    sigma_inv @ mu - D / C * sigma_inv @ iota
+)
+
+a_grid = np.arange(-0.4, 1.91, 0.01)
+omegas = [a * omega_eff + (1 - a) * omega_mvp for a in a_grid]
+efficient_frontier = pl.DataFrame({
+    "a": a_grid,
+    "mu": [omega @ mu for omega in omegas],
+    "sigma": [np.sqrt(omega @ sigma @ omega) for omega in omegas],
+})
+```
+:::
+
+## The efficient frontier
+
+```{r}
+#| label: plot-efficient-frontier
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5.2
+frontier_annual <- efficient_frontier |>
+  mutate(mu = mu * months_per_year, sigma = sigma * sqrt(months_per_year))
+mvp_point <- tibble(symbol = "Minimum variance", mu = mvp_mu, sigma = mvp_sigma)
+
+ggplot(mapping = aes(x = sigma, y = mu)) +
+  geom_path(data = frontier_annual, color = jet, linewidth = 0.9) +
+  geom_point(data = assets, color = grey) +
+  geom_text_repel(data = assets, aes(label = symbol), size = 3.2, color = grey, seed = 1) +
+  geom_point(data = mvp_point, color = ku_red, size = 3) +
+  geom_label_repel(
+    data = mvp_point, aes(label = symbol), color = ku_red, nudge_x = -0.06, seed = 1
+  ) +
+  scale_x_continuous(labels = percent, limits = c(0, NA)) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Volatility (annualized)", y = "Expected return (annualized)",
+    title = "The efficient frontier of the Dow Jones stocks"
+  )
+```
+
+# Adding a risk-free asset
+
+## Whiteboard: the tangency portfolio
+
+- Invest $\omega$ in the risky assets and $1 - \iota'\omega$ at the risk-free rate $r_f$: expected return $r_f + \omega'(\mu - r_f\iota)$, variance $\omega'\Sigma\omega$
+
+::: {.box}
+$$
+\min_\omega \ \omega'\Sigma\omega \quad \text{s.t.} \quad \omega'(\mu - r_f\iota) = \bar\mu - r_f
+$$
+:::
+
+::: {.fragment}
+- The solution is proportional to $\Sigma^{-1}(\mu - r_f\iota)$. All risky wealth goes into the **tangency portfolio**
+
+$$
+\omega_\text{tan} = \frac{\Sigma^{-1}(\mu - r_f\iota)}{\iota'\Sigma^{-1}(\mu - r_f\iota)}
+$$
+
+- It has the highest Sharpe ratio $(\mu_\text{tan} - r_f)/\sigma_\text{tan}$ of all portfolios, the slope of the **capital market line** through $r_f$
+:::
+
+## The tangency portfolio of the Dow Jones 30
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-tangency-r
+# The average one-month T-bill rate over the sample
+rf <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  filter(date >= start_date, date <= end_date) |>
+  summarize(rf = mean(risk_free)) |>
+  pull(rf)
+
+omega_tan <- as.vector(sigma_inv %*% (mu - rf))
+omega_tan <- omega_tan / sum(omega_tan)
+```
+
+## Python
+
+```{python}
+#| label: compute-tangency-py
+#| eval: false
+# The average one-month T-bill rate over the sample
+rf = (
+    pl.read_parquet("data/factors_ff3_monthly.parquet")
+    .filter(
+        pl.col("date") >= pl.lit(start_date).str.to_date(),
+        pl.col("date") <= pl.lit(end_date).str.to_date(),
+    )
+    .get_column("risk_free")
+    .mean()
+)
+
+omega_tan = sigma_inv @ (mu - rf)
+omega_tan = omega_tan / omega_tan.sum()
+```
+:::
+
+```{r}
+#| label: tangency-summary
+#| include: false
+tan_mu <- sum(omega_tan * mu) * months_per_year
+tan_sigma <- sqrt(as.numeric(t(omega_tan) %*% sigma %*% omega_tan) * months_per_year)
+tan_sharpe <- (tan_mu - rf * months_per_year) / tan_sigma
+rf_annual <- rf * months_per_year
+```
+
+The average T-bill rate is `r percent(rf_annual, 0.1)` a year. The tangency portfolio has an expected return of `r percent(tan_mu, 0.1)` at a volatility of `r percent(tan_sigma, 0.1)`: a Sharpe ratio of `r number(tan_sharpe, 0.01)` (annualized)
+
+## The capital market line
+
+```{r}
+#| label: plot-capital-market-line
+#| echo: false
+#| fig-width: 10
+#| fig-height: 5.2
+tangency_point <- tibble(label = "Tangency", mu = tan_mu, sigma = tan_sigma)
+
+ggplot(mapping = aes(x = sigma, y = mu)) +
+  geom_abline(intercept = rf_annual, slope = tan_sharpe, color = ku_red, linewidth = 0.8) +
+  geom_path(data = frontier_annual, color = jet, linewidth = 0.9) +
+  geom_point(data = assets, color = grey) +
+  geom_point(data = tangency_point, color = ku_red, size = 3) +
+  geom_point(aes(x = 0, y = rf_annual), color = ku_red, size = 2) +
+  geom_label_repel(data = tangency_point, aes(label = label), color = ku_red, nudge_x = -0.08, seed = 1) +
+  scale_x_continuous(labels = percent, limits = c(0, NA)) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Volatility (annualized)", y = "Expected return (annualized)",
+    title = paste0("Frontier with a risk-free rate of ", percent(rf_annual, 0.1), ": the capital market line")
+  )
+```
+
+## Which point on the line?
+
+- An investor with risk aversion $\gamma$ maximizes the certainty equivalent with a risk-free asset:
+
+$$
+\omega^* = \frac{1}{\gamma}\,\Sigma^{-1}(\mu - r_f\iota)
+$$
+
+- $\omega^*$ is proportional to $\omega_\text{tan}$: every mean-variance investor holds the **same risky portfolio**, mixed with the risk-free asset
+- Risk aversion only decides the mix: the share in risky assets is $\iota'\omega^*$, the rest is borrowed or lent at $r_f$
+
+::: {.highlight}
+**Two-fund separation (Tobin, 1958):** the tangency portfolio and the risk-free asset are all an investor needs
+:::
+
+## The risk-free rate moves the tangency portfolio
+
+```{r}
+#| label: slider-inputs
+#| include: false
+# The slider needs only a few vectors: the tangency weights for a monthly
+# risk-free rate r are (a - r b) / (D - r C)
+slider_a <- as.vector(sigma_inv %*% mu)
+slider_b <- as.vector(sigma_inv %*% iota)
+
+if (live) {
+  ojs_define(
+    poll_base = poll_base,
+    allocation_poll = allocation_poll,
+    allocation_choices = allocation_choices,
+    stocks = assets,
+    frontier = frontier_annual |> select(mu, sigma),
+    weights_inputs = tibble(symbol = colnames(returns_matrix), a = slider_a, b = slider_b),
+    moments = list(C = C, D = D, E = E, months = months_per_year)
+  )
+}
+```
+
+::: {.content-visible when-profile="live"}
+```{ojs}
+//| label: risk-free-slider
+//| echo: false
+viewof rf_annual = Inputs.range([0, 14], {step: 0.25, value: 2, width: 520, label: "Risk-free rate, % per year"})
+```
+
+:::: {.columns}
+::: {.column width="60%"}
+```{ojs}
+//| label: tangency-frontier-live
+//| echo: false
+r = rf_annual / 100 / moments.months
+denominator = moments.D - r * moments.C
+tangency = ({
+  mu: (moments.E - r * moments.D) / denominator * moments.months,
+  sigma: Math.sqrt(moments.E - 2 * r * moments.D + r * r * moments.C) / Math.abs(denominator) * Math.sqrt(moments.months)
+})
+slope = (tangency.mu - rf_annual / 100) / tangency.sigma
+sigma_max = 0.6
+Plot.plot({
+  width: 620,
+  height: 420,
+  x: {label: "Volatility (annualized)", domain: [0, sigma_max], tickFormat: "%"},
+  y: {label: "Expected return (annualized)", domain: [-0.1, 0.6], tickFormat: "%"},
+  marks: [
+    Plot.line(transpose(frontier), {x: "sigma", y: "mu", stroke: "#3d3d3d", strokeWidth: 2}),
+    Plot.dot(transpose(stocks), {x: "sigma", y: "mu", fill: "#666666", r: 3}),
+    Plot.line([{sigma: 0, mu: rf_annual / 100}, {sigma: sigma_max, mu: rf_annual / 100 + slope * sigma_max}],
+              {x: "sigma", y: "mu", stroke: "#901A1E", strokeWidth: 2}),
+    Plot.dot([{sigma: 0, mu: rf_annual / 100}], {x: "sigma", y: "mu", fill: "#901A1E", r: 5}),
+    Plot.dot([tangency], {x: "sigma", y: "mu", fill: "#901A1E", r: 7}),
+    Plot.text([tangency], {x: "sigma", y: "mu", text: d => "Tangency", dy: -14, fill: "#901A1E"})
+  ]
+})
+```
+:::
+::: {.column width="40%"}
+```{ojs}
+//| label: tangency-weights-live
+//| echo: false
+weights = transpose(weights_inputs)
+  .map(d => ({symbol: d.symbol, weight: (d.a - r * d.b) / denominator}))
+  .sort((x, y) => y.weight - x.weight)
+Plot.plot({
+  width: 380,
+  height: 420,
+  marginLeft: 50,
+  x: {label: "Tangency weight", tickFormat: "%", domain: [-1, 1], clamp: true},
+  y: {label: null, domain: weights.map(d => d.symbol)},
+  marks: [
+    Plot.barX(weights, {x: "weight", y: "symbol", fill: d => d.weight > 0 ? "#901A1E" : "#666666"}),
+    Plot.ruleX([0])
+  ]
+})
+```
+:::
+::::
+
+```{ojs}
+//| label: tangency-note-live
+//| echo: false
+denominator > 0
+  ? md`Sharpe ratio of the tangency portfolio: **${slope.toFixed(2)}**`
+  : md`**The risk-free rate is above the expected return of the minimum-variance portfolio** (${(moments.D / moments.C * moments.months * 100).toFixed(1)}% a year): the "tangency" portfolio now sits on the lower, inefficient branch of the frontier`
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: plot-tangency-by-risk-free-rate
+#| echo: false
+#| fig-width: 11
+#| fig-height: 5.2
+tangency_by_rate <- tibble(rf_annual = risk_free_rates_shown) |>
+  mutate(
+    omega = map(rf_annual, \(rate) {
+      omega <- as.vector(sigma_inv %*% (mu - rate / months_per_year))
+      omega / sum(omega)
+    }),
+    mu = map_dbl(omega, \(omega) sum(omega * mu) * months_per_year),
+    sigma = map_dbl(omega, \(omega) sqrt(t(omega) %*% sigma %*% omega * months_per_year)),
+    slope = (mu - rf_annual) / sigma,
+    rate = fct_inorder(paste0(percent(rf_annual), " risk-free rate"))
+  )
+rate_colors <- set_names(c("#b3b3b3", jet, ku_red), levels(tangency_by_rate$rate))
+
+frontier_panel <- ggplot(mapping = aes(x = sigma, y = mu)) +
+  geom_abline(
+    data = tangency_by_rate, aes(intercept = rf_annual, slope = slope, color = rate),
+    linewidth = 0.8, show.legend = FALSE
+  ) +
+  geom_path(data = frontier_annual, color = jet, linewidth = 0.9) +
+  geom_point(data = assets, color = grey, size = 1) +
+  geom_point(data = tangency_by_rate, aes(color = rate), size = 3) +
+  scale_color_manual(values = rate_colors) +
+  coord_cartesian(xlim = c(0, 0.6), ylim = c(-0.05, 0.6)) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Volatility (annualized)", y = "Expected return (annualized)", color = NULL)
+
+weights_panel <- tangency_by_rate |>
+  mutate(omega = map(omega, \(omega) tibble(symbol = colnames(returns_matrix), weight = omega))) |>
+  select(rate, omega) |>
+  unnest(omega) |>
+  ggplot(aes(x = weight, y = fct_reorder(symbol, weight), color = rate)) +
+  geom_vline(xintercept = 0, color = light) +
+  geom_line(aes(group = symbol), color = light) +
+  geom_point(size = 2) +
+  scale_color_manual(values = rate_colors) +
+  scale_x_continuous(labels = percent) +
+  labs(x = "Tangency weight", y = NULL, color = NULL) +
+  theme(axis.text.y = element_text(size = 9))
+
+frontier_panel + weights_panel + plot_layout(widths = c(1.4, 1), guides = "collect") &
+  theme(legend.position = "bottom")
+```
+:::
+
+# What could go wrong?
+
+## Would you hold this portfolio?
+
+```{r}
+#| label: tangency-extremes
+#| include: false
+n_short <- sum(omega_tan < 0)
+largest_weight <- max(omega_tan)
+largest_stock <- colnames(returns_matrix)[which.max(omega_tan)]
+```
+
+- The tangency portfolio promises `r percent(tan_mu, 0.1)` a year at `r percent(tan_sigma, 0.1)` volatility, more than any single stock offers at that risk
+- It shorts `r n_short` of the `r n_stocks` stocks; its largest position is `r percent(largest_weight, 0.1)` in `r largest_stock`
+- Compare it with how you split your \$1
+
+::: {.highlight}
+Every number rests on $\hat\mu$ and $\hat\Sigma$, estimated from the same `r n_months` months. How much of it survives out of sample? Next lecture: **estimation uncertainty**
+:::
