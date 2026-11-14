@@ -5,13 +5,21 @@ date: 2027-04-05
 # Material from the 2026 decks that belongs here:
 # - aef-4-machine-learning.qmd: "Characteristic selection and the factor zoo"
 # - the factor zoo running example and scoreboard (course-homepage#16)
+# - cross-validation, moved here from lecture 10: the slides "Cross-validation for time series" (folds figure)
+#   and "Cross-validation in code" (ridge and lasso) are in commit 870d2d8 of course-repository#54;
+#   results: ridge lambda 1e-4, Sharpe ratio 2.89 in the test sample; lasso 74 anomalies, 2.96
 ---
 
 ## Today
 
+- Cross-validation: choosing the penalty
 - The SDF in the factor zoo
 - Shrinkage priors for the SDF
 - Sparse in characteristics or in principal components?
+
+## Cross-validation: choosing the penalty
+
+TBD
 
 ## The SDF in the factor zoo
 

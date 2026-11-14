@@ -18,10 +18,9 @@ sample_start <- ymd("1973-01-01")
 sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")
 
-# Penalties of ridge and lasso, and the folds for cross-validation
+# Penalties of ridge and lasso
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
 lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
-n_folds <- 5
 
 months_per_year <- 12
 
@@ -44,15 +43,13 @@ from datetime import date
 import numpy as np
 import polars as pl
 from sklearn.linear_model import Lasso
-
-n_folds = 5
 ```
 
 ## Today
 
 - The factor zoo: 158 anomalies, one portfolio
+- Overfitting
 - The bias-variance trade-off: ridge and lasso
-- Cross-validation for time series
 
 ## From 27 stocks to 158 anomalies
 
@@ -515,97 +512,7 @@ count_panel + lasso_sharpe_panel & theme(legend.position = "bottom")
 ```
 
 - The larger $\lambda$, the fewer anomalies get a weight, from all `r ncol(returns)` down to `r min(lasso_path$anomalies)`
-- In the test sample, `r lasso_path$anomalies[which.max(lasso_path$test)]` anomalies do best (Sharpe ratio `r number(max(lasso_path$test), 0.01)`), better than all of them; whether the SDF is sparse is a question of lecture 11
-
-# Cross-validation
-
-## Cross-validation for time series
-
-```{r}
-#| label: plot-folds
-#| echo: false
-#| fig-width: 11
-#| fig-height: 3.2
-# The folds of the next slide: five consecutive blocks of the estimation sample
-fold_id <- ceiling(seq_len(sum(estimation)) / (sum(estimation) / n_folds))
-fold_years <- anomalies$date[estimation] |> year() |> split(fold_id)
-fold_plan <- expand_grid(fold = seq_len(n_folds), block = seq_len(n_folds)) |>
-  mutate(
-    start = map_dbl(block, \(b) min(fold_years[[b]])),
-    end = map_dbl(block, \(b) max(fold_years[[b]]) + 1),
-    role = if_else(fold == block, "Validation", "Estimation")
-  ) |>
-  bind_rows(tibble(fold = seq_len(n_folds), block = 0, start = year(test_start), end = year(sample_end) + 1, role = "Test, never used for tuning"))
-
-ggplot(fold_plan, aes(xmin = start, xmax = end, ymin = fold - 0.4, ymax = fold + 0.4, fill = role)) +
-  geom_rect(color = "white") +
-  scale_y_reverse(breaks = seq_len(n_folds), labels = paste("Fold", seq_len(n_folds))) +
-  scale_fill_manual(
-    values = c("Estimation" = "#b3b3b3", "Validation" = ku_red, "Test, never used for tuning" = light),
-    breaks = c("Estimation", "Validation", "Test, never used for tuning")
-  ) +
-  labs(x = NULL, y = NULL, fill = NULL) +
-  theme(legend.position = "bottom", panel.grid = element_blank())
-```
-
-- Each penalty is judged on data it was not estimated on: `r n_folds` consecutive blocks of the estimation sample, each one the validation block once
-- Months are not shuffled into the folds: neighbouring months share news and volatility, so shuffling would leak information into the validation block
-- The test sample stays untouched until the very end. Choosing $\lambda$ by the test Sharpe ratio would be overfitting again
-
-## Cross-validation in code
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: cross-validation-r
-# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
-folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
-
-cv_sharpe <- function(fit_weights, lambda) {
-  map_dbl(seq_len(n_folds), \(k) {
-    weights <- fit_weights(x_estimation[folds != k, ], lambda)
-    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
-  }) |>
-    mean(na.rm = TRUE)
-}
-
-ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
-ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
-lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(lasso_weights, lambda))
-lasso_lambda <- lasso_lambdas[which.max(lasso_cv)]
-```
-
-## Python
-
-```{python}
-#| label: cross-validation-py
-#| eval: false
-# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
-folds = np.ceil(np.arange(1, len(x_estimation) + 1) / (len(x_estimation) / n_folds))
-
-
-def cv_sharpe(fit_weights, lam):
-    sharpes = [sharpe_ratio(x_estimation[folds == k] @ fit_weights(x_estimation[folds != k], lam))
-               for k in range(1, n_folds + 1)]
-    return np.nanmean(sharpes)
-
-
-ridge_cv = [cv_sharpe(ridge_weights, lam) for lam in ridge_lambdas]
-ridge_lambda = ridge_lambdas[np.argmax(ridge_cv)]
-lasso_cv = [cv_sharpe(lasso_weights, lam) for lam in lasso_lambdas]
-lasso_lambda = lasso_lambdas[np.argmax(lasso_cv)]
-```
-:::
-
-```{r}
-#| label: chosen-penalties
-#| include: false
-ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
-lasso_chosen <- lasso_path |> filter(lambda == lasso_lambda)
-```
-
-Chosen penalties: $\lambda$ = `r signif(ridge_lambda, 2)` for ridge, `r signif(lasso_lambda, 2)` for the lasso (`r lasso_chosen$anomalies` anomalies)
+- In hindsight, `r lasso_path$anomalies[which.max(lasso_path$test)]` anomalies do best in the test sample (Sharpe ratio `r number(max(lasso_path$test), 0.01)`), better than all of them. But picking $\lambda$ by the test sample would be overfitting again
 
 ## Scoreboard
 
@@ -613,26 +520,12 @@ Chosen penalties: $\lambda$ = `r signif(ridge_lambda, 2)` for ridge, `r signif(l
 #| label: scoreboard
 #| echo: false
 tibble(
-  Portfolio = c(
-    "Market", "1/N over all anomalies", "Plug-in mean-variance",
-    "Ridge, λ by cross-validation", "Lasso, λ by cross-validation"
-  ),
-  Anomalies = c(0, ncol(returns), ncol(returns), ncol(returns), lasso_chosen$anomalies),
-  estimation = c(
-    market_sharpe[["estimation"]], equal_sharpe[["estimation"]], plug_in_sharpe[["estimation"]],
-    ridge_sharpe[["estimation"]], lasso_chosen$estimation
-  ),
-  test = c(
-    market_sharpe[["test"]], equal_sharpe[["test"]], plug_in_sharpe[["test"]],
-    ridge_sharpe[["test"]], lasso_chosen$test
-  )
-) |>
-  mutate(
-    Anomalies = if_else(Anomalies == 0, "–", as.character(Anomalies)),
-    across(c(estimation, test), \(x) number(x, 0.01))
-  ) |>
-  rename(`Sharpe ratio 1973–1999` = estimation, `Sharpe ratio 2000–2023` = test)
+  Portfolio = c("Market", "1/N over all anomalies", "Plug-in mean-variance"),
+  Anomalies = c("–", ncol(returns), ncol(returns)),
+  `Sharpe ratio 1973–1999` = number(c(market_sharpe[["estimation"]], equal_sharpe[["estimation"]], plug_in_sharpe[["estimation"]]), 0.01),
+  `Sharpe ratio 2000–2023` = number(c(market_sharpe[["test"]], equal_sharpe[["test"]], plug_in_sharpe[["test"]]), 0.01)
+)
 ```
 
-- The penalties trade a lower Sharpe ratio in the estimation sample for a higher one in the test sample
-- **Lecture 11:** an economic reason for the penalty, the ridge SDF of Kozak, Nagel & Santosh (2020)
+- Ridge and the lasso beat the plug-in portfolio in the test sample for a wide range of penalties, but which $\lambda$ do we choose without looking at the test sample?
+- **Lecture 11:** choosing the penalty by cross-validation, and an economic reason for it, the ridge SDF of Kozak, Nagel & Santosh (2020)
