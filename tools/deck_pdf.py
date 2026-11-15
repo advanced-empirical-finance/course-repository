@@ -10,10 +10,12 @@ Several decks at once: pass several HTML files. The PDF lands next to each
 HTML file. The script uses a browser that is already installed (Chromium,
 Chrome or Edge), so Playwright needs no browser download. A slide with an
 R | Python tabset becomes one page per tab, so the PDF shows both languages.
-An embedded page, such as the trading game video, is printed as it first
-appears, with a link: a click on it in the PDF opens it in the browser.
+An embedded page, such as the trading game video, is printed as a picture of
+how it first appears, with a link: a click on it in the PDF opens it in the
+browser.
 """
 
+import base64
 import pathlib
 import sys
 
@@ -121,6 +123,31 @@ LINK_IFRAMES = """
 """
 
 
+# Chromium prints the web fonts of an embedded page as Type 3 fonts, which PDF
+# readers do not treat as text. Each embedded page is therefore replaced by a
+# picture of it, at the same size; the link from LINK_IFRAMES stays on top.
+TO_PICTURE = """
+(frame, src) => {
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = frame.title || '';
+  img.style.cssText = frame.style.cssText;
+  img.style.width = frame.offsetWidth + 'px';
+  img.style.height = frame.offsetHeight + 'px';
+  frame.replaceWith(img);
+  return img.decode();
+}
+"""
+
+
+def iframes_to_pictures(page):
+    frames = page.locator(".pdf-page iframe")
+    for _ in range(frames.count()):
+        frame = frames.first
+        png = base64.b64encode(frame.screenshot()).decode()
+        frame.evaluate(TO_PICTURE, "data:image/png;base64," + png)
+
+
 def launch(playwright):
     for options in BROWSERS:
         path = options.get("executable_path")
@@ -138,7 +165,8 @@ def main(files):
         raise SystemExit(__doc__)
     with sync_playwright() as playwright:
         browser = launch(playwright)
-        page = browser.new_page()
+        # Twice the screen resolution, so that pictures of embedded pages stay sharp
+        page = browser.new_page(device_scale_factor=2)
         page.add_init_script(SPLIT_TABSETS)
         for name in files:
             html = pathlib.Path(name).resolve()
@@ -150,6 +178,7 @@ def main(files):
             page.evaluate("() => window.MathJax && MathJax.startup ? MathJax.startup.promise : null")
             page.wait_for_timeout(2000)
             page.evaluate(LINK_IFRAMES)
+            iframes_to_pictures(page)
             page.pdf(path=str(pdf), prefer_css_page_size=True, print_background=True)
             pages = page.evaluate("() => document.querySelectorAll('.pdf-page').length")
             copies = page.evaluate("() => window.__tabsetCopies || 0")
