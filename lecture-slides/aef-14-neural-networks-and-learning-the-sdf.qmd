@@ -221,6 +221,8 @@ network_row <- forecast_row("Neural network", network_forecast)
 ols_row <- forecast_row("OLS", predict(lm(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar, data = train), panel))
 ```
 
+## The network's forecasts
+
 One hidden layer of `r hidden_units` logistic neurons, weight decay `r decay` (chosen on 1995–1999), five networks averaged. Out-of-sample $R^2$ `r percent(network_row$oos_r2, 0.01)` (OLS: `r percent(ols_row$oos_r2, 0.01)`); as a portfolio with the forecasts as expected returns (lecture 13): Sharpe ratio `r number(network_row$test, 0.01)` in the test sample. `nnet()` and scikit-learn (same penalty scale) start from different random weights, so their networks differ a little
 
 # Learning the SDF
@@ -228,7 +230,7 @@ One hidden layer of `r hidden_units` logistic neurons, weight decay `r decay` (c
 ## Whiteboard: SDF weights that depend on the state
 
 ::: {.box}
-Lecture 11: constant weights, $M_{t+1} = 1 - b'F_{t+1}$. Now each anomaly's weight depends on what we know at $t$: $M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}$
+Lecture 11: constant weights, $m = 1 - b'(F - E[F])$; written without centring, $M_{t+1} = 1 - b'F_{t+1}$, the weights are proportional to the same $\Sigma^{-1}\mu$. Now each anomaly's weight depends on what we know at $t$: $M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}$
 :::
 
 ::: {.fragment}

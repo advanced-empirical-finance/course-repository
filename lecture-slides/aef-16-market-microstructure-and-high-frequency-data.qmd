@@ -90,7 +90,7 @@ ggplot(order_book, aes(x = price, y = depth, fill = side)) +
   theme(legend.position = "bottom")
 ```
 
-- A market order to buy 1,000 shares takes 300 at 100.00 and 700 at 100.01: it moves the best ask up by one cent
+- A market order to buy 1,000 shares takes 300 at 100.00 and 700 at 100.01: it clears both levels and moves the best ask up by two cents, to 100.02
 
 ## A NASDAQ trading day
 
