@@ -1,26 +1,328 @@
 ---
 subtitle: Market microstructure and high-frequency data
 date: 2027-04-29
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-6-high-frequency-econometrics.qmd: "High-frequency trading" to "Historical perspective on high-frequency (ETF) trading data" (equity microstructure, a NASDAQ trading day, LOBSTER at KU)
-# - roadmap (course-repository#5): LOBSTER order book data for the Dow 30
+filters:
+  - timeline
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(scales)
+library(patchwork)
+
+# SPY order book snapshots: one month a year, and the month of the intraday figures
+years <- 2008:2025
+sample_month <- 3
+intraday_year <- 2024
+
+# Two crisis months: after the Lehman collapse, and the COVID-19 crash
+crisis_years <- c(2009, 2020)
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+import polars as pl
+import tidyfinance as tf
+```
 
 ## Today
 
-- How stocks trade: the limit order book
-- High-frequency data from LOBSTER
-- Liquidity, spreads and price impact
+- How a stock trades: the limit order book
+- High-frequency data: LOBSTER and SPY
+- Liquidity and price impact
 
-## How stocks trade: the limit order book
+## From monthly returns to every order
 
-TBD
+- **So far:** monthly returns, one number per stock and month
+- **Today:** every order that reaches the exchange, time-stamped to the nanosecond. Billions of messages a day across US stocks
+- **Why:** trading costs (lecture 5 and the trading game), volatility measured within the day (lecture 17), covariances for portfolio choice (lecture 18)
 
-## High-frequency data from LOBSTER
+::: {.highlight}
+Assignment 3 on realized volatility from high-frequency data starts today
+:::
 
-TBD
+# The limit order book
 
-## Liquidity, spreads and price impact
+## Whiteboard: the limit order book
 
-TBD
+::: {.box}
+An exchange collects orders to buy and to sell. Which trades happen, and at which prices?
+:::
+
+::: {.fragment}
+- **Limit order:** buy or sell up to a quantity at a stated price or better. Waits in the **order book** until it is executed or cancelled
+- **Market order:** buy or sell a quantity now, at the best prices in the book
+- **Best bid and best ask:** the highest buy and the lowest sell price. **Spread:** their difference; **midquote:** their average. **Depth:** the quantity waiting at a price
+- **Price-time priority:** better prices first, at the same price the older order first
+- A large market order walks up the book: it pays more than the best price, its **price impact**
+:::
+
+## An order book
+
+```{r}
+#| label: plot-order-book
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+# A stylized order book, for illustration only
+order_book <- bind_rows(
+  tibble(price = 99.96 + 0.01 * 0:3, depth = c(700, 500, 400, 50), side = "Bid: buy orders"),
+  tibble(price = 100.00 + 0.01 * 0:3, depth = c(300, 700, 500, 700), side = "Ask: sell orders")
+)
+ggplot(order_book, aes(x = price, y = depth, fill = side)) +
+  geom_col(width = 0.008) +
+  annotate("segment", x = 99.99, xend = 100.00, y = 820, yend = 820, arrow = arrow(ends = "both", length = unit(0.15, "cm")), color = jet) +
+  annotate("text", x = 99.995, y = 880, label = "Spread", color = jet) +
+  scale_fill_manual(values = c("Bid: buy orders" = "#b3b3b3", "Ask: sell orders" = ku_red)) +
+  scale_x_continuous(breaks = order_book$price, labels = number_format(0.01)) +
+  labs(x = "Price (USD)", y = "Shares waiting", fill = NULL, caption = "Illustration") +
+  theme(legend.position = "bottom")
+```
+
+- A market order to buy 1,000 shares takes 300 at 100.00 and 700 at 100.01: it moves the best ask up by one cent
+
+## A NASDAQ trading day
+
+::: timeline
+::: {.event data-label="9:30"}
+**Opening auction**
+:::
+::: {.event data-label="9:30 to 16:00"}
+**Continuous trading**: submissions, cancellations, executions; visible and hidden orders
+:::
+::: {.event data-label="16:00"}
+**Closing auction**
+:::
+::: {.event data-label="After 16:00"}
+**After-hours trading**
+:::
+:::
+
+- Most of the trading volume of a US stock is not on its listing exchange: a stock listed on the NYSE also trades on NASDAQ and many other venues
+
+# High-frequency data
+
+## LOBSTER: the terms of the data
+
+- [LOBSTER](https://lobsterdata.com) rebuilds the NASDAQ order book of any stock from the exchange's messages; KU has access
+- **Message file:** one row per event: time (seconds after midnight, with nanoseconds), event type, order ID, size, price, direction (buy or sell)
+- **Event types:** submission of a new limit order, partial cancellation, deletion, execution of a visible order, execution of a hidden order, auction trade, trading halt
+- **Order book file:** after every event, the best prices and the depth on each side, for as many levels as requested
+- One stock and one day easily have millions of messages: the data are aggregated before we use them
+
+## The SPY data
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: download-spy-r
+#| cache: true
+#| cache.extra: !expr list(years, sample_month)
+# Five-second snapshots of the SPY order book during regular trading hours,
+# for one month in every year
+spy <- map(years, \(year) {
+  start <- make_date(year, sample_month, 1)
+  download_data(
+    domain = "Tidy Finance", dataset = "high_frequency_sp500",
+    start_date = start, end_date = ceiling_date(start, "month") - days(1)
+  ) |>
+    mutate(year = year)
+}) |>
+  bind_rows()
+```
+
+## Python
+
+```{python}
+#| label: download-spy-py
+#| eval: false
+# Five-second snapshots of the SPY order book during regular trading hours,
+# for one month in every year
+spy = pl.concat([
+    tf.download_data(domain="Tidy Finance", dataset="high_frequency_sp500",
+                     start_date=f"{year}-03-01", end_date=f"{year}-03-31")
+    .with_columns(year=pl.lit(year))
+    for year in range(2008, 2026)
+])
+```
+:::
+
+- SPY, the ETF on the S&P 500, on NASDAQ from July 2007, built from LOBSTER: every 5 seconds the midquote, the **spread** (basis points of the midquote), the **depth** at the best quotes and within 5 bps (shares), the **dollar volume** traded, and the **signed order flow** (buyer- minus seller-initiated)
+- Here: March of every year `r min(years)`–`r max(years)`, `r comma(nrow(spy))` snapshots
+
+## Liquidity through the day
+
+```{r}
+#| label: plot-intraday
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.6
+# Averages per ten minutes of the trading day, March of one year, without
+# the snapshots of the opening and closing auctions
+intraday <- spy |>
+  filter(year == intraday_year) |>
+  mutate(clock_exact = hour(ts) + minute(ts) / 60 + second(ts) / 3600) |>
+  filter(clock_exact > 9.5 + 5 / 3600, clock_exact < 16) |>
+  mutate(time = floor_date(ts, "10 minutes"), clock = hour(time) + minute(time) / 60) |>
+  summarize(
+    spread = mean(spread),
+    depth = mean((depth0_ask + depth0_bid) / 2 * midquote),
+    volume = mean(trading_volume),
+    .by = clock
+  )
+intraday_panel <- function(column, label, formatter) {
+  ggplot(intraday, aes(x = clock, y = .data[[column]])) +
+    geom_line(color = ku_red, linewidth = 0.9) +
+    scale_x_continuous(breaks = c(10, 12, 14, 16), labels = c("10:00", "12:00", "14:00", "16:00")) +
+    scale_y_continuous(labels = formatter) +
+    labs(x = NULL, y = label)
+}
+intraday_panel("spread", "Spread (bps)", number_format(0.01)) +
+  intraday_panel("depth", "Depth at the best quotes (USD)", label_dollar(scale = 1e-3, suffix = "k")) +
+  intraday_panel("volume", "Dollar volume per 5 seconds", label_dollar(scale = 1e-6, suffix = "m", accuracy = 0.1))
+```
+
+- March `r intraday_year`, averages per ten minutes of continuous trading (without the opening and closing auctions): trading is heaviest at the open and at the close (the U-shape); the spread is widest right after the open, when uncertainty is largest, and depth builds up during the day
+
+## Liquidity over the years
+
+```{r}
+#| label: plot-yearly
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.6
+yearly <- spy |>
+  summarize(
+    spread = mean(spread),
+    depth = mean((depth0_ask + depth0_bid) / 2 * midquote),
+    .by = year
+  )
+crisis <- yearly |> filter(year %in% crisis_years)
+spread_years <- ggplot(yearly, aes(x = year, y = spread)) +
+  geom_line(color = jet) +
+  geom_point(color = jet) +
+  geom_point(data = crisis, color = ku_red, size = 3) +
+  geom_text(data = crisis, aes(label = paste("March", year)), vjust = -0.9, hjust = 0.2, color = ku_red, size = 3.8) +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.15))) +
+  labs(x = NULL, y = "Spread (bps)")
+depth_years <- ggplot(yearly, aes(x = year, y = depth)) +
+  geom_line(color = jet) +
+  geom_point(color = jet) +
+  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "m")) +
+  labs(x = NULL, y = "Depth at the best quotes (USD)")
+spread_years + depth_years
+```
+
+- The spread fell from `r number(yearly$spread[1], 0.01)` bps in March `r yearly$year[1]` to `r number(yearly$spread[yearly$year == 2024], 0.01)` bps in March 2024: SPY trades at the minimum tick of one cent, which became ever smaller relative to the price. Crises widen it: March `r crisis$year[1]` and March `r crisis$year[2]`
+- Depth at the best quotes shrank as well, with smaller orders spread over more trading venues
+
+# Price impact
+
+## Whiteboard: price impact
+
+::: {.box}
+Kyle (1985): a market maker sees only the total order flow $x$, from informed and uninformed traders. Which price does she set?
+:::
+
+::: {.fragment}
+$$
+p = E[v \mid x] = p_0 + \lambda\, x \qquad \text{with} \qquad \lambda = \frac{\text{Cov}(v, x)}{\text{Var}(x)}
+$$
+
+- Buying pushes the price up because buying may be informed. $\lambda$ measures illiquidity: the larger, the more a trade moves the price
+- A trade of size $q$ costs about $\lambda q \cdot q$: costs grow with the square of the trade, the **quadratic costs** of lecture 5
+:::
+
+## Price impact in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: price-impact-r
+# One-minute midquote returns (bps) on one-minute order flow, scaled by its
+# standard deviation in each year
+price_impact <- spy |>
+  mutate(day = as_date(ts), minute = floor_date(ts, "minute")) |>
+  summarize(midquote = last(midquote), flow = sum(signed_volume), .by = c(year, day, minute)) |>
+  mutate(ret = 1e4 * (log(midquote) - lag(log(midquote))), .by = c(year, day)) |>
+  drop_na() |>
+  mutate(flow = flow / sd(flow), .by = year) |>
+  nest(data = -year) |>
+  mutate(
+    fit = map(data, \(d) lm(ret ~ flow, data = d)),
+    lambda = map_dbl(fit, \(f) coef(f)[["flow"]]),
+    r2 = map_dbl(fit, \(f) summary(f)$r.squared)
+  )
+```
+
+## Python
+
+```{python}
+#| label: price-impact-py
+#| eval: false
+# One-minute midquote returns (bps) on one-minute order flow, scaled by its
+# standard deviation in each year
+minutes = (spy
+    .with_columns(day=pl.col("ts").dt.date(), minute=pl.col("ts").dt.truncate("1m"))
+    .group_by("year", "day", "minute", maintain_order=True)
+    .agg(midquote=pl.col("midquote").last(), flow=pl.col("signed_volume").sum())
+    .sort("year", "day", "minute")
+    .with_columns(ret=1e4 * pl.col("midquote").log().diff().over("year", "day"))
+    .drop_nulls()
+    .with_columns(flow=pl.col("flow") / pl.col("flow").std().over("year")))
+price_impact = (minutes.group_by("year")
+    .agg(lambda_=pl.cov("ret", "flow") / pl.col("flow").var(),
+         r2=pl.corr("ret", "flow") ** 2)
+    .sort("year"))
+```
+:::
+
+The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per standard deviation of a minute's order flow
+
+## Price impact over the years
+
+```{r}
+#| label: plot-price-impact
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.6
+lambda_panel <- ggplot(price_impact, aes(x = year, y = lambda)) +
+  geom_col(fill = ku_red, width = 0.7) +
+  labs(x = NULL, y = "λ (bps per std. dev. of order flow)")
+r2_panel <- ggplot(price_impact, aes(x = year, y = r2)) +
+  geom_col(fill = "#b3b3b3", width = 0.7) +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL, y = "R² of the regression")
+lambda_panel + r2_panel
+```
+
+- One standard deviation of order flow moves SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.1)` bps in March `r min(years)` and `r number(price_impact$lambda[price_impact$year == 2024], 0.1)` bps in March 2024; in March 2009 and March 2020 it was largest
+- Order flow explains less and less of the minute's return: more of the price moves without trading, as quotes update on news and on other venues
+
+## Whiteboard: the bid-ask bounce
+
+::: {.box}
+Roll (1984): the true price follows a random walk, but each trade happens at the bid or at the ask, with equal probability. What does that do to trade price changes?
+:::
+
+::: {.fragment}
+$$
+p_t = m_t + \frac{s}{2} q_t, \quad q_t = \pm 1 \qquad \Longrightarrow \qquad \text{Cov}(\Delta p_t, \Delta p_{t-1}) = -\frac{s^2}{4}
+$$
+
+- Trade prices bounce between bid and ask: their changes are negatively autocorrelated, and the spread follows as $s = 2\sqrt{-\text{Cov}(\Delta p_t, \Delta p_{t-1})}$
+- The bounce adds variance that is not in the true price. The more often we sample, the more of it we measure: **microstructure noise**, the topic of lecture 17
+:::
