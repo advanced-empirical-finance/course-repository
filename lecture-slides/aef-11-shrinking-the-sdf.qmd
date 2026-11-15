@@ -224,7 +224,7 @@ $$
 ## Whiteboard: a prior on Sharpe ratios
 
 ::: {.box}
-Kozak, Nagel & Santosh (2020): before seeing the data, $\mu \sim N\big(0, \tfrac{\kappa^2}{\tau}\Sigma^2\big)$ with $\tau = \text{tr}(\Sigma)$. What does this prior say about the maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
+Kozak, Nagel & Santosh (2020): before seeing the data, $\mu \sim N\big(0, \tfrac{\kappa^2}{\tau}\Sigma^2\big)$ with $\tau = \text{tr}(\Sigma)$. What does this prior say about the squared maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
 :::
 
 ::: {.fragment}

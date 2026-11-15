@@ -1414,6 +1414,9 @@ h^{(1)} = \sigma\big(W^{(1)} z + c^{(1)}\big), \quad h^{(2)} = \sigma\big(W^{(2)
 </div>
 </div>
 </div>
+</section>
+<section id="the-networks-forecasts" class="slide level2">
+<h2>The network’s forecasts</h2>
 <p>One hidden layer of 5 logistic neurons, weight decay 300 (chosen on 1995–1999), five networks averaged. Out-of-sample <span class="math inline">R^2</span> 1.24% (OLS: 0.65%); as a portfolio with the forecasts as expected returns (lecture 13): Sharpe ratio 1.36 in the test sample. <code>nnet()</code> and scikit-learn (same penalty scale) start from different random weights, so their networks differ a little</p>
 </section></section>
 <section>
@@ -1424,7 +1427,7 @@ h^{(1)} = \sigma\big(W^{(1)} z + c^{(1)}\big), \quad h^{(2)} = \sigma\big(W^{(2)
 <section id="whiteboard-sdf-weights-that-depend-on-the-state" class="slide level2">
 <h2>Whiteboard: SDF weights that depend on the state</h2>
 <div class="box">
-<p>Lecture 11: constant weights, <span class="math inline">M_{t+1} = 1 - b&#39;F_{t+1}</span>. Now each anomaly’s weight depends on what we know at <span class="math inline">t</span>: <span class="math inline">M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}</span></p>
+<p>Lecture 11: constant weights, <span class="math inline">m = 1 - b&#39;(F - E[F])</span>; written without centring, <span class="math inline">M_{t+1} = 1 - b&#39;F_{t+1}</span>, the weights are proportional to the same <span class="math inline">\Sigma^{-1}\mu</span>. Now each anomaly’s weight depends on what we know at <span class="math inline">t</span>: <span class="math inline">M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}</span></p>
 </div>
 <div class="fragment">
 <p><span class="math display">
