@@ -1,34 +1,443 @@
 ---
 subtitle: Shrinking the SDF
 date: 2027-04-05
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-4-machine-learning.qmd: "Characteristic selection and the factor zoo"
-# - the factor zoo running example and scoreboard (course-homepage#16)
-# - cross-validation, moved here from lecture 10: the slides "Cross-validation for time series" (folds figure)
-#   and "Cross-validation in code" (ridge and lasso) are in commit 870d2d8 of course-repository#54;
-#   results: ridge lambda 1e-4, Sharpe ratio 2.89 in the test sample; lasso 74 anomalies, 2.96
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(glmnet)
+library(scales)
+library(patchwork)
+
+# The factor zoo of lecture 10 and exercise 6
+sample_start <- ymd("1973-01-01")
+sample_end <- ymd("2023-12-31")
+test_start <- ymd("2000-01-01")
+
+# Penalties and folds
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
+n_folds <- 5
+
+months_per_year <- 12
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+
+source("lecture-slides/_live-poll.R")
+size_poll <- "aef27-l11-sdf-size"
+size_choices <- c("Fewer than 5", "5 to 20", "20 to 50", "More than 50")
+```
+
+```{r}
+#| label: lecture-10-code
+#| include: false
+# The data and functions of lecture 10
+osap_url <- paste0(
+  "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
+  "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
+)
+osap_file <- "data/osap_long_short_returns.parquet"
+if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+anomalies <- read_parquet(osap_file) |>
+  mutate(date = floor_date(as.Date(date), "month")) |>
+  filter(between(date, sample_start, sample_end)) |>
+  select(date, where(\(x) !anyNA(x)))
+returns <- as.matrix(select(anomalies, -date)) / 100
+estimation <- anomalies$date < test_start
+x_estimation <- returns[estimation, ]
+
+sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
+portfolio_sharpe <- function(weights) {
+  c(
+    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
+    test = sharpe_ratio(returns[!estimation, ] %*% weights)
+  )
+}
+ridge_weights <- function(x, lambda) {
+  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+}
+lasso_weights <- function(x, lambda) {
+  fit <- glmnet(
+    x, rep(1, nrow(x)), lambda = lambda, intercept = FALSE, standardize = FALSE,
+    control = list(thresh = 1e-12)
+  )
+  as.vector(coef(fit))[-1]
+}
+
+# A penalty in text: 10⁻⁴ or 3.2 × 10⁻⁴
+penalty_text <- function(x) {
+  exponent <- floor(log10(x) + 1e-9)
+  mantissa <- signif(x / 10^exponent, 2)
+  power <- paste0("10", chartr("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹", exponent))
+  if (mantissa == 1) power else paste(mantissa, "×", power)
+}
+
+market <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  filter(between(date, sample_start, sample_end))
+market_sharpe <- c(
+  estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
+  test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+)
+equal_sharpe <- portfolio_sharpe(rep(1 / ncol(returns), ncol(returns)))
+plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
+ridge_path <- map(ridge_lambdas, \(lambda) {
+  tibble(lambda = lambda, !!!portfolio_sharpe(ridge_weights(x_estimation, lambda)))
+}) |>
+  bind_rows()
+```
 
 ## Today
 
 - Cross-validation: choosing the penalty
-- The SDF in the factor zoo
-- Shrinkage priors for the SDF
-- Sparse in characteristics or in principal components?
+- The SDF of the zoo and a prior on Sharpe ratios
+- Sparse in anomalies or in principal components?
 
-## Cross-validation: choosing the penalty
+## Which penalty?
 
-TBD
+- **Lecture 10:** `r ncol(returns)` anomalies, estimation sample `r year(sample_start)`–`r year(test_start) - 1`, test sample `r year(test_start)`–`r year(sample_end)`. The plug-in portfolio falls from `r number(plug_in_sharpe[["estimation"]], 0.01)` to `r number(plug_in_sharpe[["test"]], 0.01)`
+- Ridge and the lasso do better in the test sample for a wide range of $\lambda$: with ridge, between `r number(min(ridge_path$test), 0.01)` and `r number(max(ridge_path$test), 0.01)`
+- The best $\lambda$ in the test sample is no option: an investor in 1999 does not know the test sample
 
-## The SDF in the factor zoo
+::: {.highlight}
+**Today:** choose $\lambda$ with the estimation sample only, and give the penalty an economic meaning
+:::
 
-TBD
+# Cross-validation
 
-## Shrinkage priors for the SDF
+## Cross-validation for time series
 
-TBD
+```{r}
+#| label: plot-folds
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.2
+# Five consecutive blocks of the estimation sample, as in the code below
+fold_id <- ceiling(seq_len(sum(estimation)) / (sum(estimation) / n_folds))
+fold_years <- anomalies$date[estimation] |> year() |> split(fold_id)
+fold_plan <- expand_grid(fold = seq_len(n_folds), block = seq_len(n_folds)) |>
+  mutate(
+    start = map_dbl(block, \(b) min(fold_years[[b]])),
+    end = map_dbl(block, \(b) max(fold_years[[b]]) + 1),
+    role = if_else(fold == block, "Validation", "Estimation")
+  ) |>
+  bind_rows(tibble(
+    fold = seq_len(n_folds), block = 0, start = year(test_start), end = year(sample_end) + 1,
+    role = "Test, never used for tuning"
+  ))
 
-## Sparse in characteristics or in principal components?
+ggplot(fold_plan, aes(xmin = start, xmax = end, ymin = fold - 0.4, ymax = fold + 0.4, fill = role)) +
+  geom_rect(color = "white") +
+  scale_y_reverse(breaks = seq_len(n_folds), labels = paste("Fold", seq_len(n_folds))) +
+  scale_fill_manual(
+    values = c("Estimation" = "#b3b3b3", "Validation" = ku_red, "Test, never used for tuning" = light),
+    breaks = c("Estimation", "Validation", "Test, never used for tuning")
+  ) +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = "bottom", panel.grid = element_blank())
+```
 
-TBD
+- Each penalty is judged on data it was not estimated on: `r n_folds` consecutive blocks of the estimation sample, each one the validation block once
+- Months are not shuffled into the folds: neighbouring months share news and volatility, so shuffling would leak information into the validation block
+- The test sample stays untouched until the very end
+
+## Cross-validation in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: cross-validation-r
+# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
+folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
+
+cv_sharpe <- function(fit_weights, lambda) {
+  map_dbl(seq_len(n_folds), \(k) {
+    weights <- fit_weights(x_estimation[folds != k, ], lambda)
+    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
+  }) |>
+    mean(na.rm = TRUE)
+}
+
+ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
+ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
+lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(lasso_weights, lambda))
+lasso_lambda <- lasso_lambdas[which.max(lasso_cv)]
+```
+
+## Python
+
+```{python}
+#| label: cross-validation-py
+#| eval: false
+# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
+folds = np.ceil(np.arange(1, len(x_estimation) + 1) / (len(x_estimation) / n_folds))
+
+
+def cv_sharpe(fit_weights, lam):
+    sharpes = [sharpe_ratio(x_estimation[folds == k] @ fit_weights(x_estimation[folds != k], lam))
+               for k in range(1, n_folds + 1)]
+    return np.nanmean(sharpes)
+
+
+ridge_cv = [cv_sharpe(ridge_weights, lam) for lam in ridge_lambdas]
+ridge_lambda = ridge_lambdas[np.argmax(ridge_cv)]
+lasso_cv = [cv_sharpe(lasso_weights, lam) for lam in lasso_lambdas]
+lasso_lambda = lasso_lambdas[np.argmax(lasso_cv)]
+```
+:::
+
+```{r}
+#| label: chosen-penalties
+#| include: false
+ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
+lasso_chosen_weights <- lasso_weights(x_estimation, lasso_lambda)
+lasso_sharpe <- portfolio_sharpe(lasso_chosen_weights)
+```
+
+`x_estimation`, `sharpe_ratio()`, `ridge_weights()` and `lasso_weights()` as in lecture 10. Chosen: $\lambda$ = `r penalty_text(ridge_lambda)` for ridge (test Sharpe ratio `r number(ridge_sharpe[["test"]], 0.01)`), `r penalty_text(lasso_lambda)` for the lasso (`r sum(lasso_chosen_weights != 0)` anomalies, `r number(lasso_sharpe[["test"]], 0.01)`)
+
+# The SDF of the zoo
+
+## Whiteboard: the SDF of the zoo
+
+::: {.box}
+Find the SDF $m = 1 - b'(F - E[F])$ that prices all anomaly returns $F$: $E[m\,F] = 0$
+:::
+
+::: {.fragment}
+$$
+E[m\,F] = \mu - E\big[F(F - \mu)'\big]\,b = \mu - \Sigma b = 0 \qquad \Longrightarrow \qquad b = \Sigma^{-1}\mu
+$$
+
+- The SDF's loadings are the weights of the mean-variance efficient portfolio (lecture 6): estimating the SDF and choosing the best portfolio of the zoo are the same problem
+- Each anomaly is a characteristic-managed portfolio, a long-short sort (lectures 7 and 8). $b$ says how much each characteristic matters for prices
+:::
+
+## Whiteboard: a prior on Sharpe ratios
+
+::: {.box}
+Kozak, Nagel & Santosh (2020): before seeing the data, $\mu \sim N\big(0, \tfrac{\kappa^2}{\tau}\Sigma^2\big)$ with $\tau = \text{tr}(\Sigma)$. What does this prior say about the maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
+:::
+
+::: {.fragment}
+$$
+E\big[\mu'\Sigma^{-1}\mu\big] = \kappa^2 \qquad \hat b = (\Sigma + \lambda I)^{-1}\hat\mu \quad \text{with} \quad \lambda = \frac{\tau}{\kappa^2 T}
+$$
+
+- The posterior mean of $b$ is a ridge estimator: the penalty of lecture 10 is a prior about how large Sharpe ratios can be
+- Prior means are small for principal components with little variance: a large Sharpe ratio from a low-variance combination of anomalies is implausible
+:::
+
+## The prior behind cross-validation
+
+```{r}
+#| label: implied-kappa
+#| include: false
+# The annual maximum Sharpe ratio that the prior expects for each penalty
+tau <- sum(diag(cov(x_estimation)))
+implied_kappa <- function(lambda) sqrt(tau / (lambda * nrow(x_estimation)) * months_per_year)
+kappa_path <- ridge_path |>
+  mutate(kappa = implied_kappa(lambda), cv = ridge_cv) |>
+  filter(lambda > 0)
+
+# Ridge on second moments and the posterior mean point in the same direction
+covariance <- cov(x_estimation) * (nrow(x_estimation) - 1) / nrow(x_estimation)
+posterior_weights <- solve(covariance + ridge_lambda * diag(ncol(returns)), colMeans(x_estimation))
+same_direction <- cor(posterior_weights, as.vector(ridge_weights(x_estimation, ridge_lambda)))
+```
+
+```{r}
+#| label: plot-kappa
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.2
+kappa_path |>
+  select(kappa, cv, estimation, test) |>
+  pivot_longer(-kappa, names_to = "sample", values_to = "sharpe") |>
+  mutate(sample = factor(
+    case_match(sample, "cv" ~ "Cross-validation (estimation sample)", "estimation" ~ "Estimation 1973–1999", "test" ~ "Test 2000–2023"),
+    levels = c("Estimation 1973–1999", "Cross-validation (estimation sample)", "Test 2000–2023")
+  )) |>
+  ggplot(aes(x = kappa, y = sharpe, color = sample)) +
+  geom_vline(xintercept = implied_kappa(ridge_lambda), linetype = "dashed", color = grey) +
+  geom_line(linewidth = 1) +
+  scale_x_log10() +
+  scale_color_manual(values = c("#b3b3b3", jet, ku_red)) +
+  labs(x = "Maximum Sharpe ratio the prior expects (κ, annualized)", y = "Sharpe ratio", color = NULL) +
+  theme(legend.position = "bottom")
+```
+
+- The cross-validated $\lambda$ = `r penalty_text(ridge_lambda)` means a prior that expects a maximum Sharpe ratio of about **`r number(implied_kappa(ridge_lambda), 0.1)`** a year: still optimistic, but far below the plug-in's `r number(plug_in_sharpe[["estimation"]], 0.1)`
+- Same portfolio as ridge on the regression of lecture 10 (correlation of the weights `r number(same_direction, 0.01)`): the prior is the reason for the penalty, not a new method
+
+## How many anomalies does the SDF need?
+
+```{r}
+#| label: size-poll-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, size_poll = size_poll, size_choices = size_choices)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="40%"}
+```{ojs}
+//| label: size-poll-qr
+//| echo: false
+pollQR(size_poll, size_choices)
+```
+:::
+::: {.column width="60%"}
+```{ojs}
+//| label: size-poll-live
+//| echo: false
+size_answers = pollAnswers(size_poll)
+pollBars(size_answers, size_choices)
+```
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+How many of the `r ncol(returns)` anomalies does a good SDF of the zoo need?
+
+```{r}
+#| label: size-poll-choices
+#| echo: false
+#| results: asis
+cat(paste0("- ", size_choices, collapse = "\n"), "\n")
+```
+:::
+
+# Sparse in anomalies or in principal components?
+
+## Principal components as portfolios
+
+- Kozak, Nagel & Santosh: an SDF with a few anomalies prices badly; an SDF with a few **principal components** of the anomalies prices well
+- A principal component is a portfolio of all anomalies: rotate the returns, run the lasso on the components, rotate the weights back
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: pc-lasso-r
+pc_lasso_weights <- function(x, lambda) {
+  components <- eigen(cov(x), symmetric = TRUE)$vectors
+  components %*% lasso_weights(x %*% components, lambda)
+}
+
+pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(pc_lasso_weights, lambda))
+pc_lasso_lambda <- lasso_lambdas[which.max(pc_lasso_cv)]
+```
+
+## Python
+
+```{python}
+#| label: pc-lasso-py
+#| eval: false
+def pc_lasso_weights(x, lam):
+    _, components = np.linalg.eigh(np.cov(x, rowvar=False))
+    return components @ lasso_weights(x @ components, lam)
+
+
+pc_lasso_cv = [cv_sharpe(pc_lasso_weights, lam) for lam in lasso_lambdas]
+pc_lasso_lambda = lasso_lambdas[np.argmax(pc_lasso_cv)]
+```
+:::
+
+The principal components come from the estimation folds only, also inside the cross-validation
+
+## Sparse in what?
+
+```{r}
+#| label: sparsity-paths
+#| include: false
+components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
+sparsity <- bind_rows(
+  map(lasso_lambdas, \(lambda) {
+    weights <- lasso_weights(x_estimation, lambda)
+    tibble(inputs = "Anomalies", lambda = lambda, kept = sum(weights != 0), !!!portfolio_sharpe(weights))
+  }),
+  map(lasso_lambdas, \(lambda) {
+    pc_weights <- lasso_weights(x_estimation %*% components_estimation, lambda)
+    tibble(
+      inputs = "Principal components", lambda = lambda, kept = sum(pc_weights != 0),
+      !!!portfolio_sharpe(components_estimation %*% pc_weights)
+    )
+  })
+)
+pc_chosen <- sparsity |> filter(inputs == "Principal components", lambda == pc_lasso_lambda)
+anomaly_chosen <- sparsity |> filter(inputs == "Anomalies", lambda == lasso_lambda)
+```
+
+```{r}
+#| label: plot-sparsity
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4.2
+chosen <- bind_rows(anomaly_chosen, pc_chosen)
+ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  geom_point(data = chosen, size = 5, shape = 21, stroke = 1.3, fill = NA) +
+  scale_color_manual(values = c(jet, ku_red)) +
+  labs(
+    x = "Anomalies or principal components with a weight", y = "Sharpe ratio 2000–2023",
+    color = "Lasso on", caption = "Circles: penalty chosen by cross-validation"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+- On our zoo, the components are **not** sparser: `r pc_chosen$kept` components give `r number(pc_chosen$test, 0.01)` in the test sample, `r anomaly_chosen$kept` anomalies give `r number(anomaly_chosen$test, 0.01)`
+- Neither is sparse: a good SDF of the zoo needs dozens of anomalies or components, not a handful
+
+## Beyond one SDF: averaging over models
+
+- Every penalty, every sparse set of anomalies is one model of the SDF. Which one is right is uncertain, too
+- **Bayesian model averaging** (Bryzgalova, Huang & Julliard, 2023): weight every combination of factors by its posterior probability and average the SDFs
+- Their finding: no small set of factors dominates; the averaged SDF is dense, in line with the scoreboard
+
+## Scoreboard
+
+```{r}
+#| label: scoreboard
+#| echo: false
+tibble(
+  Portfolio = c(
+    "Market", "1/N over all anomalies", "Plug-in mean-variance",
+    "Ridge (prior on Sharpe ratios)",
+    "Lasso on anomalies",
+    "Lasso on principal components"
+  ),
+  Inputs = c(
+    "Market", paste(ncol(returns), "anomalies"), paste(ncol(returns), "anomalies"),
+    paste(ncol(returns), "anomalies"), paste(anomaly_chosen$kept, "anomalies"),
+    paste(pc_chosen$kept, "components")
+  ),
+  estimation = c(
+    market_sharpe[["estimation"]], equal_sharpe[["estimation"]], plug_in_sharpe[["estimation"]],
+    ridge_sharpe[["estimation"]], anomaly_chosen$estimation, pc_chosen$estimation
+  ),
+  test = c(
+    market_sharpe[["test"]], equal_sharpe[["test"]], plug_in_sharpe[["test"]],
+    ridge_sharpe[["test"]], anomaly_chosen$test, pc_chosen$test
+  )
+) |>
+  mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
+  rename(`Sharpe ratio 1973–1999` = estimation, `Sharpe ratio 2000–2023` = test)
+```
+
+- Every penalty chosen by cross-validation in the estimation sample
+- **Lecture 12:** a few factors from the principal components, chosen for their premium instead of their variance

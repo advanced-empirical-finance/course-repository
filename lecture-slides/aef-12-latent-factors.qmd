@@ -1,25 +1,365 @@
 ---
 subtitle: Latent factors
 date: 2027-04-08
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-3-multifactor-models-and-the-reproducibility-crisis.qmd: "Factor selection: Principal Components"
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(glmnet)
+library(scales)
+library(patchwork)
+
+# The factor zoo of lectures 10 and 11
+sample_start <- ymd("1973-01-01")
+sample_end <- ymd("2023-12-31")
+test_start <- ymd("2000-01-01")
+n_folds <- 5
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+
+# Factors: up to 60, the few-factor models of the scoreboard; the weight on
+# the means of Lettau & Pelger (2020)
+max_factors <- 60
+few_factors <- c(5, 20)
+phi_rp <- 10
+phis <- c(0, 1, 2, 5, 10, 20, 50, 100)
+
+months_per_year <- 12
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+
+source("lecture-slides/_live-poll.R")
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+import numpy as np
+```
+
+```{r}
+#| label: lectures-10-and-11-code
+#| include: false
+# The data and functions of lectures 10 and 11
+osap_url <- paste0(
+  "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
+  "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
+)
+osap_file <- "data/osap_long_short_returns.parquet"
+if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+anomalies <- read_parquet(osap_file) |>
+  mutate(date = floor_date(as.Date(date), "month")) |>
+  filter(between(date, sample_start, sample_end)) |>
+  select(date, where(\(x) !anyNA(x)))
+returns <- as.matrix(select(anomalies, -date)) / 100
+estimation <- anomalies$date < test_start
+x_estimation <- returns[estimation, ]
+
+sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
+portfolio_sharpe <- function(weights) {
+  c(
+    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
+    test = sharpe_ratio(returns[!estimation, ] %*% weights)
+  )
+}
+ridge_weights <- function(x, lambda) {
+  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+}
+folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
+cv_sharpe <- function(fit_weights, lambda) {
+  map_dbl(seq_len(n_folds), \(k) {
+    weights <- fit_weights(x_estimation[folds != k, ], lambda)
+    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
+  }) |>
+    mean(na.rm = TRUE)
+}
+
+market <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  filter(between(date, sample_start, sample_end))
+market_sharpe <- c(
+  estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
+  test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+)
+plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
+ridge_lambda <- ridge_lambdas[which.max(map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda)))]
+ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
+```
 
 ## Today
 
-- Principal components of returns
-- Risk-premium PCA
-- Latent factors and the SDF
+- Principal components of the factor zoo
+- Variance is not a premium: risk-premium PCA
+- How many factors?
 
-## Principal components of returns
+## From 158 anomalies to a few factors
 
-TBD
+- **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. Its weights still come from `r ncol(returns)` means and `r ncol(returns) * (ncol(returns) + 1) / 2` covariances
+- **A factor model:** a few factors drive all `r ncol(returns)` returns, $F_t = \Lambda f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
+- **The factors are latent:** we estimate them from the returns themselves
 
-## Risk-premium PCA
+::: {.highlight}
+**Today:** which few factors? The ones that explain the most variance, or the ones that carry a premium?
+:::
 
-TBD
+# Principal components
 
-## Latent factors and the SDF
+## Whiteboard: principal component analysis
 
-TBD
+::: {.box}
+Find the portfolio $w$ of the anomalies with the largest variance, $\max_w w'\Sigma w$ subject to $w'w = 1$. Then the next one, uncorrelated with the first
+:::
+
+::: {.fragment}
+$$
+\Sigma w = \delta\, w \qquad \Longrightarrow \qquad \Sigma = \sum_j \delta_j\, v_j v_j'
+$$
+
+- The principal components are the eigenvectors $v_j$ of $\Sigma$, sorted by their eigenvalues $\delta_j$, the variances of the factors $f_{j,t} = v_j' F_t$
+- The first $k$ components explain the most variance that any $k$ factors can: the best factor model in the least-squares sense
+:::
+
+## Principal components in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: factor-weights-r
+# Mean-variance weights on the first k eigenvectors of the covariance
+# matrix plus phi times the outer product of the means (phi = 0: PCA)
+factor_weights <- function(x, k, phi = 0) {
+  mu <- colMeans(x)
+  loadings <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors[, seq_len(k), drop = FALSE]
+  factors <- x %*% loadings
+  loadings %*% solve(cov(factors), colMeans(factors))
+}
+```
+
+## Python
+
+```{python}
+#| label: factor-weights-py
+#| eval: false
+# Mean-variance weights on the first k eigenvectors of the covariance
+# matrix plus phi times the outer product of the means (phi = 0: PCA)
+def factor_weights(x, k, phi=0.0):
+    mu = x.mean(axis=0)
+    values, vectors = np.linalg.eigh(np.cov(x, rowvar=False) + phi * np.outer(mu, mu))
+    loadings = vectors[:, np.argsort(values)[::-1][:k]]
+    factors = x @ loadings
+    covariance = np.atleast_2d(np.cov(factors, rowvar=False))
+    return loadings @ np.linalg.solve(covariance, factors.mean(axis=0))
+```
+:::
+
+The factors are portfolios of the anomalies; their mean-variance portfolio is again a portfolio of the anomalies, so `portfolio_sharpe()` of lecture 10 evaluates it
+
+## Variance is not a premium
+
+```{r}
+#| label: component-premia
+#| include: false
+eigen_estimation <- eigen(cov(x_estimation), symmetric = TRUE)
+components <- tibble(
+  component = seq_len(30),
+  variance_share = eigen_estimation$values[seq_len(30)] / sum(eigen_estimation$values),
+  sharpe = map_dbl(component, \(j) abs(sharpe_ratio(x_estimation %*% eigen_estimation$vectors[, j])))
+)
+pca_path <- map(seq_len(max_factors), \(k) tibble(factors = k, !!!portfolio_sharpe(factor_weights(x_estimation, k)))) |>
+  bind_rows()
+```
+
+```{r}
+#| label: plot-component-premia
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.8
+variance_panel <- ggplot(components, aes(x = component, y = variance_share)) +
+  geom_col(fill = "#b3b3b3") +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Principal component", y = "Share of the variance")
+sharpe_panel <- ggplot(components, aes(x = component, y = sharpe)) +
+  geom_col(fill = ku_red) +
+  labs(x = "Principal component", y = "Sharpe ratio, 1973–1999")
+variance_panel + sharpe_panel
+```
+
+- The first component explains `r percent(components$variance_share[1])` of the variance, but its Sharpe ratio is only `r number(components$sharpe[1], 0.01)`. Components further down carry the premia
+- Mean-variance portfolio of the first 1, 5 and 20 components in the test sample: `r number(pca_path$test[1], 0.01)`, `r number(pca_path$test[5], 0.01)` and `r number(pca_path$test[20], 0.01)`
+
+# Risk-premium PCA
+
+## Whiteboard: risk-premium PCA
+
+::: {.box}
+Lettau & Pelger (2020): choose the factors so that they explain the variances **and** the means of the anomalies
+:::
+
+::: {.fragment}
+$$
+\text{eigenvectors of} \quad \Sigma + \varphi\, \mu\mu'
+$$
+
+- $\varphi = 0$: PCA. $\varphi > 0$: directions in which the anomalies have large means count more, so factors with a premium move up the ranking
+- The factors still explain the comovement: a compromise between a factor model and the SDF
+- In the code, `factor_weights(x, k, phi)` with $\varphi$ = `r phi_rp`, a weight of the size Lettau & Pelger use
+:::
+
+## Risk-premium PCA on the zoo
+
+```{r}
+#| label: rp-pca-paths
+#| include: false
+#| cache: true
+#| cache.extra: !expr list(phis, max_factors, sample_end)
+factor_paths <- expand_grid(phi = phis, factors = seq_len(max_factors)) |>
+  mutate(sharpe = map2(phi, factors, \(phi, k) portfolio_sharpe(factor_weights(x_estimation, k, phi)))) |>
+  unnest_wider(sharpe)
+```
+
+```{r}
+#| label: rp-pca-live-data
+#| include: false
+rp_path <- factor_paths |> filter(phi == phi_rp)
+
+if (live) {
+  ojs_define(factor_paths = factor_paths, phis = phis)
+}
+```
+
+::: {.content-visible when-profile="live"}
+```{ojs}
+//| label: phi-slider
+//| echo: false
+viewof phi_index = Inputs.range([0, phis.length - 1], {step: 1, value: 4, width: 520, label: "Weight on the means φ",
+  format: i => phis[i]})
+phi_now = phis[phi_index]
+```
+
+```{ojs}
+//| label: phi-paths-live
+//| echo: false
+Plot.plot({
+  width: 960,
+  height: 400,
+  x: {label: "Number of factors"},
+  y: {label: "Sharpe ratio", grid: true},
+  color: {legend: true, domain: ["PCA, test", `φ = ${phi_now}, estimation`, `φ = ${phi_now}, test`],
+          range: ["#b3b3b3", "#3d3d3d", "#901A1E"]},
+  marks: [
+    Plot.line(transpose(factor_paths).filter(d => d.phi === 0), {x: "factors", y: "test", stroke: () => "PCA, test", strokeWidth: 2}),
+    Plot.line(transpose(factor_paths).filter(d => d.phi === phi_now), {x: "factors", y: "estimation", stroke: () => `φ = ${phi_now}, estimation`, strokeDasharray: "4,3"}),
+    Plot.line(transpose(factor_paths).filter(d => d.phi === phi_now), {x: "factors", y: "test", stroke: () => `φ = ${phi_now}, test`, strokeWidth: 2.5})
+  ]
+})
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: plot-rp-pca
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.2
+factor_paths |>
+  filter(phi %in% c(0, phi_rp)) |>
+  mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp))) |>
+  pivot_longer(c(estimation, test), names_to = "sample", values_to = "sharpe") |>
+  mutate(sample = if_else(sample == "estimation", "Estimation 1973–1999", "Test 2000–2023")) |>
+  ggplot(aes(x = factors, y = sharpe, color = method)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(vars(sample), scales = "free_y") +
+  scale_color_manual(values = c("#b3b3b3", ku_red)) +
+  labs(x = "Number of factors", y = "Sharpe ratio", color = NULL) +
+  theme(legend.position = "bottom")
+```
+:::
+
+- With a weight on the means, one factor reaches `r number(rp_path$test[1], 0.01)` in the test sample (PCA: `r number(pca_path$test[1], 0.01)`), five reach `r number(rp_path$test[5], 0.01)` (PCA: `r number(pca_path$test[5], 0.01)`)
+- With many factors the gap narrows, since both span more and more of the same space: at `r max_factors` factors, `r number(pca_path$test[max_factors], 0.01)` against `r number(rp_path$test[max_factors], 0.01)`
+
+## How many factors?
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: choose-factors-r
+#| cache: true
+#| cache.extra: !expr list(phi_rp, max_factors, n_folds, sample_end)
+# The number of factors is a tuning parameter: cross-validation as in lecture 11
+factor_cv <- expand_grid(phi = c(0, phi_rp), factors = seq_len(max_factors)) |>
+  mutate(cv = map2_dbl(phi, factors, \(phi, k) cv_sharpe(\(x, k) factor_weights(x, k, phi), k)))
+```
+
+## Python
+
+```{python}
+#| label: choose-factors-py
+#| eval: false
+# The number of factors is a tuning parameter: cross-validation as in lecture 11
+factor_cv = {(phi, k): cv_sharpe(lambda x, k: factor_weights(x, k, phi), k)
+             for phi in [0, 10] for k in range(1, 61)}
+```
+:::
+
+```{r}
+#| label: plot-factor-cv
+#| echo: false
+#| fig-width: 10
+#| fig-height: 2.7
+factor_cv |>
+  mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp))) |>
+  ggplot(aes(x = factors, y = cv, color = method)) +
+  geom_line(linewidth = 1) +
+  scale_color_manual(values = c("#b3b3b3", ku_red)) +
+  labs(x = "Number of factors", y = "Validation Sharpe ratio", color = NULL) +
+  theme(legend.position = "right")
+```
+
+- Cross-validation keeps adding factors: the validation Sharpe ratio is still rising at `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
+- A few factors are still a useful summary: with a weight on the means, `r few_factors[1]` factors reach `r number(rp_path$test[few_factors[1]], 0.01)` in the test sample; PCA does not get there with up to `r max_factors` factors (`r number(pca_path$test[max_factors], 0.01)` at `r max_factors`)
+
+## Outlook: loadings from characteristics
+
+- PCA treats the loadings $\Lambda$ as constant. But a stock's exposure changes with its size, value or momentum
+- **Instrumented PCA** (Kelly, Pruitt & Su, 2019): loadings are functions of characteristics, $\beta_{i,t} = z_{i,t}'\Gamma$, and the factors stay latent. A handful of such factors prices the cross-section of individual stocks
+- **Lecture 14:** a neural network lets the SDF weights depend on characteristics in any shape
+
+## Scoreboard
+
+```{r}
+#| label: scoreboard
+#| echo: false
+few <- bind_rows(
+  pca_path |> filter(factors %in% few_factors) |> mutate(Portfolio = "PCA"),
+  rp_path |> filter(factors %in% few_factors) |> mutate(Portfolio = paste0("RP-PCA, φ = ", phi_rp))
+)
+tibble(
+  Portfolio = c("Market", "Plug-in mean-variance", "Ridge (prior on Sharpe ratios)", few$Portfolio),
+  Inputs = c(
+    "Market", paste(ncol(returns), "anomalies"), paste(ncol(returns), "anomalies"),
+    paste(few$factors, "factors")
+  ),
+  estimation = c(
+    market_sharpe[["estimation"]], plug_in_sharpe[["estimation"]], ridge_sharpe[["estimation"]],
+    few$estimation
+  ),
+  test = c(market_sharpe[["test"]], plug_in_sharpe[["test"]], ridge_sharpe[["test"]], few$test)
+) |>
+  mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
+  rename(`Sharpe ratio 1973–1999` = estimation, `Sharpe ratio 2000–2023` = test)
+```
+
+- The few-factor models at `r few_factors[1]` and `r few_factors[2]` factors, since cross-validation does not stop; the rows of lectures 10 and 11 not shown here stay on the scoreboard
+
+::: {.highlight}
+Assignment 2 on machine learning in asset pricing starts today
+:::

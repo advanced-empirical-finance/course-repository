@@ -1,26 +1,346 @@
 ---
 subtitle: Neural networks and learning the SDF
 date: 2027-04-19
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
-# - aef-4-machine-learning.qmd: "Neural networks" to "Beyond feed-forward networks"
-# - aef-4-machine-learning.qmd: "Interpreting ML models", "Economic structure vs. pure prediction", "Case studies"
 ---
+
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(nnet)
+library(scales)
+
+# The factor zoo of lectures 10 to 13
+sample_start <- ymd("1973-01-01")
+sample_end <- ymd("2023-12-31")
+test_start <- ymd("2000-01-01")
+n_folds <- 5
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+macro_names <- c("dp", "tbl", "tms", "dfy", "svar")
+
+# The networks for the forecasts: hidden units, the weight decays to choose
+# from on the validation years, and the size of the ensemble
+hidden_units <- 5
+decays <- c(1, 3, 10, 30, 100, 300, 1000)
+validation_start <- ymd("1995-01-01")
+n_networks <- 5
+
+months_per_year <- 12
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+from datetime import date
+
+import numpy as np
+import polars as pl
+from sklearn.neural_network import MLPRegressor
+```
+
+```{r}
+#| label: lectures-10-to-13-code
+#| include: false
+# The data, the ridge SDF and the forecast panel of lectures 10 to 13
+osap_url <- paste0(
+  "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
+  "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
+)
+osap_file <- "data/osap_long_short_returns.parquet"
+if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+anomalies <- read_parquet(osap_file) |>
+  mutate(date = floor_date(as.Date(date), "month")) |>
+  filter(between(date, sample_start, sample_end)) |>
+  select(date, where(\(x) !anyNA(x)))
+returns <- as.matrix(select(anomalies, -date)) / 100
+estimation <- anomalies$date < test_start
+x_estimation <- returns[estimation, ]
+
+sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
+ridge_weights <- function(x, lambda) {
+  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+}
+folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
+cv_sharpe <- function(fit_weights, lambda) {
+  map_dbl(seq_len(n_folds), \(k) {
+    weights <- fit_weights(x_estimation[folds != k, ], lambda)
+    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
+  }) |>
+    mean(na.rm = TRUE)
+}
+ridge_lambda <- ridge_lambdas[which.max(map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda)))]
+ridge_sharpe <- c(
+  estimation = sharpe_ratio(returns[estimation, ] %*% ridge_weights(x_estimation, ridge_lambda)),
+  test = sharpe_ratio(returns[!estimation, ] %*% ridge_weights(x_estimation, ridge_lambda))
+)
+
+macro <- read_parquet("data/macro_predictors.parquet") |>
+  transmute(date = date %m+% months(1), across(all_of(macro_names))) |>
+  mutate(across(all_of(macro_names), \(x) (x - mean(x[date < test_start])) / sd(x[date < test_start])))
+panel <- anomalies |>
+  pivot_longer(-date, names_to = "anomaly", values_to = "ret") |>
+  mutate(ret = ret / 100) |>
+  arrange(anomaly, date) |>
+  mutate(
+    ret_lag_1 = lag(ret),
+    momentum_12 = slider::slide_dbl(lag(ret), mean, .before = 11, .complete = TRUE),
+    .by = anomaly
+  ) |>
+  left_join(macro, join_by(date)) |>
+  drop_na()
+train <- panel |> filter(date < test_start)
+test_rows <- panel$date >= test_start
+
+covariance <- cov(x_estimation)
+forecast_row <- function(method, forecast) {
+  oos_r2 <- 1 - sum((panel$ret[test_rows] - forecast[test_rows])^2) / sum(panel$ret[test_rows]^2)
+  portfolio <- panel |>
+    mutate(forecast = forecast) |>
+    select(date, anomaly, forecast, ret) |>
+    nest(data = -date) |>
+    mutate(ret = map_dbl(data, \(d) {
+      order <- match(colnames(returns), d$anomaly)
+      weights <- solve(covariance + ridge_lambda * diag(ncol(returns)), d$forecast[order])
+      sum(weights * d$ret[order])
+    }))
+  tibble(
+    method = method, oos_r2 = oos_r2,
+    estimation = sharpe_ratio(portfolio$ret[portfolio$date < test_start]),
+    test = sharpe_ratio(portfolio$ret[portfolio$date >= test_start])
+  )
+}
+```
 
 ## Today
 
-- Feed-forward neural networks
-- Training: backpropagation and regularization
-- Learning the SDF with neural networks
+- Neural networks: a short introduction
+- A network for the returns of the zoo
+- Learning the SDF directly: Chen, Pelger & Zhu (2024)
+- Flexibility against economic structure
 
-## Feed-forward neural networks
+# Neural networks
 
-TBD
+## Whiteboard: a feed-forward network
 
-## Training: backpropagation and regularization
+::: {.box}
+Build a flexible function $g(z)$ from simple pieces: each **neuron** takes a weighted sum of its inputs and passes it through a nonlinear **activation**
+:::
 
-TBD
+::: {.fragment}
+$$
+h^{(1)} = \sigma\big(W^{(1)} z + c^{(1)}\big), \quad h^{(2)} = \sigma\big(W^{(2)} h^{(1)} + c^{(2)}\big), \quad g(z) = w' h^{(L)} + c
+$$
 
-## Learning the SDF with neural networks
+- $\sigma(x) = \max(x, 0)$ (ReLU) or the logistic function. Without $\sigma$, the network would be linear regression
+- With enough neurons, a network approximates any smooth function. The price: many parameters, here `r hidden_units * (2 + length(macro_names) + 1) + hidden_units + 1` already for one layer of `r hidden_units` neurons and `r 2 + length(macro_names)` inputs
+:::
 
-TBD
+## Training a network
+
+- **Loss:** the mean squared forecast error, as for OLS. No closed form: **gradient descent** moves all weights a small step against the gradient of the loss
+- **Backpropagation:** the chain rule gives the gradients of all layers in one backward pass; mini-batches of observations make each step cheap
+- **Regularization**, because the network can fit the noise:
+  - **weight decay:** a ridge penalty on the weights
+  - **early stopping:** stop when the loss in a validation sample rises; the validation sample also chooses the penalty
+  - **dropout:** switch off random neurons during training
+  - **ensembles:** average networks from different random starts
+- Gu, Kelly & Xiu (2020) use all of them; their best networks have three or four layers
+
+## A network for the returns of the zoo
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: fit-network-r
+#| cache: true
+#| cache.extra: !expr list(decays, hidden_units, n_networks, validation_start, macro_names, sample_end)
+features <- c("ret_lag_1", "momentum_12", macro_names)
+centers <- colMeans(train[features])
+input_sd <- apply(train[features], 2, sd)
+scale_inputs <- function(data) scale(as.matrix(data[features]), centers, input_sd)
+ret_sd <- sd(train$ret)  # returns in units of their volatility, so that the decay has a scale
+
+fit_network <- function(data, decay, seed) {
+  set.seed(seed)
+  nnet(scale_inputs(data), data$ret / ret_sd, size = hidden_units, decay = decay,
+       linout = TRUE, maxit = 500, trace = FALSE)
+}
+# Weight decay chosen on the validation years 1995-1999, then an ensemble of five networks
+fitting <- filter(train, date < validation_start)
+validation <- filter(train, date >= validation_start)
+validation_mse <- map_dbl(decays, \(decay) {
+  mean((validation$ret - predict(fit_network(fitting, decay, 1), scale_inputs(validation)) * ret_sd)^2)
+})
+decay <- decays[which.min(validation_mse)]
+network_forecast <- map(seq_len(n_networks), \(seed) {
+  as.vector(predict(fit_network(train, decay, seed), scale_inputs(panel))) * ret_sd
+}) |>
+  reduce(`+`) / n_networks
+```
+
+## Python
+
+```{python}
+#| label: fit-network-py
+#| eval: false
+features = ["ret_lag_1", "momentum_12", *macro_names]
+centers = train.select(features).mean().to_numpy()
+input_sd = train.select(features).std().to_numpy()
+scale_inputs = lambda data: (data.select(features).to_numpy() - centers) / input_sd
+ret_sd = train["ret"].std()  # returns in units of their volatility, so that the decay has a scale
+
+
+def fit_network(data, decay, seed):
+    return MLPRegressor(hidden_layer_sizes=(5,), activation="logistic", solver="lbfgs", alpha=decay,
+                        max_iter=500, random_state=seed).fit(scale_inputs(data), data["ret"].to_numpy() / ret_sd)
+
+
+# Weight decay chosen on the validation years 1995-1999, then an ensemble of five networks
+fitting, validation = train.filter(pl.col("date") < date(1995, 1, 1)), train.filter(pl.col("date") >= date(1995, 1, 1))
+validation_mse = [np.mean((validation["ret"].to_numpy() - fit_network(fitting, d, 1).predict(scale_inputs(validation)) * ret_sd) ** 2)
+                  for d in [1, 3, 10, 30, 100, 300, 1000]]
+decay = [1, 3, 10, 30, 100, 300, 1000][int(np.argmin(validation_mse))]
+network_forecast = np.mean([fit_network(train, decay, seed).predict(scale_inputs(panel)) * ret_sd
+                            for seed in range(1, 6)], axis=0)
+```
+:::
+
+```{r}
+#| label: network-row
+#| include: false
+network_row <- forecast_row("Neural network", network_forecast)
+ols_row <- forecast_row("OLS", predict(lm(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar, data = train), panel))
+```
+
+One hidden layer of `r hidden_units` logistic neurons, weight decay `r decay` (chosen on 1995–1999), five networks averaged. Out-of-sample $R^2$ `r percent(network_row$oos_r2, 0.01)` (OLS: `r percent(ols_row$oos_r2, 0.01)`); as a portfolio with the forecasts as expected returns (lecture 13): Sharpe ratio `r number(network_row$test, 0.01)` in the test sample. `nnet()` and scikit-learn (same penalty scale) start from different random weights, so their networks differ a little
+
+# Learning the SDF
+
+## Whiteboard: SDF weights that depend on the state
+
+::: {.box}
+Lecture 11: constant weights, $M_{t+1} = 1 - b'F_{t+1}$. Now each anomaly's weight depends on what we know at $t$: $M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}$
+:::
+
+::: {.fragment}
+$$
+E\big[M_{t+1} F_{i,t+1} \mid I_t\big] = 0 \qquad \Longleftrightarrow \qquad E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big] = 0 \ \text{ for all } g
+$$
+
+- The conditional moments hold for every **instrument** $g$: every managed portfolio $F_{i,t+1}\, g(\cdot)$ must be priced, too
+- A network $\omega(\cdot)$ for the weights, estimated by minimizing the squared pricing errors of these moments
+:::
+
+## The adversary
+
+- Infinitely many instruments $g$: which ones should the SDF price? Chen, Pelger & Zhu (2024): let a **second network** choose them
+- The adversary picks the managed portfolios with the **largest pricing errors**; the SDF network then learns to price them. A game, like a generative adversarial network:
+
+$$
+\min_{\omega} \ \max_{g} \ \frac{1}{N}\sum_i \Big\| E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big] \Big\|^2
+$$
+
+- Their result on US stocks: an SDF with an out-of-sample Sharpe ratio far above linear factor models, using the macro state and characteristics
+
+## Chen–Pelger–Zhu light on the zoo
+
+```{python}
+#| label: show-cpz-networks
+#| eval: false
+def network(n_out, hidden, dropout):
+    return nn.Sequential(
+        nn.Linear(n_inputs, hidden), nn.ReLU(), nn.Dropout(dropout),
+        nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(dropout),
+        nn.Linear(hidden, n_out),
+    )
+
+
+def pricing_loss(weights, instruments, months):
+    """Mean squared pricing error of the moments E[M F_i g_j] = 0."""
+    sdf = 1 - (weights * returns).sum(dim=1)
+    moments = (sdf[:, None, None] * returns[:, :, None] * instruments)[months].mean(dim=0)
+    return (moments ** 2).sum(dim=1).mean()
+```
+
+- **Inputs of each anomaly:** last month's return, factor momentum, its historical mean, its loadings on the first 10 principal components; optionally the macro state
+- **Training** 1974–1994, **validation** 1995–1999 (early stopping and the choice of the setting), test from 2000. PyTorch only: `lecture-slides/factor-zoo/cpz_light.py`, 72 settings × 9 networks, 2 h 14 min on 64 UCloud cores
+
+## What the networks earn
+
+```{r}
+#| label: cpz-results
+#| include: false
+cpz_runs <- read_csv("lecture-slides/factor-zoo/results/cpz_light_runs.csv", show_col_types = FALSE) |>
+  filter(seeds == 9) |>
+  mutate(model = if_else(str_detect(model, "Chen"), "Chen–Pelger–Zhu light", "Feed-forward SDF"))
+cpz_chosen <- cpz_runs |> slice_max(sr_valid, n = 1, by = model)
+cpz_light <- cpz_chosen |> filter(model == "Chen–Pelger–Zhu light")
+feed_forward <- cpz_chosen |> filter(model == "Feed-forward SDF")
+cpz_correlation <- cpz_runs |>
+  summarize(correlation = cor(sr_valid, sr_test), .by = model) |>
+  deframe()
+```
+
+```{r}
+#| label: plot-cpz
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.8
+ggplot(cpz_runs, aes(x = sr_valid, y = sr_test, color = model)) +
+  geom_hline(yintercept = ridge_sharpe[["test"]], linetype = "dashed", color = grey) +
+  annotate("text", x = min(cpz_runs$sr_valid), y = ridge_sharpe[["test"]] + 0.08, label = "Ridge SDF", hjust = 0, color = grey) +
+  geom_point(alpha = 0.6) +
+  geom_point(data = cpz_chosen, size = 5, shape = 21, stroke = 1.3, fill = NA) +
+  scale_color_manual(values = c("Chen–Pelger–Zhu light" = ku_red, "Feed-forward SDF" = "#b3b3b3")) +
+  labs(x = "Sharpe ratio, validation 1995–1999", y = "Sharpe ratio 2000–2023", color = NULL) +
+  theme(legend.position = "bottom")
+```
+
+- Each dot is one of the 72 settings; circles: the setting chosen on the validation sample. The adversary helps: `r number(cpz_light$sr_test, 0.01)` against `r number(feed_forward$sr_test, 0.01)` without it
+- For Chen–Pelger–Zhu light, the validation Sharpe ratio predicts the test Sharpe ratio (correlation `r number(cpz_correlation[["Chen–Pelger–Zhu light"]], 0.01)`). But no setting reaches the ridge SDF
+
+## Flexibility against economic structure
+
+- **Nagel (2021):** returns are noisy and samples are short; machine learning in asset pricing works best with economic restrictions, such as a prior that rules out implausibly high Sharpe ratios
+- **Our scoreboard:** 158 anomalies, 27 years of estimation data. The ridge SDF has one tuning parameter and an economic prior; the networks have thousands of parameters and only the data
+- Gu, Kelly & Xiu and Chen, Pelger & Zhu use tens of thousands of stocks and decades of data: there, flexibility pays
+
+::: {.highlight}
+The more data, the more flexibility can pay; with little data, economic structure wins
+:::
+
+## Scoreboard
+
+```{r}
+#| label: scoreboard
+#| echo: false
+tibble(
+  Portfolio = c(
+    "Ridge (prior on Sharpe ratios)", "Forecasts: OLS", "Forecasts: neural network",
+    "Feed-forward SDF", "Chen–Pelger–Zhu light"
+  ),
+  Inputs = c(
+    paste(ncol(returns), "anomalies"), "7 predictors", "7 predictors",
+    "Features of each anomaly", "Features of each anomaly"
+  ),
+  estimation = c(
+    ridge_sharpe[["estimation"]], ols_row$estimation, network_row$estimation,
+    feed_forward$sr_estimation, cpz_light$sr_estimation
+  ),
+  test = c(ridge_sharpe[["test"]], ols_row$test, network_row$test, feed_forward$sr_test, cpz_light$sr_test)
+) |>
+  mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
+  rename(`Sharpe ratio, estimation` = estimation, `Sharpe ratio 2000–2023` = test)
+```
+
+- The SDF networks: setting chosen on the validation sample 1995–1999, ensembles of 9 networks. The rows of lectures 10 to 13 stay on the scoreboard
+- **Lecture 15:** what all these portfolios trade, and what remains after costs
