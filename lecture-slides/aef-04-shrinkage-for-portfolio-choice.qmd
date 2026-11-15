@@ -219,7 +219,7 @@ $$
 ## Targets and the Ledoit-Wolf estimator
 
 - **A multiple of the identity**, $F = mI$ with $m$ the average variance (Ledoit & Wolf, 2004a): all variances equal, all correlations zero
-- **Constant correlation**, the same correlation for every pair (Ledoit & Wolf, 2004b): the estimator of exercise 3
+- **Constant correlation**, the same correlation for every pair (Ledoit & Wolf, 2004b)
 - **A single-factor model**, covariances from market betas (Ledoit & Wolf, 2003)
 
 ::: {.panel-tabset group="language"}

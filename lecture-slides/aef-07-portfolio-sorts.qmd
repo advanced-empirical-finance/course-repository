@@ -13,7 +13,7 @@ library(tidyfinance)
 library(scales)
 library(patchwork)
 
-# Betas as in exercise 4: CAPM regressions on the last 60 months, at least 48
+# Betas as in exercise 3: CAPM regressions on the last 60 months, at least 48
 window_length <- 60
 min_months <- 48
 
@@ -66,7 +66,7 @@ factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
 
 - **Lecture 6:** ten industries, 1960–2025. Higher betas came with barely higher average returns, but the GRS test could not reject the CAPM: the industries are too similar to each other and to the market
 - **Today:** all US stocks in CRSP, sorted into `r n_portfolios` portfolios by their beta
-- The betas are those of exercise 4: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`)
+- The betas are those of exercise 3: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`)
 
 ::: {.highlight}
 The CAPM says: the higher the beta, the higher the average return, one for one with the market premium
@@ -97,7 +97,7 @@ betas = tf.estimate_betas(
 ```
 :::
 
-- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 4 does it window by window, with the same numbers
+- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 3 uses it, too
 - `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks, `r year(min(betas$date))`–`r year(max(betas$date))`; the median beta is `r number(median(betas$beta_mkt_excess), 0.01)`
 
 ## What a portfolio sort does
