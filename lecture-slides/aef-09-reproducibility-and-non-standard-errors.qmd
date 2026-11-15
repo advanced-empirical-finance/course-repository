@@ -15,7 +15,7 @@ exercise_survey <- "aef27-ex05-beta-sorts"
 ## Today
 
 - Reproducibility
-- Non-standard errors: your estimates from exercise 5
+- Non-standard errors: your estimates from exercise 3
 - Construction choices in asset pricing
 
 ## What can go wrong doing empirical research?
@@ -34,7 +34,7 @@ Before we ask whether a result is *right*, we ask whether someone else can *reco
 :::
 
 ::: {.fragment}
-**This lecture.** We look at what breaks reproducibility in practice, compare your estimates from exercise 5, and see how construction choices move factor premia
+**This lecture.** We look at what breaks reproducibility in practice, compare your estimates from exercise 3, and see how construction choices move factor premia
 
 **Afterwards** you can check a report for reproducibility, explain why a reproducible result still carries researchers' degrees of freedom, and name the choices inside a portfolio sort
 :::
@@ -138,9 +138,9 @@ Hypothesis 1: market efficiency improves over time. Please send me your t-statis
 ::: {.fragment}
 ::: {.your-turn}
 
-[Exercise 5]{.your-turn-badge} You did the same
+[Exercise 3]{.your-turn-badge} You did the same
 
-**1. Data.** Monthly CRSP returns and your betas from exercise 4
+**1. Data.** Monthly CRSP returns and your betas from exercise 3
 
 **2. Hypothesis.** High-beta stocks earn lower CAPM alphas than low-beta stocks
 
@@ -245,7 +245,7 @@ Plot.plot({
 :::
 
 ::: {.content-visible unless-profile="live"}
-In exercise 5, you all tested the same hypothesis on the same data and made every other choice yourselves. In the lecture, we plot all your estimates with their 95% confidence intervals and compare their spread with your standard errors
+In exercise 3, you all tested the same hypothesis on the same data and made every other choice yourselves. In the lecture, we plot all your estimates with their 95% confidence intervals and compare their spread with your standard errors
 :::
 
 ## Which choices matter?

@@ -223,7 +223,7 @@ Questions about content go to the **Absalon discussion board**, so everyone bene
 ## Every week
 
 - **Lectures:** Mondays 8–10 in even weeks (CSS 1-1-18) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
-- **Exercises:** weekly, in R or Python, built on [Tidy Finance](https://www.tidy-finance.org); the solutions are in the book
+- **Exercises:** eight sets, in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions; none while an assignment runs
 - **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36): work on the exercises and ask for help
 
 ::: {.highlight}

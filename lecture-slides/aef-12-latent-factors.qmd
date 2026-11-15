@@ -36,6 +36,7 @@ light <- "#e6e3df"
 theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
 
 source("lecture-slides/_live-poll.R")
+validation_survey <- "aef27-validation-scheme"
 ```
 
 ```{python}
@@ -92,8 +93,17 @@ ridge_lambda <- ridge_lambdas[which.max(map_dbl(ridge_lambdas, \(lambda) cv_shar
 ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
 ```
 
+```{r}
+#| label: validation-live-data
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, validation_survey = validation_survey, ridge_test = ridge_sharpe[["test"]])
+}
+```
+
 ## Today
 
+- Your validation schemes
 - Principal components of the factor zoo
 - Variance is not a premium: risk-premium PCA
 - How many factors?
@@ -106,6 +116,43 @@ ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
 
 ::: {.highlight}
 **Today:** which few factors? The ones that explain the most variance, or the ones that carry a premium?
+:::
+
+# Your validation schemes
+
+## How much does the validation scheme matter?
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+```{ojs}
+//| label: class-validation
+//| echo: false
+validation_results = surveyResults(validation_survey)
+validation_rows = {
+  if (validation_results === null) return [];
+  const values = id => (validation_results.questions.find(q => q.id === id) || {}).values || [];
+  const test = values("sharpe_test"), blocks = values("blocks");
+  return test.map((t, i) => ({test: t, blocks: blocks[i] ?? "Other"})).filter(d => d.test != null);
+}
+Plot.plot({
+  width: 960,
+  height: 420,
+  marginLeft: 330,
+  x: {label: "Sharpe ratio of the ridge portfolio, 2000–2023", grid: true},
+  y: {label: null, domain: ["Consecutive blocks of months", "Random months", "Train on the past, validate on the next block", "Other"]},
+  marks: [
+    Plot.ruleX([ridge_test], {stroke: "#666666", strokeDasharray: "4,3"}),
+    Plot.text([`Lecture 11: five consecutive blocks, ${ridge_test.toFixed(2)}`], {x: ridge_test, frameAnchor: "top", dy: -6, fill: "#666666"}),
+    Plot.dot(validation_rows, {x: "test", y: "blocks", fill: "#901A1E", r: 7, fillOpacity: 0.7}),
+    Plot.text([`${validation_rows.length} results`], {frameAnchor: "bottom-right", dy: -6, fill: "#3d3d3d"})
+  ]
+})
+```
+:::
+
+::: {.content-visible unless-profile="live"}
+In the open question of exercise 5, you chose your own validation scheme for the ridge penalty. In the lecture, we plot your Sharpe ratios in the test sample by how you split the months, against the five consecutive blocks of lecture 11
 :::
 
 # Principal components

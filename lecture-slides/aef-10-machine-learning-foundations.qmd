@@ -12,7 +12,7 @@ library(glmnet)
 library(scales)
 library(patchwork)
 
-# The factor zoo of exercise 6: complete anomalies 1973-2023, estimation
+# The factor zoo of exercise 5: complete anomalies 1973-2023, estimation
 # sample until 1999, test sample from 2000
 sample_start <- ymd("1973-01-01")
 sample_end <- ymd("2023-12-31")
@@ -106,7 +106,7 @@ estimation = (anomalies["date"] < date(2000, 1, 1)).to_numpy()
 ```
 :::
 
-`r ncol(returns)` long-short portfolios from Open Source Asset Pricing (Chen & Zimmermann), the same data as exercise 6: estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r sum(estimation)` months), test sample `r year(test_start)`–`r year(sample_end)` (`r sum(!estimation)` months)
+`r ncol(returns)` long-short portfolios from Open Source Asset Pricing (Chen & Zimmermann), the same data as exercise 5: estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r sum(estimation)` months), test sample `r year(test_start)`–`r year(sample_end)` (`r sum(!estimation)` months)
 
 ## Sharpe ratios in both samples
 
