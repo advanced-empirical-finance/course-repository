@@ -238,7 +238,7 @@ The learning curve is steep: ask early, me directly, on Absalon or in the exerci
 |---|---|---|
 | 1 | Portfolio choice | 25 February – 4 March |
 | 2 | Machine learning in asset pricing | 8–15 April |
-| 3 | Volatility and covariances from high-frequency data | 29 April – 6 May |
+| 3 | Realized volatility from high-frequency data | 29 April – 6 May |
 
 - One week each; the assignments and the data come through Absalon
 - Hand in one `.qmd` file and the PDF rendered from it: at most 7 pages, 12 pt, in English, from the [templates](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments)
