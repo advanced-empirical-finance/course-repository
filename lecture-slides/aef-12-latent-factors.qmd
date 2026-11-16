@@ -28,12 +28,25 @@ phis <- c(0, 1, 2, 5, 10, 20, 50, 100)
 
 months_per_year <- 12
 
+# Principal components in the figure on variance and premia
+n_components_shown <- 30
+
+# Sample periods in labels, e.g. 1973–1999
+estimation_years <- paste0(year(sample_start), "–", year(test_start) - 1)
+test_years <- paste0(year(test_start), "–", year(sample_end))
+
+# Sharpe ratios in the text: none (–) for a negative mean excess return, since
+# more volatility would then raise the Sharpe ratio
+sharpe_text <- function(x) if_else(x > 0, number(x, 0.01), "–")
+
 # Colours of the slides, used by the figures
 ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 validation_survey <- "aef27-validation-scheme"
@@ -54,7 +67,9 @@ osap_url <- paste0(
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
 )
 osap_file <- "data/osap_long_short_returns.parquet"
-if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+if (!file.exists(osap_file)) {
+  download.file(osap_url, osap_file, mode = "wb")
+}
 anomalies <- read_parquet(osap_file) |>
   mutate(date = floor_date(as.Date(date), "month")) |>
   filter(between(date, sample_start, sample_end)) |>
@@ -89,7 +104,8 @@ market_sharpe <- c(
   test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
 )
 plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
-ridge_lambda <- ridge_lambdas[which.max(map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda)))]
+ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
+ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
 ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
 ```
 
@@ -97,7 +113,12 @@ ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
 #| label: validation-live-data
 #| include: false
 if (live) {
-  ojs_define(poll_base = poll_base, validation_survey = validation_survey, ridge_test = ridge_sharpe[["test"]])
+  ojs_define(
+    poll_base = poll_base,
+    validation_survey = validation_survey,
+    ridge_test = ridge_sharpe[["test"]],
+    test_years = test_years
+  )
 }
 ```
 
@@ -108,9 +129,9 @@ if (live) {
 - Variance is not a premium: risk-premium PCA
 - How many factors?
 
-## From 158 anomalies to a few factors
+## From `r ncol(returns)` anomalies to a few factors
 
-- **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. Its weights still come from `r ncol(returns)` means and `r ncol(returns) * (ncol(returns) + 1) / 2` covariances
+- **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. The SDF weights still come from `r ncol(returns)` means and `r comma(ncol(returns) * (ncol(returns) + 1) / 2)` covariances
 - **A factor model:** a few factors drive all `r ncol(returns)` returns, $F_t = \Lambda f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
 - **The factors are latent:** we estimate them from the returns themselves
 
@@ -139,7 +160,7 @@ Plot.plot({
   width: 960,
   height: 420,
   marginLeft: 330,
-  x: {label: "Sharpe ratio of the ridge portfolio, 2000–2023", grid: true},
+  x: {label: `Sharpe ratio of the ridge portfolio, ${test_years}`, grid: true},
   y: {label: null, domain: ["Consecutive blocks of months", "Random months", "Train on the past, validate on the next block", "Other"]},
   marks: [
     Plot.ruleX([ridge_test], {stroke: "#666666", strokeDasharray: "4,3"}),
@@ -157,7 +178,7 @@ In the open question of exercise 5, you chose your own validation scheme for the
 
 # Principal components
 
-## Whiteboard: principal component analysis
+## Principal component analysis
 
 ::: {.box}
 Find the portfolio $w$ of the anomalies with the largest variance, $\max_w w'\Sigma w$ subject to $w'w = 1$. Then the next one, uncorrelated with the first
@@ -183,7 +204,8 @@ $$
 # matrix plus phi times the outer product of the means (phi = 0: PCA)
 factor_weights <- function(x, k, phi = 0) {
   mu <- colMeans(x)
-  loadings <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors[, seq_len(k), drop = FALSE]
+  vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
+  loadings <- vectors[, seq_len(k), drop = FALSE]
   factors <- x %*% loadings
   loadings %*% solve(cov(factors), colMeans(factors))
 }
@@ -215,11 +237,16 @@ The factors are portfolios of the anomalies; their mean-variance portfolio is ag
 #| include: false
 eigen_estimation <- eigen(cov(x_estimation), symmetric = TRUE)
 components <- tibble(
-  component = seq_len(30),
-  variance_share = eigen_estimation$values[seq_len(30)] / sum(eigen_estimation$values),
-  sharpe = map_dbl(component, \(j) abs(sharpe_ratio(x_estimation %*% eigen_estimation$vectors[, j])))
+  component = seq_len(n_components_shown),
+  variance_share = eigen_estimation$values[component] /
+    sum(eigen_estimation$values),
+  sharpe = map_dbl(component, \(j) {
+    abs(sharpe_ratio(x_estimation %*% eigen_estimation$vectors[, j]))
+  })
 )
-pca_path <- map(seq_len(max_factors), \(k) tibble(factors = k, !!!portfolio_sharpe(factor_weights(x_estimation, k)))) |>
+pca_path <- map(seq_len(max_factors), \(k) {
+  tibble(factors = k, !!!portfolio_sharpe(factor_weights(x_estimation, k)))
+}) |>
   bind_rows()
 ```
 
@@ -234,16 +261,19 @@ variance_panel <- ggplot(components, aes(x = component, y = variance_share)) +
   labs(x = "Principal component", y = "Share of the variance")
 sharpe_panel <- ggplot(components, aes(x = component, y = sharpe)) +
   geom_col(fill = ku_red) +
-  labs(x = "Principal component", y = "Sharpe ratio, 1973–1999")
+  labs(
+    x = "Principal component",
+    y = paste0("Absolute Sharpe ratio\n", estimation_years)
+  )
 variance_panel + sharpe_panel
 ```
 
 - The first component explains `r percent(components$variance_share[1])` of the variance, but its Sharpe ratio is only `r number(components$sharpe[1], 0.01)`. Components further down carry the premia
-- Mean-variance portfolio of the first 1, 5 and 20 components in the test sample: `r number(pca_path$test[1], 0.01)`, `r number(pca_path$test[5], 0.01)` and `r number(pca_path$test[20], 0.01)`
+- Mean-variance portfolio of the first one, `r few_factors[1]` and `r few_factors[2]` components in the test sample: `r sharpe_text(pca_path$test[1])`, `r sharpe_text(pca_path$test[few_factors[1]])` and `r sharpe_text(pca_path$test[few_factors[2]])`. No Sharpe ratio (–) for a negative mean
 
 # Risk-premium PCA
 
-## Whiteboard: risk-premium PCA
+## Risk-premium PCA: variances and means
 
 ::: {.box}
 Lettau & Pelger (2020): choose the factors so that they explain the variances **and** the means of the anomalies
@@ -318,27 +348,35 @@ Plot.plot({
 factor_paths |>
   filter(phi %in% c(0, phi_rp)) |>
   mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp))) |>
-  pivot_longer(c(estimation, test), names_to = "sample", values_to = "sharpe") |>
-  mutate(sample = if_else(sample == "estimation", "Estimation 1973–1999", "Test 2000–2023")) |>
+  pivot_longer(
+    c(estimation, test),
+    names_to = "sample",
+    values_to = "sharpe"
+  ) |>
+  mutate(
+    sample = if_else(
+      sample == "estimation",
+      paste("Estimation", estimation_years),
+      paste("Test", test_years)
+    )
+  ) |>
   ggplot(aes(x = factors, y = sharpe, color = method)) +
   geom_line(linewidth = 1) +
   facet_wrap(vars(sample), scales = "free_y") +
   scale_color_manual(values = c("#b3b3b3", ku_red)) +
-  labs(x = "Number of factors", y = "Sharpe ratio", color = NULL) +
+  labs(x = "Number of factors", y = "Sharpe ratio (annualized)", color = NULL) +
   theme(legend.position = "bottom")
 ```
 :::
 
-- With a weight on the means, one factor reaches `r number(rp_path$test[1], 0.01)` in the test sample (PCA: `r number(pca_path$test[1], 0.01)`), five reach `r number(rp_path$test[5], 0.01)` (PCA: `r number(pca_path$test[5], 0.01)`)
+- With a weight on the means, one factor reaches `r sharpe_text(rp_path$test[1])` in the test sample (PCA: `r sharpe_text(pca_path$test[1])`, a negative mean), `r few_factors[1]` factors reach `r sharpe_text(rp_path$test[few_factors[1]])` (PCA: `r sharpe_text(pca_path$test[few_factors[1]])`)
 - With many factors the gap narrows, since both span more and more of the same space: at `r max_factors` factors, `r number(pca_path$test[max_factors], 0.01)` against `r number(rp_path$test[max_factors], 0.01)`
 
 ## How many factors?
 
-::: {.panel-tabset group="language"}
-## R
-
 ```{r}
 #| label: choose-factors-r
+#| include: false
 #| cache: true
 #| cache.extra: !expr list(phi_rp, max_factors, n_folds, sample_end)
 # The number of factors is a tuning parameter: cross-validation as in lecture 11
@@ -346,32 +384,26 @@ factor_cv <- expand_grid(phi = c(0, phi_rp), factors = seq_len(max_factors)) |>
   mutate(cv = map2_dbl(phi, factors, \(phi, k) cv_sharpe(\(x, k) factor_weights(x, k, phi), k)))
 ```
 
-## Python
-
-```{python}
-#| label: choose-factors-py
-#| eval: false
-# The number of factors is a tuning parameter: cross-validation as in lecture 11
-factor_cv = {(phi, k): cv_sharpe(lambda x, k: factor_weights(x, k, phi), k)
-             for phi in [0, 10] for k in range(1, 61)}
-```
-:::
-
 ```{r}
 #| label: plot-factor-cv
 #| echo: false
-#| fig-width: 10
-#| fig-height: 2.7
+#| fig-width: 11
+#| fig-height: 3.8
 factor_cv |>
   mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp))) |>
   ggplot(aes(x = factors, y = cv, color = method)) +
   geom_line(linewidth = 1) +
   scale_color_manual(values = c("#b3b3b3", ku_red)) +
-  labs(x = "Number of factors", y = "Validation Sharpe ratio", color = NULL) +
+  labs(
+    x = "Number of factors",
+    y = "Validation Sharpe ratio (annualized)",
+    color = NULL
+  ) +
   theme(legend.position = "right")
 ```
 
-- Cross-validation keeps adding factors: the validation Sharpe ratio is still rising at `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
+- The number of factors is a tuning parameter, chosen by cross-validation with the `r n_folds` consecutive blocks of lecture 11
+- Cross-validation picks many factors: the validation Sharpe ratio peaks at `r factor_cv |> filter(phi == 0) |> slice_max(cv) |> pull(factors)` factors for PCA and at `r factor_cv |> filter(phi == phi_rp) |> slice_max(cv) |> pull(factors)` for RP-PCA, out of at most `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
 - A few factors are still a useful summary: with a weight on the means, `r few_factors[1]` factors reach `r number(rp_path$test[few_factors[1]], 0.01)` in the test sample; PCA does not get there with up to `r max_factors` factors (`r number(pca_path$test[max_factors], 0.01)` at `r max_factors`)
 
 ## Outlook: loadings from characteristics
@@ -387,25 +419,44 @@ factor_cv |>
 #| echo: false
 few <- bind_rows(
   pca_path |> filter(factors %in% few_factors) |> mutate(Portfolio = "PCA"),
-  rp_path |> filter(factors %in% few_factors) |> mutate(Portfolio = paste0("RP-PCA, φ = ", phi_rp))
+  rp_path |>
+    filter(factors %in% few_factors) |>
+    mutate(Portfolio = paste0("RP-PCA, φ = ", phi_rp))
 )
 tibble(
-  Portfolio = c("Market", "Plug-in mean-variance", "Ridge (prior on Sharpe ratios)", few$Portfolio),
+  Portfolio = c(
+    "Market",
+    "Plug-in mean-variance",
+    "Ridge (prior on Sharpe ratios)",
+    few$Portfolio
+  ),
   Inputs = c(
-    "Market", paste(ncol(returns), "anomalies"), paste(ncol(returns), "anomalies"),
+    "Market",
+    paste(ncol(returns), "anomalies"),
+    paste(ncol(returns), "anomalies"),
     paste(few$factors, "factors")
   ),
   estimation = c(
-    market_sharpe[["estimation"]], plug_in_sharpe[["estimation"]], ridge_sharpe[["estimation"]],
+    market_sharpe[["estimation"]],
+    plug_in_sharpe[["estimation"]],
+    ridge_sharpe[["estimation"]],
     few$estimation
   ),
-  test = c(market_sharpe[["test"]], plug_in_sharpe[["test"]], ridge_sharpe[["test"]], few$test)
+  test = c(
+    market_sharpe[["test"]],
+    plug_in_sharpe[["test"]],
+    ridge_sharpe[["test"]],
+    few$test
+  )
 ) |>
   mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
-  rename(`Sharpe ratio 1973–1999` = estimation, `Sharpe ratio 2000–2023` = test)
+  rename(
+    !!paste("Sharpe ratio", estimation_years) := estimation,
+    !!paste("Sharpe ratio", test_years) := test
+  )
 ```
 
-- The few-factor models at `r few_factors[1]` and `r few_factors[2]` factors, since cross-validation does not stop; the rows of lectures 10 and 11 not shown here stay on the scoreboard
+- The few-factor models at `r few_factors[1]` and `r few_factors[2]` factors, since cross-validation picks many more; the rows of lectures 10 and 11 not shown here stay on the scoreboard
 
 ::: {.highlight}
 Assignment 2 on machine learning in asset pricing starts today
