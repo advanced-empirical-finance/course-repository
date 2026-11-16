@@ -6,7 +6,7 @@ revealjs-plugins:
 ---
 
 ```{r}
-#| label: load-packages-r
+#| label: live-poll-setup
 #| include: false
 source("lecture-slides/_live-poll.R")
 exercise_survey <- "aef27-ex05-beta-sorts"
@@ -289,7 +289,7 @@ In the lecture: your estimates by weighting scheme, number of portfolios, the st
 - **164 human teams, same data, same six hypotheses.** Annualized estimates: box is the interquartile range and median, whiskers the 10th to 90th percentile. The dispersion co-varies only weakly with team merits, reproducibility, or peer rating, and participants heavily underestimate it (Menkveld et al., 2024)
 - **476 AI runs on the same task** concentrate on a narrow set of analysis paths: less dispersion, but systematically shifted estimates for the complex hypotheses. The choices do not disappear, they move (Huang, Menkveld, and Yu, 2026)
 
-# Construction choices in asset pricing
+# Construction choices
 
 ## The replication crisis of finance
 
@@ -316,7 +316,8 @@ In the lecture: your estimates by weighting scheme, number of portfolios, the st
 
 ## The factor zoo
 
-![](figures/factor-zoo-cumulative.png){width=72% fig-align="center"}
+<!-- The crop hides the title inside the PNG, which repeated the slide title -->
+![Source: Harvey and Liu, *A census of the factor zoo* (updated sheet)](figures/factor-zoo-cumulative.png){width=72% fig-align="center" style="aspect-ratio: 1499 / 728; object-fit: cover; object-position: bottom"}
 
 - Lectures 7 and 8: a portfolio sort turns any characteristic that predicts returns into a factor. Hence the zoo
 - Cochrane (2011): "Now we have a zoo of new factors"
@@ -327,7 +328,7 @@ In the lecture: your estimates by weighting scheme, number of portfolios, the st
 ![](figures/kelly-2024-replication-crisis.png){width=80% fig-align="center"}
 
 - Jensen, Kelly, and Pedersen (2023): most factors replicate once the evidence is pooled across many related factors
-- Replication is not just about running the same code: it depends on what question you ask and how you measure the answer
+- Replication is not just about running the same code: whether a factor replicates depends on what question you ask and how you measure the answer
 
 ## Every step of a sort is a choice
 
