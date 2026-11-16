@@ -159,7 +159,7 @@ spy = pl.concat([
 ```
 :::
 
-- SPY, the ETF on the S&P 500, on NASDAQ from July 2007, built from LOBSTER: every 5 seconds the midquote, the **spread** (basis points of the midquote), the **depth** at the best quotes and within 5 bps (shares), the **dollar volume** traded, and the **signed order flow** (buyer- minus seller-initiated)
+- SPY, the ETF on the S&P 500, on NASDAQ from July 2007, built from LOBSTER: every 5 seconds the midquote, the **spread** (basis points of the midquote), the **depth** at the best quotes and within 5 bps (shares), the **dollar volume** traded, and the **signed order flow** (buyer- minus seller-initiated shares)
 - Here: March of every year `r min(years)`–`r max(years)`, `r comma(nrow(spy))` snapshots
 
 ## Liquidity through the day
@@ -252,14 +252,16 @@ $$
 
 ```{r}
 #| label: price-impact-r
-# One-minute midquote returns (bps) on one-minute order flow, scaled by its
-# standard deviation in each year
+# One-minute midquote returns (bps) on one-minute net buying in USD million:
+# signed shares times the midquote of their snapshot
 price_impact <- spy |>
   mutate(day = as_date(ts), minute = floor_date(ts, "minute")) |>
-  summarize(midquote = last(midquote), flow = sum(signed_volume), .by = c(year, day, minute)) |>
+  summarize(
+    midquote = last(midquote), flow = sum(signed_volume * midquote) / 1e6,
+    .by = c(year, day, minute)
+  ) |>
   mutate(ret = 1e4 * (log(midquote) - lag(log(midquote))), .by = c(year, day)) |>
   drop_na() |>
-  mutate(flow = flow / sd(flow), .by = year) |>
   nest(data = -year) |>
   mutate(
     fit = map(data, \(d) lm(ret ~ flow, data = d)),
@@ -273,16 +275,16 @@ price_impact <- spy |>
 ```{python}
 #| label: price-impact-py
 #| eval: false
-# One-minute midquote returns (bps) on one-minute order flow, scaled by its
-# standard deviation in each year
+# One-minute midquote returns (bps) on one-minute net buying in USD million:
+# signed shares times the midquote of their snapshot
 minutes = (spy
     .with_columns(day=pl.col("ts").dt.date(), minute=pl.col("ts").dt.truncate("1m"))
     .group_by("year", "day", "minute", maintain_order=True)
-    .agg(midquote=pl.col("midquote").last(), flow=pl.col("signed_volume").sum())
+    .agg(midquote=pl.col("midquote").last(),
+         flow=(pl.col("signed_volume") * pl.col("midquote")).sum() / 1e6)
     .sort("year", "day", "minute")
     .with_columns(ret=1e4 * pl.col("midquote").log().diff().over("year", "day"))
-    .drop_nulls()
-    .with_columns(flow=pl.col("flow") / pl.col("flow").std().over("year")))
+    .drop_nulls())
 price_impact = (minutes.group_by("year")
     .agg(lambda_=pl.cov("ret", "flow") / pl.col("flow").var(),
          r2=pl.corr("ret", "flow") ** 2)
@@ -290,7 +292,7 @@ price_impact = (minutes.group_by("year")
 ```
 :::
 
-The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per standard deviation of a minute's order flow
+The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per USD 1 million of net buying in a minute
 
 ## Price impact over the years
 
@@ -301,7 +303,7 @@ The slope of a regression of returns on order flow estimates $\lambda$, here in 
 #| fig-height: 3.6
 lambda_panel <- ggplot(price_impact, aes(x = year, y = lambda)) +
   geom_col(fill = ku_red, width = 0.7) +
-  labs(x = NULL, y = "λ (bps per std. dev. of order flow)")
+  labs(x = NULL, y = "λ (bps per USD 1m of net buying)")
 r2_panel <- ggplot(price_impact, aes(x = year, y = r2)) +
   geom_col(fill = "#b3b3b3", width = 0.7) +
   scale_y_continuous(labels = percent) +
@@ -309,7 +311,7 @@ r2_panel <- ggplot(price_impact, aes(x = year, y = r2)) +
 lambda_panel + r2_panel
 ```
 
-- One standard deviation of order flow moves SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.1)` bps in March `r min(years)` and `r number(price_impact$lambda[price_impact$year == 2024], 0.1)` bps in March 2024; in March 2009 and March 2020 it was largest
+- Net buying of USD 1 million in a minute moved SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.01)` bps in March `r min(years)` and by `r number(price_impact$lambda[price_impact$year == 2024], 0.01)` bps in March 2024. It moved it most in March `r sort(slice_max(price_impact, lambda, n = 2)$year)[1]` and March `r sort(slice_max(price_impact, lambda, n = 2)$year)[2]`
 - Order flow explains less and less of the minute's return: more of the price moves without trading, as quotes update on news and on other venues
 
 ## Whiteboard: the bid-ask bounce
