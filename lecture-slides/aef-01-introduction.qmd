@@ -9,13 +9,6 @@ date: 2027-02-08
 library(tidyverse)
 library(tidyfinance)
 library(nanoparquet)
-library(ggridges)
-library(patchwork)
-
-# The sample of the first case study
-start_date <- "2000-01-01"
-end_date <- "2025-12-31"
-symbols <- c("AAPL", "MSFT")
 
 # Colours of the slides, used by the figures
 ku_red <- "#901A1E"
@@ -36,13 +29,93 @@ if (live) {
 import polars as pl
 import tidyfinance as tf
 from plotnine import aes, facet_wrap, geom_line, ggplot, labs, theme_bw
-
-start_date = "2000-01-01"
-end_date = "2025-12-31"
-symbols = ["AAPL", "MSFT"]
 ```
 
 # Welcome!
+
+## What AEF is about
+
+This course is about **doing** empirical finance: working with real data, from start to finish.
+
+```{r}
+#| label: aef-venn-diagram
+#| echo: false
+#| dev: svglite
+#| fig-width: 6
+#| fig-height: 4.6
+#| out-width: 62%
+#| fig-align: center
+circle <- function(x0, y0, r = 1) {
+  angle <- seq(0, 2 * pi, length.out = 200)
+  tibble(x = x0 + r * cos(angle), y = y0 + r * sin(angle))
+}
+circles <- bind_rows(
+  circle(0, 0.62) |> mutate(field = "Theory"),
+  circle(-0.55, -0.32) |> mutate(field = "Econometrics"),
+  circle(0.55, -0.32) |> mutate(field = "Data & code")
+)
+fields <- tribble(
+  ~field, ~x, ~y, ~question,
+  "Theory", 0, 1.05, "What models predict",
+  "Econometrics", -0.95, -0.68, "How to test it",
+  "Data & code", 0.95, -0.68, "What we actually find"
+)
+
+ggplot() +
+  geom_polygon(
+    data = circles, aes(x, y, group = field),
+    fill = grey, alpha = 0.1, color = "#b3b3b3", linewidth = 0.6
+  ) +
+  geom_text(data = fields, aes(x, y + 0.13, label = field), color = jet, size = 6.5) +
+  geom_text(data = fields, aes(x, y - 0.13, label = question), color = grey, size = 5) +
+  annotate(
+    "segment", x = 1.75, y = 0.95, xend = 0.08, yend = 0.03, color = ku_red, linewidth = 0.8,
+    arrow = arrow(length = unit(0.14, "inches"), type = "closed")
+  ) +
+  annotate("text", x = 1.8, y = 1.02, label = "AEF", color = ku_red, size = 8.5, hjust = 0) +
+  coord_equal(xlim = c(-1.9, 2.45), ylim = c(-1.4, 1.65)) +
+  theme_void()
+```
+
+## One thread through the course
+
+- Empirical finance is finance measured against reality
+- Financial markets provide vast data to inform financial decisions
+
+<!-- display: flex and border-box: the three boxes end at the same height -->
+:::: {.columns style="display: flex;"}
+::: {.column width="33%"}
+::: {.box style="box-sizing: border-box;"}
+**Portfolio choice**
+
+*February to mid-March*
+
+The efficient portfolio and its estimation error; shrinkage and transaction costs; the SDF and the CAPM; factors, sorts and reproducibility
+:::
+:::
+::: {.column width="33%"}
+::: {.box style="box-sizing: border-box;"}
+**Machine learning**
+
+*Mid-March to April*
+
+Overfitting and out-of-sample evaluation; shrinking the SDF; latent factors; trees, forests and neural networks
+:::
+:::
+::: {.column width="33%"}
+::: {.box style="box-sizing: border-box;"}
+**Volatility**
+
+*End of April and May*
+
+Volatility and covariances from high-frequency data; covariance forecasts for portfolio choice
+:::
+:::
+::::
+
+::: {.highlight}
+**(How) can state-of-the-art methods improve financial decision making?**
+:::
 
 ## Why I teach this course
 
@@ -98,106 +171,23 @@ ggplot() +
   theme_void()
 ```
 
-## What AEF is about
-
-**This course is about doing empirical finance: working with real data, from start to finish.**
-
-:::: {.columns}
-::: {.column width="50%"}
-```{r}
-#| label: aef-venn-diagram
-#| echo: false
-#| dev: svglite
-#| fig-width: 6
-#| fig-height: 4.6
-circle <- function(x0, y0, r = 1) {
-  angle <- seq(0, 2 * pi, length.out = 200)
-  tibble(x = x0 + r * cos(angle), y = y0 + r * sin(angle))
-}
-circles <- bind_rows(
-  circle(0, 0.62) |> mutate(field = "Theory"),
-  circle(-0.55, -0.32) |> mutate(field = "Econometrics"),
-  circle(0.55, -0.32) |> mutate(field = "Data & code")
-)
-fields <- tribble(
-  ~field, ~x, ~y, ~question,
-  "Theory", 0, 1.05, "What models predict",
-  "Econometrics", -0.95, -0.68, "How to test it",
-  "Data & code", 0.95, -0.68, "What we actually find"
-)
-
-ggplot() +
-  geom_polygon(
-    data = circles, aes(x, y, group = field),
-    fill = grey, alpha = 0.1, color = "#b3b3b3", linewidth = 0.6
-  ) +
-  geom_text(data = fields, aes(x, y + 0.13, label = field), color = jet, size = 6.5) +
-  geom_text(data = fields, aes(x, y - 0.13, label = question), color = grey, size = 5) +
-  annotate(
-    "segment", x = 1.75, y = 0.95, xend = 0.08, yend = 0.03, color = ku_red, linewidth = 0.8,
-    arrow = arrow(length = unit(0.14, "inches"), type = "closed")
-  ) +
-  annotate("text", x = 1.8, y = 1.02, label = "AEF", color = ku_red, size = 8.5, hjust = 0) +
-  coord_equal(xlim = c(-1.9, 2.45), ylim = c(-1.4, 1.65)) +
-  theme_void()
-```
-:::
-::: {.column width="50%"}
-- Empirical finance is finance measured against reality
-- Financial markets provide vast data to inform financial decisions
-
-**(How) can state-of-the-art methods improve financial decision making?**
-:::
-::::
-
-## One thread through the course
-
-:::: {.columns}
-::: {.column width="33%"}
-::: {.box}
-**From portfolio choice to pricing**
-
-*February to mid-March*
-
-The efficient portfolio and its estimation error; shrinkage and transaction costs; the SDF and the CAPM; factors, sorts and reproducibility
-:::
-:::
-::: {.column width="33%"}
-::: {.box}
-**Machine learning and the SDF**
-
-*Mid-March to April*
-
-Overfitting and out-of-sample evaluation; shrinking the SDF; latent factors; trees, forests and neural networks on the factor zoo
-:::
-:::
-::: {.column width="33%"}
-::: {.box}
-**Volatility, risk and uncertainty**
-
-*End of April and May*
-
-Volatility and covariances from high-frequency data; covariance forecasts for portfolio choice
-:::
-:::
-::::
-
 # How the course works
 
 ## Team and contact
 
-:::: {.columns}
+<!-- display: flex and border-box: the three boxes end at the same height -->
+:::: {.columns style="display: flex;"}
 ::: {.column width="33%"}
-::: {.box}
+::: {.box style="box-sizing: border-box;"}
 [SV]{.initials}
 
-**Stefan Voigt**, lecturer
+**Stefan Voigt**
 
 [stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk)<br>[voigtstefan.me](https://www.voigtstefan.me)
 :::
 :::
 ::: {.column width="33%"}
-::: {.box}
+::: {.box style="box-sizing: border-box;"}
 [NZ]{.initials}
 
 **Nikolai Zakarias Zwisler**, teaching assistant
@@ -206,7 +196,7 @@ Volatility and covariances from high-frequency data; covariance forecasts for po
 :::
 :::
 ::: {.column width="33%"}
-::: {.box}
+::: {.box style="box-sizing: border-box;"}
 [You]{.initials}
 
 **You and your peers**
@@ -216,21 +206,77 @@ Teams of up to three, and the people who read your code in peer feedback: connec
 :::
 ::::
 
+```{r}
+#| label: alumni-network
+#| echo: false
+#| dev: svglite
+#| fig-width: 10
+#| fig-height: 2.2
+# A stylized network: dots placed at random in an ellipse, each linked to its
+# three nearest neighbours; neither the dots nor the links are data
+set.seed(2027)
+n_dots <- 400
+n_links <- 3
+
+alumni <- tibble(
+  angle = runif(n_dots, 0, 2 * pi),
+  radius = sqrt(runif(n_dots))
+) |>
+  mutate(x = 3.2 + 2.9 * radius * cos(angle), y = 1.1 * radius * sin(angle))
+
+distances <- as.matrix(dist(select(alumni, x, y)))
+diag(distances) <- Inf
+links <- map(seq_len(n_dots), \(i) {
+  neighbours <- order(distances[i, ])[seq_len(n_links)]
+  tibble(
+    x = alumni$x[i],
+    y = alumni$y[i],
+    xend = alumni$x[neighbours],
+    yend = alumni$y[neighbours]
+  )
+}) |>
+  list_rbind()
+
+you <- tibble(x = -0.6, y = -0.2)
+first_contact <- slice_min(alumni, x, n = 1)
+
+ggplot() +
+  geom_segment(
+    data = links, aes(x, y, xend = xend, yend = yend),
+    color = "#d3cfc9", linewidth = 0.3
+  ) +
+  geom_point(data = alumni, aes(x, y), color = grey, size = 0.9) +
+  annotate(
+    "segment", x = you$x, y = you$y, xend = first_contact$x, yend = first_contact$y,
+    color = ku_red, linewidth = 0.6
+  ) +
+  geom_point(data = you, aes(x, y), color = ku_red, size = 4) +
+  annotate("text", x = you$x, y = you$y - 0.38, label = "You", color = ku_red, size = 5.2) +
+  annotate("text", x = 6.8, y = 0.45, label = "400+", color = ku_red, size = 13, hjust = 0) +
+  annotate(
+    "text", x = 6.8, y = -0.45,
+    label = "alumni of AEF 2021–2026 work in the\nfinance industry in and around Copenhagen",
+    color = jet, size = 5.4, hjust = 0, lineheight = 0.95
+  ) +
+  coord_cartesian(xlim = c(-1, 13.2), ylim = c(-1.2, 1.2), clip = "off") +
+  theme_void()
+```
+
 ::: {.highlight}
 Questions about content go to the **Absalon discussion board**, so everyone benefits from the answer
 :::
 
 ## Every week
 
-- **Lectures:** Mondays 8–10 in even weeks (CSS 1-1-18) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
-- **Exercises:** eight sets, in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions; none while an assignment runs
-- **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36): open office hours with the TA, for any question about the course
+- **Lectures:** Mondays 10–12 in even weeks (CSS 7-0-28) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
+- **Exercises:** eight sets, in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions
+- **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36): open office hours with Nikolai
 
 ::: {.highlight}
 **Most of your time goes into the exercises.** Work through them on your own. Use AI, but make sure you know what is going on: the lectures build on your work on the exercises.
 :::
 
-The learning curve is steep: ask early, me directly, on Absalon or in the exercise classes
+The learning curve is steep: ask early, on the **Absalon discussion board** (so everyone benefits from the answer), in the exercise classes or by email to [stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk). The lecture plan, the exercises, the trading game and the guides are on the homepage, [aef-course.ku.dk](https://aef-course.ku.dk).
 
 ## Mandatory assignments
 
@@ -240,7 +286,7 @@ The learning curve is steep: ask early, me directly, on Absalon or in the exerci
 | 2 | Machine learning in asset pricing | 8–15 April |
 | 3 | Realized volatility from high-frequency data | 29 April – 6 May |
 
-- One week each; the assignments and the data come through Absalon
+- Group work, in teams of up to three students; one week each; the assignments and the data come through Absalon
 - Hand in one `.qmd` file and the PDF rendered from it: at most 7 pages, 12 pt, in English, from the [templates](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments)
 
 ::: {.highlight}
@@ -260,8 +306,22 @@ The learning curve is steep: ask early, me directly, on Absalon or in the exerci
 #| dev: svglite
 #| fig-width: 10
 #| fig-height: 3.4
-students <- tibble(student = paste("Student", 1:3), row = 3:1)
-reports <- students |>
+# The three students of a team sit on a circle; the axes have different
+# scales, so the radius differs in x and y
+team_center <- c(x = 3.5, y = 1.7)
+team_radius <- c(x = 1.05, y = 0.78)
+
+students <- tibble(angle = pi / 2 + c(0, 2, 4) * pi / 3) |>
+  mutate(
+    x = team_center["x"] + team_radius["x"] * cos(angle),
+    y = team_center["y"] + team_radius["y"] * sin(angle)
+  )
+team_circle <- tibble(angle = seq(0, 2 * pi, length.out = 100)) |>
+  mutate(
+    x = team_center["x"] + team_radius["x"] * cos(angle),
+    y = team_center["y"] + team_radius["y"] * sin(angle)
+  )
+reports <- tibble(row = 3:1) |>
   cross_join(tibble(k = 1:2)) |>
   mutate(
     xmin = 8 + (k - 1) * 2.55,
@@ -274,12 +334,13 @@ ggplot() +
     "rect", xmin = 0, xmax = 7, ymin = 0.55, ymax = 3.45,
     fill = grey, alpha = 0.1, color = "#b3b3b3"
   ) +
-  annotate("text", x = 3.5, y = 3.15, label = "Your team: three students, one week", color = jet, size = 5.6) +
-  geom_point(data = students, aes(x = 1.2, y = row - 0.25), color = ku_red, size = 8) +
-  geom_text(
-    data = students, aes(x = 1.7, y = row - 0.25, label = student),
-    hjust = 0, color = jet, size = 5.2
+  annotate("text", x = 3.5, y = 3.12, label = "Your team: three students, one week", color = jet, size = 5.2) +
+  geom_path(data = team_circle, aes(x, y), color = "#b3b3b3", linewidth = 0.6) +
+  annotate(
+    "text", x = team_center["x"], y = team_center["y"], label = "one\nreport",
+    color = grey, size = 4.8, lineheight = 0.9
   ) +
+  geom_point(data = students, aes(x, y), color = ku_red, size = 8) +
   annotate("segment", x = 7.5, xend = 7.5, y = 0.45, yend = 3.55, color = ku_red, linewidth = 0.8) +
   annotate("text", x = 7.35, y = 0.2, label = "Deadline", color = ku_red, size = 5.4, hjust = 1) +
   annotate("text", x = 10.45, y = 3.8, label = "Each of you reviews two reports of other teams", color = jet, size = 5.4) +
@@ -303,14 +364,13 @@ ggplot() +
 
 ## The trading game
 
-<iframe data-external="1" src="https://aef-course.ku.dk/trading-game/intro/index.html" width="800" height="565" style="border: 0; display: block; margin: 0 auto;" title="The trading game in 60 seconds"></iframe>
-
-The 60-second introduction on the homepage: [aef-course.ku.dk/trading-game](https://aef-course.ku.dk/trading-game/)
+<!-- The height ends below the play bar, above the credits line of the embedded page -->
+<iframe data-external="1" src="https://aef-course.ku.dk/trading-game/intro/index.html" width="800" height="508" scrolling="no" style="border: 0; display: block; margin: 0 auto;" title="The trading game in 60 seconds"></iframe>
 
 ## The trading game: what matters
 
 - The game is there to make you decide, and to discuss decisions
-- Rules, tools and the dry run: [aef-course.ku.dk/trading-game](https://aef-course.ku.dk/trading-game/)
+- Rules and tools: [aef-course.ku.dk/trading-game](https://aef-course.ku.dk/trading-game/)
 
 ::: {.fragment}
 - **Conference session** in the last lecture, on 20 May: the teams with the best out-of-sample performance present their approach, and other students discuss it, in front of faculty and quantitative traders
@@ -346,13 +406,13 @@ surveyQR(background_survey)
 ```
 :::
 ::: {.column width="45%"}
-Seven quick questions, anonymous:
+Six quick questions, anonymous:
 
-- Who are you?
-- How good are you at R, Python, and AI tools for coding?
-- Which tools have you used?
-- Have you completed the technical prerequisites?
+- Are you an exchange student?
 - What do you mainly want to take away from this course?
+- How good are you at R and Python?
+- How would you describe your use of AI?
+- Have you completed the technical prerequisites?
 :::
 ::::
 :::
@@ -360,11 +420,11 @@ Seven quick questions, anonymous:
 ::: {.content-visible unless-profile="live"}
 A short anonymous survey in the first lecture:
 
-- Who are you: master's, exchange, or PhD student?
-- How good are you at R, Python, and AI tools for coding?
-- Which tools have you used?
-- Have you completed the technical prerequisites?
+- Are you an exchange student?
 - What do you mainly want to take away from this course?
+- How good are you at R and Python?
+- How would you describe your use of AI?
+- Have you completed the technical prerequisites?
 :::
 
 ::: {.content-visible when-profile="live"}
@@ -387,7 +447,7 @@ surveyCharts(background)
 - Both are open source, have large communities and are standard in finance
 - Pick one; every exercise and every solution exists in both
 - **Tidy coding** matters more than the language: clean code in either is readable for everyone
-- You give feedback on R and Python submissions: with tidy code, you understand your peers' code even in the other language
+- You give feedback on R **and** Python submissions: with tidy code, you understand your peers' code even in the other language
 :::
 ::: {.column width="40%"}
 ![](figures/paths.jpg){width=100% fig-align="center"}
@@ -406,22 +466,18 @@ surveyCharts(background)
 
 : {tbl-colwidths="[25,75]"}
 
-# Financial data
-
 ## Where the data come from
 
-- **CRSP** (Center for Research in Security Prices): every US common stock since 1926, from WRDS. Licensed: you get it through Absalon
-- Everything lives as parquet files in the `data` folder of the course repository, as in the Tidy Finance book
+- **CRSP** (Center for Research in Security Prices): monthly returns of every US common stock, 1960 to 2025 in the course file. Licensed: download `crsp_monthly.parquet` from Absalon into the `data` folder, as in exercise 1. Git ignores the file: never upload it, never paste it into an AI tool
+- The other files are public and already in the `data` folder of the course repository
 
 | File | Content |
 |---|---|
-| `crsp_monthly.parquet` | CRSP monthly returns, market capitalization, exchange, industry (from Absalon) |
+| `crsp_monthly.parquet` | CRSP monthly returns, market capitalization, exchange, industry |
 | `factors_ff3_monthly.parquet` | Fama-French three factors and the risk-free rate |
 | `industries_ff_monthly.parquet` | Ten industry portfolios |
 | `macro_predictors.parquet` | Welch and Goyal (2008) predictors |
 | `cpi_monthly.parquet` | Consumer price index |
-
-## Reading the data
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -441,47 +497,23 @@ cpi_monthly = pl.read_parquet("data/cpi_monthly.parquet")
 ```
 :::
 
-- The CRSP file is licensed: never commit it, never upload it, never paste it into an AI tool. Git ignores it in the course repository
-- Paths start at the repository root (`data/...`), so your code runs on your teammates' computers too
+Paths start at the repository root (`data/...`), so your code runs on your teammates' computers too
 
 # Tidy coding: the essentials
 
-## Tidy data and the pipe
-
-- **Tidy data:** each variable is a column, each observation a row, each value a cell. CRSP is tidy: one row per stock and month
-- **One verb per step, chained:** `|>` in R, method chaining in Python. The code reads like the analysis
-- Names say what a column holds (`trading_volume_usd`, not `tmp2`); the [quality criteria](https://aef-course.ku.dk/additional-material/assignment-quality-criteria.html) have the rest
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: count-stocks-latest-month-r
-crsp_monthly |>
-  filter(date == max(date)) |>
-  count(exchange)
-```
-
-## Python
-
-```{python}
-#| label: count-stocks-latest-month-py
-(
-    crsp_monthly.filter(pl.col("date") == pl.col("date").max())
-    .group_by("exchange")
-    .len()
-    .sort("exchange")
-)
-```
-:::
-
 ## A first case study: daily returns
 
+Daily prices of Apple and Microsoft, downloaded with `download_data()` from the tidyfinance package
+
 ::: {.panel-tabset group="language"}
 ## R
 
 ```{r}
-#| label: compute-daily-returns-r
+#| label: download-stock-prices-r
+symbols <- c("AAPL", "MSFT")
+start_date <- "2000-01-01"
+end_date <- "2025-12-31"
+
 prices <- download_data(
   domain = "Stock Prices",
   symbols = symbols,
@@ -489,6 +521,39 @@ prices <- download_data(
   end_date = end_date
 )
 
+head(prices, 3)
+```
+
+## Python
+
+```{python}
+#| label: download-stock-prices-py
+symbols = ["AAPL", "MSFT"]
+start_date = "2000-01-01"
+end_date = "2025-12-31"
+
+prices = tf.download_data(
+    domain="Stock Prices",
+    symbols=symbols,
+    start_date=start_date,
+    end_date=end_date,
+)
+
+prices.head(3)
+```
+:::
+
+## Tidy data and the pipe
+
+- **Tidy data:** each variable is a column, each observation a row, each value a cell: `prices` has one row per stock and day
+- **One verb per step, chained:** `|>` in R, method chaining in Python. Each line below is one step: sort, compute the return of each stock, keep what you need, drop the first day
+- Names say what a column holds (`adjusted_close`, not `tmp2`); the [quality criteria](https://aef-course.ku.dk/additional-material/assignment-quality-criteria.html) have the rest
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: compute-daily-returns-r
 returns <- prices |>
   arrange(symbol, date) |>
   mutate(ret = adjusted_close / lag(adjusted_close) - 1, .by = symbol) |>
@@ -500,13 +565,6 @@ returns <- prices |>
 
 ```{python}
 #| label: compute-daily-returns-py
-prices = tf.download_data(
-    domain="Stock Prices",
-    symbols=symbols,
-    start_date=start_date,
-    end_date=end_date,
-)
-
 returns = (
     prices.sort("symbol", "date")
     .with_columns(ret=pl.col("adjusted_close").pct_change().over("symbol"))
@@ -515,8 +573,6 @@ returns = (
 )
 ```
 :::
-
-Each line is one step of the analysis: sort, compute the return of each stock, keep what you need, drop the first day
 
 ## Summaries by group
 
@@ -559,17 +615,12 @@ Data, a geometric shape, and aesthetics that map variables to it: `ggplot2` in R
 
 ```{r}
 #| label: plot-adjusted-prices-r
-#| output-location: slide
-#| fig-width: 10
-#| fig-height: 5
+#| eval: false
 prices |>
   ggplot(aes(x = date, y = adjusted_close)) +
   geom_line() +
   facet_wrap(~symbol, scales = "free_y") +
-  labs(
-    x = NULL, y = "USD",
-    title = "Adjusted closing prices of Apple and Microsoft, daily"
-  ) +
+  labs(x = NULL, y = "Adjusted closing price (USD)") +
   theme_bw()
 ```
 
@@ -582,86 +633,91 @@ prices |>
     ggplot(prices, aes(x="date", y="adjusted_close"))
     + geom_line()
     + facet_wrap("symbol", scales="free_y")
-    + labs(
-        x="", y="USD",
-        title="Adjusted closing prices of Apple and Microsoft, daily",
-    )
+    + labs(x="", y="Adjusted closing price (USD)")
     + theme_bw()
 )
 ```
 :::
 
+```{r}
+#| label: plot-adjusted-prices-figure
+#| ref-label: plot-adjusted-prices-r
+#| echo: false
+#| fig-width: 10
+#| fig-height: 2.9
+```
+
 ## What the grammar of graphics can do
 
 ```{r}
-#| label: market-ridgelines
+#| label: industry-small-multiples
 #| echo: false
 #| dev: svglite
 #| fig-width: 10
-#| fig-height: 5.4
-factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
-  mutate(decade = paste0(floor(year(date) / 10) * 10, "s"))
+#| fig-height: 4.9
+industry_names <- c(
+  nodur = "Non-durable goods",
+  durbl = "Durable goods",
+  manuf = "Manufacturing",
+  enrgy = "Energy",
+  hitec = "High tech",
+  telcm = "Telecom",
+  shops = "Retail",
+  hlth = "Health care",
+  utils = "Utilities",
+  other = "Other"
+)
 
-sharpe_by_decade <- factors_ff3_monthly |>
-  summarize(sharpe = mean(mkt_excess) / sd(mkt_excess) * sqrt(12), .by = decade)
+# Value of 1 USD invested in each industry portfolio in the first month
+industry_values <- read_parquet("data/industries_ff_monthly.parquet") |>
+  pivot_longer(-date, names_to = "industry", values_to = "ret") |>
+  arrange(industry, date) |>
+  mutate(value = cumprod(1 + ret), .by = industry) |>
+  mutate(industry = industry_names[industry])
 
-# The two worst months and the best month of the sample
-extreme_months <- bind_rows(
-  factors_ff3_monthly |> slice_min(mkt_excess, n = 2),
-  factors_ff3_monthly |> slice_max(mkt_excess, n = 1)
-) |>
-  mutate(label = paste0(format(date, "%B %Y"), ": ", scales::percent(mkt_excess, accuracy = 0.1)))
+# Panels ordered by the final value
+final_values <- industry_values |>
+  slice_max(date, by = industry) |>
+  arrange(desc(value)) |>
+  mutate(label = paste(scales::comma(value, accuracy = 1), "USD"))
+industry_order <- final_values$industry
+industry_values <- industry_values |>
+  mutate(industry = factor(industry, levels = industry_order))
+final_values <- final_values |>
+  mutate(industry = factor(industry, levels = industry_order))
 
-ridgelines <- ggplot(factors_ff3_monthly, aes(x = mkt_excess, y = fct_rev(decade))) +
-  geom_density_ridges_gradient(
-    aes(fill = after_stat(x)),
-    scale = 1.6, rel_min_height = 0.005, color = "white", linewidth = 0.4
+ggplot(industry_values, aes(x = date, y = value)) +
+  # Every panel first draws all ten industries in grey, without the facet variable
+  geom_line(
+    data = rename(industry_values, any_industry = industry),
+    aes(group = any_industry),
+    color = light, linewidth = 0.3
   ) +
-  scale_fill_gradient2(low = ku_red, mid = light, high = jet, midpoint = 0, guide = "none") +
-  geom_point(data = extreme_months, color = jet, size = 1.8) +
-  ggrepel::geom_text_repel(
-    data = extreme_months, aes(label = label),
-    size = 4, color = jet, nudge_y = 0.6, segment.color = grey, direction = "y"
+  geom_line(color = ku_red, linewidth = 0.7) +
+  geom_point(data = final_values, color = ku_red, size = 1.8) +
+  geom_text(
+    data = final_values, aes(x = min(industry_values$date), y = 3000, label = label),
+    hjust = 0, vjust = 1, color = ku_red, size = 4.6
   ) +
-  scale_x_continuous(labels = scales::percent) +
-  labs(
-    x = "Monthly excess return of the US stock market", y = NULL,
-    title = "Six and a half decades of the US stock market",
-    subtitle = "Distribution of monthly excess returns by decade; inset: annualized Sharpe ratio",
-    caption = "Data: Kenneth R. French data library"
+  facet_wrap(~industry, nrow = 2) +
+  scale_y_log10(
+    breaks = c(1, 10, 100, 1000), labels = scales::comma,
+    limits = c(0.6, 3000)
   ) +
+  scale_x_date(
+    breaks = as.Date(c("1980-01-01", "2000-01-01", "2020-01-01")),
+    date_labels = "%Y"
+  ) +
+  labs(x = NULL, y = "Value of 1 USD invested\nin January 1960 (log scale)") +
   theme_minimal(base_size = 14) +
   theme(
     panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    plot.title = element_text(color = ku_red),
-    plot.title.position = "plot"
+    panel.grid.major.x = element_blank(),
+    panel.spacing.x = unit(1, "lines"),
+    strip.text = element_text(hjust = 0, color = jet),
+    axis.text = element_text(color = grey),
+    axis.title.y = element_text(color = jet, size = 13)
   )
-
-sharpe_bars <- ggplot(sharpe_by_decade, aes(x = decade, y = sharpe)) +
-  geom_col(fill = ku_red, width = 0.6) +
-  geom_text(
-    aes(label = scales::number(sharpe, accuracy = 0.01), vjust = if_else(sharpe < 0, 1.4, -0.4)),
-    size = 2.8, color = jet
-  ) +
-  geom_hline(yintercept = 0, color = grey, linewidth = 0.3) +
-  scale_y_continuous(expand = expansion(mult = c(0.15, 0.25))) +
-  labs(x = NULL, y = NULL) +
-  theme_minimal(base_size = 9) +
-  theme(
-    panel.grid = element_blank(),
-    axis.text.y = element_blank(),
-    plot.background = element_rect(fill = "white", color = light)
-  )
-
-ridgelines + inset_element(sharpe_bars, left = 0.66, bottom = 0.01, right = 0.99, top = 0.36)
 ```
 
-The same layers as on the slide before, plus two packages: ggridges and patchwork
-
-## Where to get help
-
-- **The homepage:** [aef-course.ku.dk](https://aef-course.ku.dk) has the lecture plan, the exercises, the trading game and the guides
-- **Absalon discussion board:** questions about content and code, so everyone benefits from the answer
-- **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36)
-- **Me directly:** [stefan.voigt@econ.ku.dk](mailto:stefan.voigt@econ.ku.dk)
+The ten Fama-French industry portfolios, January 1960 to December 2025: value-weighted returns with dividends, not adjusted for inflation. Each panel draws all industries in grey and its own in red: two line layers, a point and a label at the final value, facets and a log scale.
