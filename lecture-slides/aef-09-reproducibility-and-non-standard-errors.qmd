@@ -81,19 +81,6 @@ Before we ask whether a result is *right*, we ask whether someone else can *reco
 :::
 ::::
 
-## Evidence from this course
-
-:::: {.r-stack}
-::: {.fragment .fade-out fragment-index=1}
-![](figures/course-evidence-criteria.png){width=72% fig-align="center"}
-:::
-::: {.fragment .fade-in fragment-index=1}
-![](figures/course-evidence.png){width=72% fig-align="center"}
-:::
-::::
-
-- Same checks on the course's two assignments of 2026, five representative criteria per group. Unused packages and absolute paths remained the weak spots
-
 ## Your reports
 
 - **Package versions:** `uvr.lock` (R) and `uv.lock` (Python) record every package; `uvr sync` and `uv sync` restore them on another computer
