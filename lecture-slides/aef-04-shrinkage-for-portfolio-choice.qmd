@@ -10,7 +10,6 @@ library(tidyverse)
 library(tidyfinance)
 library(nanoparquet)
 library(quadprog)
-library(patchwork)
 library(scales)
 
 # The sample of the running example, as in lectures 2 and 3
@@ -34,7 +33,9 @@ ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 ```
@@ -43,11 +44,7 @@ source("lecture-slides/_live-poll.R")
 #| label: load-packages-py
 #| include: false
 import numpy as np
-import polars as pl
-from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
-
-window_length = 60
 ```
 
 ```{r}
@@ -91,12 +88,35 @@ excess_wide <- returns_monthly |>
   arrange(date)
 excess_matrix <- excess_wide |> select(-date) |> as.matrix()
 n_stocks <- ncol(excess_matrix)
+n_months <- nrow(excess_matrix)
 sigma_full <- cov(excess_matrix)
+
+# The last 60 months of the sample: the examples on the slides
+latest_window <- tail(excess_matrix, window_length)
+latest_dates <- tail(excess_wide$date, window_length)
+latest_period <- paste(
+  format(min(latest_dates), "%B %Y"),
+  "to",
+  format(max(latest_dates), "%B %Y")
+)
+
+mvp <- function(sigma) {
+  weights <- solve(sigma, rep(1, ncol(sigma)))
+  weights / sum(weights)
+}
+
+tangency <- function(mu, sigma) {
+  weights <- solve(sigma, mu)
+  weights / sum(weights)
+}
 
 min_variance_no_short <- function(sigma) {
   solve.QP(
-    Dmat = sigma, dvec = rep(0, n_stocks),
-    Amat = cbind(1, diag(n_stocks)), bvec = c(1, rep(0, n_stocks)), meq = 1
+    Dmat = sigma,
+    dvec = rep(0, n_stocks),
+    Amat = cbind(1, diag(n_stocks)),
+    bvec = c(1, rep(0, n_stocks)),
+    meq = 1
   )$solution
 }
 ```
@@ -110,14 +130,43 @@ min_variance_no_short <- function(sigma) {
 **Today:** instead of throwing the estimates away, pull them toward something simpler. That is **shrinkage**: a little bias for much less variance
 :::
 
-# The covariance matrix in high dimensions
+# Large covariance matrices
 
 ## Too many parameters
 
-- $\Sigma$ has $N(N+1)/2$ parameters: `r n_stocks` stocks give `r n_stocks * (n_stocks + 1) / 2`, estimated from `r window_length` months of `r n_stocks` returns
-- With $N \geq T$, $\hat\Sigma$ is singular and has no inverse
-- With $N < T$, it is invertible but ill-conditioned: its **smallest eigenvalues are too small** and its largest too large
-- $\hat\Sigma^{-1}$ puts the most weight on the directions with the smallest eigenvalues: the portfolios that look almost riskless in the sample. Those are exactly the ones we estimate worst
+- $\Sigma$ has $N(N+1)/2$ parameters: `r n_stocks` stocks give `r n_stocks * (n_stocks + 1) / 2`, estimated from `r window_length` months of returns
+- $N \geq T$: $\hat\Sigma$ is singular and has no inverse
+- $N < T$: $\hat\Sigma$ has an inverse, but its eigenvalues are **too spread out**, the smallest too small and the largest too large
+- $\hat\Sigma^{-1}$ puts the most weight on the directions with the smallest eigenvalues: portfolios that look almost riskless in the sample, but are not
+
+## Why the eigenvalues spread out
+
+```{r}
+#| label: simulate-identity
+#| include: false
+# Smallest and largest eigenvalue of sample covariance matrices when all true
+# eigenvalues are 1, averaged over the samples
+set.seed(2027)
+identity_extremes <- replicate(eigen_samples, {
+  draws <- matrix(rnorm(window_length * n_stocks), window_length)
+  range(eigen(cov(draws), only.values = TRUE)$values)
+}) |>
+  rowMeans()
+```
+
+::: {.box}
+The largest and the smallest eigenvalue of $\hat\Sigma$ are the largest and the smallest sample variance of a combination $v'r_t$ with $v'v = 1$:
+$$
+\hat\lambda_\text{max} = \max_{v'v = 1} v'\hat\Sigma v, \qquad \hat\lambda_\text{min} = \min_{v'v = 1} v'\hat\Sigma v
+$$
+For every fixed $v$, $v'\hat\Sigma v$ is unbiased for $v'\Sigma v$. Are $\hat\lambda_\text{max}$ and $\hat\lambda_\text{min}$ unbiased, too?
+:::
+
+::: {.fragment}
+- No. With $v_1$ the true first eigenvector, $\hat\lambda_\text{max} \geq v_1'\hat\Sigma v_1$, so $E(\hat\lambda_\text{max}) \geq v_1'\Sigma v_1 = \lambda_\text{max}$: the maximum picks the direction in which the noise adds variance. Likewise, $E(\hat\lambda_\text{min}) \leq \lambda_\text{min}$
+- The average is right: $E\sum_i \hat\lambda_i = E\,\text{tr}(\hat\Sigma) = \text{tr}(\Sigma) = \sum_i \lambda_i$, as the sample variances are unbiased
+- Even if all `r n_stocks` true eigenvalues are 1, samples of `r window_length` months have a smallest eigenvalue of `r number(identity_extremes[1], 0.01)` and a largest of `r number(identity_extremes[2], 0.1)`, on average
+:::
 
 ## Estimated eigenvalues are too spread out
 
@@ -132,18 +181,36 @@ true_eigenvalues <- tibble(
 
 # Average eigenvalues of sample covariance matrices from returns drawn with
 # the true covariance matrix
-eigenvalues <- expand_grid(sample_length = eigen_sample_lengths, sample = seq_len(eigen_samples)) |>
-  mutate(values = map(sample_length, \(t) {
-    draws <- matrix(rnorm(t * n_stocks), t) %*% chol(sigma_full)
-    tibble(rank = seq_len(n_stocks), value = eigen(cov(draws), only.values = TRUE)$values)
-  })) |>
+eigenvalues <- expand_grid(
+  sample_length = eigen_sample_lengths,
+  sample = seq_len(eigen_samples)
+) |>
+  mutate(
+    values = map(sample_length, \(t) {
+      draws <- matrix(rnorm(t * n_stocks), t) %*% chol(sigma_full)
+      tibble(
+        rank = seq_len(n_stocks),
+        value = eigen(cov(draws), only.values = TRUE)$values
+      )
+    })
+  ) |>
   unnest(values) |>
   summarize(value = mean(value), .by = c(sample_length, rank))
 
 if (live) {
-  ojs_define(poll_base = poll_base, true_eigenvalues = true_eigenvalues, eigenvalues = eigenvalues)
+  ojs_define(
+    poll_base = poll_base,
+    eigen_sample_lengths = eigen_sample_lengths,
+    eigen_samples = eigen_samples,
+    true_eigenvalues = true_eigenvalues,
+    eigenvalues = eigenvalues
+  )
 }
 ```
+
+- **True** $\Sigma$: the covariance matrix of the `r n_stocks` Dow Jones stocks over all `r n_months` months of the sample
+- **`r eigen_samples` samples** of $T$ months: normal returns with covariance $\Sigma$, each giving a sample covariance matrix $\hat\Sigma$
+- **Plotted:** the `r n_stocks` eigenvalues of $\Sigma$ and of $\hat\Sigma$ (average over the samples), largest first
 
 ::: {.content-visible when-profile="live"}
 {{< include _live-poll-ojs.qmd >}}
@@ -151,7 +218,7 @@ if (live) {
 ```{ojs}
 //| label: eigenvalue-slider
 //| echo: false
-viewof sample_length = Inputs.select([30, 45, 60, 90, 120, 240, 600], {value: 60, label: "Months in the sample"})
+viewof sample_length = Inputs.select(eigen_sample_lengths, {value: 60, label: "Months per sample, T"})
 ```
 
 ```{ojs}
@@ -159,14 +226,17 @@ viewof sample_length = Inputs.select([30, 45, 60, 90, 120, 240, 600], {value: 60
 //| echo: false
 Plot.plot({
   width: 900,
-  height: 430,
-  x: {label: "Eigenvalue, from largest to smallest"},
-  y: {label: "Eigenvalue (monthly variance)", type: "log", domain: [1e-5, 0.2]},
+  height: 330,
+  marginLeft: 70,
+  marginBottom: 50,
+  style: {fontSize: "14px"},
+  x: {label: "Rank of the eigenvalue (1 = largest)", labelAnchor: "center", labelOffset: 45},
+  y: {label: "Eigenvalue (log scale)", type: "log", domain: [1e-5, 0.2], ticks: [1e-5, 1e-4, 1e-3, 1e-2, 1e-1], tickFormat: d => d.toString()},
   marks: [
     Plot.line(transpose(true_eigenvalues), {x: "rank", y: "value", stroke: "#3d3d3d", strokeWidth: 2.5}),
     Plot.line(transpose(eigenvalues).filter(d => d.sample_length === sample_length), {x: "rank", y: "value", stroke: "#901A1E", strokeWidth: 2.5}),
-    Plot.text(["True covariance matrix"], {frameAnchor: "top-right", dx: -10, dy: 10, fill: "#3d3d3d"}),
-    Plot.text([`Sample covariance matrix, ${sample_length} months (average of 20 samples)`], {frameAnchor: "top-right", dx: -10, dy: 30, fill: "#901A1E"})
+    Plot.text(["True Σ"], {frameAnchor: "top-right", dx: -10, dy: 10, fill: "#3d3d3d"}),
+    Plot.text([`Sample covariance matrix, T = ${sample_length} months, average of ${eigen_samples} samples`], {frameAnchor: "top-right", dx: -10, dy: 30, fill: "#901A1E"})
   ]
 })
 ```
@@ -177,43 +247,62 @@ Plot.plot({
 #| label: plot-eigenvalues
 #| echo: false
 #| fig-width: 10
-#| fig-height: 4.6
+#| fig-height: 3.9
+eigenvalue_lines <- c(
+  "True Σ" = jet,
+  "Sample covariance matrix, average of the samples" = ku_red
+)
+
 eigenvalues |>
   filter(sample_length %in% c(60, 600)) |>
-  mutate(sample_length = fct_inorder(paste(sample_length, "months"))) |>
+  mutate(
+    sample_length = fct_inorder(paste("T =", sample_length, "months"))
+  ) |>
   ggplot(aes(x = rank, y = value)) +
-  geom_line(data = true_eigenvalues, color = jet, linewidth = 1.2) +
-  geom_line(color = ku_red, linewidth = 1.2) +
+  geom_line(
+    data = true_eigenvalues,
+    aes(color = names(eigenvalue_lines)[1]),
+    linewidth = 1.2
+  ) +
+  geom_line(aes(color = names(eigenvalue_lines)[2]), linewidth = 1.2) +
   facet_wrap(~sample_length) +
-  scale_y_log10() +
+  scale_x_continuous(breaks = c(1, 10, 20, n_stocks)) +
+  scale_color_manual(
+    values = eigenvalue_lines,
+    breaks = names(eigenvalue_lines)
+  ) +
+  scale_y_log10(labels = label_number(drop0trailing = TRUE)) +
   labs(
-    x = "Eigenvalue, from largest to smallest", y = "Eigenvalue (monthly variance)",
-    title = paste("True (black) and estimated eigenvalues (red), average of", eigen_samples, "samples each")
-  )
+    x = "Rank of the eigenvalue (1 = largest)",
+    y = "Eigenvalue (log scale)",
+    color = NULL
+  ) +
+  theme(legend.position = "top")
 ```
 :::
 
 # Linear shrinkage
 
-## Whiteboard: shrinking toward a target
+## Shrinking toward a target
 
 ::: {.box}
-Combine the sample covariance matrix $\hat\Sigma$ with a simple target $F$:
+Combine the sample covariance matrix $\hat\Sigma$ with a simple target $F$, with the **shrinkage intensity** $\delta$:
 $$
 \hat\Sigma_\delta = \delta F + (1 - \delta)\hat\Sigma, \qquad \delta \in [0, 1]
 $$
-Which $\delta$ minimizes the expected squared error $E\,\|\hat\Sigma_\delta - \Sigma\|^2 = E\sum_{i,j}(\hat\sigma_{\delta,ij} - \sigma_{ij})^2$?
+Which $\delta$ minimizes the expected squared error $E\sum_{i,j}(\hat\sigma_{\delta,ij} - \sigma_{ij})^2$?
 :::
 
 ::: {.fragment}
-For an unbiased $\hat\Sigma$ and a fixed target:
-
+For an unbiased $\hat\Sigma$ and a fixed target, the optimal intensity $\delta^*$, and the Ledoit-Wolf estimate $\hat\delta$ from the demeaned returns $x_t$:
 $$
-\delta^* = \frac{E\,\|\hat\Sigma - \Sigma\|^2}{E\,\|\hat\Sigma - F\|^2} = \frac{\sum_{i,j}\text{Var}(\hat\sigma_{ij})}{\sum_{i,j}E(\hat\sigma_{ij} - f_{ij})^2}
+\delta^* = \frac{\sum_{i,j}\text{Var}(\hat\sigma_{ij})}{\sum_{i,j}E(\hat\sigma_{ij} - f_{ij})^2},
+\qquad
+\hat\delta = \frac{\frac{1}{T^2}\sum_t\sum_{i,j}(x_{it}x_{jt} - \hat\sigma_{ij})^2}{\sum_{i,j}(\hat\sigma_{ij} - f_{ij})^2}
 $$
 
 - More noise in $\hat\Sigma$: shrink more. A target far from the data: shrink less
-- Ledoit and Wolf estimate both parts from the data, so $\hat\delta$ needs no tuning
+- $\delta^*$ depends on the unknown $\Sigma$. $\hat\delta$ measures the noise by how much the monthly products $x_{it}x_{jt}$ scatter around $\hat\sigma_{ij}$; capped at 1, it needs no tuning
 :::
 
 ## Targets and the Ledoit-Wolf estimator
@@ -230,14 +319,13 @@ $$
 # Ledoit-Wolf (2004a): shrink toward the average variance times the identity
 ledoit_wolf <- function(x) {
   t <- nrow(x)
-  n <- ncol(x)
   x <- sweep(x, 2, colMeans(x))
   sample <- crossprod(x) / t
-  m <- sum(diag(sample)) / n
-  d2 <- sum((sample - m * diag(n))^2) / n
-  b2 <- sum(map_dbl(seq_len(t), \(i) sum((tcrossprod(x[i, ]) - sample)^2))) / (n * t^2)
-  delta <- min(b2, d2) / d2
-  list(sigma = delta * m * diag(n) + (1 - delta) * sample, delta = delta)
+  target <- mean(diag(sample)) * diag(ncol(x))
+  products <- map_dbl(seq_len(t), \(s) sum((tcrossprod(x[s, ]) - sample)^2))
+  noise <- sum(products) / t^2
+  delta <- min(noise / sum((sample - target)^2), 1)
+  list(sigma = delta * target + (1 - delta) * sample, delta = delta)
 }
 ```
 
@@ -247,34 +335,32 @@ ledoit_wolf <- function(x) {
 #| label: define-ledoit-wolf-py
 #| eval: false
 # Ledoit-Wolf (2004a): shrink toward the average variance times the identity
-lw = LedoitWolf().fit(window)
-sigma_lw = lw.covariance_
-delta = lw.shrinkage_
+def ledoit_wolf(x):
+    fit = LedoitWolf().fit(x)
+    return fit.covariance_, fit.shrinkage_
 ```
 :::
 
-## Shrinkage moves the minimum-variance portfolio
+## Shrinkage moves the weights toward 1/N
 
 ```{r}
 #| label: shrinkage-paths
 #| include: false
-# The latest 60-month window, and the minimum-variance weights for a grid of
-# shrinkage intensities. With the target m * I, delta = 1 gives 1/N
-latest_window <- tail(excess_matrix, window_length)
+# Minimum-variance weights in the last 60 months for a grid of shrinkage
+# intensities. With the target m * I, delta = 1 gives 1/N
 latest_sample <- cov(latest_window)
-latest_m <- mean(diag(latest_sample))
+latest_target <- mean(diag(latest_sample)) * diag(n_stocks)
 latest_delta <- ledoit_wolf(latest_window)$delta
 
-mvp <- function(sigma) {
-  sigma_inv <- solve(sigma)
-  rowSums(sigma_inv) / sum(sigma_inv)
+shrunk_mvp <- function(delta) {
+  tibble(
+    symbol = colnames(excess_matrix),
+    weight = mvp(delta * latest_target + (1 - delta) * latest_sample)
+  )
 }
 
 shrunk_weights <- tibble(delta = deltas) |>
-  mutate(weights = map(delta, \(d) tibble(
-    symbol = colnames(excess_matrix),
-    weight = mvp(d * latest_m * diag(n_stocks) + (1 - d) * latest_sample)
-  ))) |>
+  mutate(weights = map(delta, shrunk_mvp)) |>
   unnest(weights)
 
 if (live) {
@@ -283,7 +369,7 @@ if (live) {
 ```
 
 - With the target $mI$, the minimum-variance portfolio of the target is **1/N**: shrinkage moves the weights from the plug-in portfolio ($\delta = 0$) toward 1/N ($\delta = 1$)
-- Ledoit-Wolf for the latest window: $\hat\delta$ = `r number(latest_delta, 0.01)`
+- Ledoit-Wolf on the last `r window_length` months of the sample, `r latest_period`: $\hat\delta$ = `r number(latest_delta, 0.01)`
 
 ::: {.content-visible when-profile="live"}
 ```{ojs}
@@ -295,15 +381,19 @@ viewof delta = Inputs.range([0, 1], {step: 0.05, value: 0, width: 520, label: "S
 ```{ojs}
 //| label: shrinkage-weights-live
 //| echo: false
+plug_in_weights = transpose(shrunk_weights).filter(d => d.delta === 0)
 Plot.plot({
   width: 900,
   height: 300,
-  marginBottom: 50,
-  x: {label: null, tickRotate: -90, domain: transpose(shrunk_weights).filter(d => d.delta === 0).sort((a, b) => a.weight - b.weight).map(d => d.symbol)},
+  marginTop: 30,
+  marginBottom: 60,
+  marginLeft: 60,
+  style: {fontSize: "14px"},
+  x: {label: null, tickRotate: -90, domain: plug_in_weights.sort((a, b) => a.weight - b.weight).map(d => d.symbol)},
   y: {label: "Minimum-variance weight", tickFormat: "%", domain: [-0.15, 0.3], clamp: true},
   marks: [
     Plot.barY(transpose(shrunk_weights).filter(d => Math.abs(d.delta - delta) < 1e-9), {x: "symbol", y: "weight", fill: d => d.weight > 0 ? "#901A1E" : "#666666"}),
-    Plot.ruleY([1 / 27], {stroke: "#3d3d3d", strokeDasharray: "4 3"}),
+    Plot.ruleY([1 / plug_in_weights.length], {stroke: "#3d3d3d", strokeDasharray: "4 3"}),
     Plot.ruleY([0])
   ]
 })
@@ -315,31 +405,41 @@ Plot.plot({
 #| label: plot-shrunk-weights
 #| echo: false
 #| fig-width: 10
-#| fig-height: 3.4
-# The plug-in portfolio, the grid point closest to Ledoit-Wolf, and 1/N
-shown_deltas <- c(0, round(latest_delta / 0.05) * 0.05, 1)
-shrunk_weights |>
-  filter(round(delta, 2) %in% round(shown_deltas, 2)) |>
+#| fig-height: 3.9
+# The plug-in portfolio, Ledoit-Wolf and 1/N; stocks ordered by plug-in weight
+portfolio_labels <- c(
+  "δ = 0, plug-in",
+  paste0("δ = ", number(latest_delta, 0.01), ", Ledoit-Wolf"),
+  "δ = 1, 1/N"
+)
+plug_in_order <- shrunk_mvp(0) |> arrange(weight) |> pull(symbol)
+
+map(c(0, latest_delta, 1), shrunk_mvp) |>
+  set_names(portfolio_labels) |>
+  bind_rows(.id = "portfolio") |>
   mutate(
-    symbol = fct_reorder(symbol, if_else(delta == 0, weight, NA_real_), .na_rm = TRUE),
-    delta = fct_inorder(paste("δ =", delta))
+    portfolio = factor(portfolio, levels = portfolio_labels),
+    symbol = factor(symbol, levels = plug_in_order)
   ) |>
-  ggplot(aes(x = symbol, y = weight, fill = delta)) +
+  ggplot(aes(x = symbol, y = weight, fill = portfolio)) +
   geom_col(position = "dodge", width = 0.8) +
   geom_hline(yintercept = 0, color = jet) +
   scale_fill_manual(values = c("#b3b3b3", ku_red, jet)) +
   scale_y_continuous(labels = percent) +
   labs(x = NULL, y = "Weight", fill = NULL) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "top")
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    legend.position = "top"
+  )
 ```
 :::
 
 # Constraints as shrinkage
 
-## Whiteboard: why no short sales help (Jagannathan & Ma, 2003)
+## Why ruling out short sales helps
 
 ::: {.box}
-Minimum variance with $\omega_i \geq 0$. With multipliers $\lambda_i \geq 0$, and $\lambda_i = 0$ whenever $\omega_i > 0$, the first-order conditions are
+Minimum variance with $\omega_i \geq 0$ (Jagannathan & Ma, 2003). With multipliers $\lambda_i \geq 0$, and $\lambda_i = 0$ whenever $\omega_i > 0$, the first-order conditions are
 $$
 \Sigma\omega - \lambda = \lambda_0\iota
 $$
@@ -358,7 +458,7 @@ $$
 
 # Shrinking expected returns
 
-## Whiteboard: Bayes-Stein (Jorion, 1986)
+## Bayes-Stein (Jorion, 1986)
 
 ::: {.box}
 Prior: all expected returns are equal, to the mean of the minimum-variance portfolio $\mu_\text{mvp}$. How far should $\hat\mu$ move toward $\mu_\text{mvp}\,\iota$?
@@ -419,7 +519,7 @@ def bayes_stein(x):
 latest_bs <- bayes_stein(latest_window)
 ```
 
-For the latest `r window_length`-month window of the Dow Jones stocks: $w$ = `r number(latest_bs$w, 0.01)`. Bayes-Stein moves the expected returns about halfway to their common mean
+On the last `r window_length` months of the sample, `r latest_period`: $w$ = `r number(latest_bs$w, 0.01)`. Bayes-Stein moves the expected returns about halfway to their common mean
 
 ## The Bayesian view
 
@@ -432,49 +532,11 @@ For the latest `r window_length`-month window of the Dow Jones stocks: $w$ = `r 
 
 ## Five strategies
 
-- **1/N**, the **plug-in minimum-variance** portfolio and the **minimum-variance portfolio without short sales** from lecture 3
-- **Ledoit-Wolf minimum variance:** the minimum-variance portfolio of $\hat\Sigma_\text{LW}$
-- **Bayes-Stein and Ledoit-Wolf tangency:** the tangency portfolio of $\hat\mu_\text{BS}$ and $\hat\Sigma_\text{LW}$
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: define-portfolios-r
-mvp <- function(sigma) {
-  weights <- solve(sigma, rep(1, ncol(sigma)))
-  weights / sum(weights)
-}
-
-tangency <- function(mu, sigma) {
-  weights <- solve(sigma, mu)
-  weights / sum(weights)
-}
-```
-
-## Python
-
-```{python}
-#| label: define-portfolios-py
-#| eval: false
-def mvp(sigma):
-    weights = np.linalg.solve(sigma, np.ones(sigma.shape[0]))
-    return weights / weights.sum()
-
-def tangency(mu, sigma):
-    weights = np.linalg.solve(sigma, mu)
-    return weights / weights.sum()
-```
-:::
-
-## The backtest
-
-::: {.panel-tabset group="language"}
-## R
-
 ```{r}
 #| label: run-backtest-r
-backtest <- map(seq(window_length + 1, nrow(excess_matrix)), \(t) {
+#| include: false
+# The backtest of lecture 3 with the two shrinkage strategies added
+backtest <- map(seq(window_length + 1, n_months), \(t) {
   window <- excess_matrix[(t - window_length):(t - 1), ]
   sigma_hat <- cov(window)
   sigma_lw <- ledoit_wolf(window)$sigma
@@ -484,43 +546,32 @@ backtest <- map(seq(window_length + 1, nrow(excess_matrix)), \(t) {
     "Plug-in minimum variance" = mvp(sigma_hat),
     "Ledoit-Wolf minimum variance" = mvp(sigma_lw),
     "Minimum variance, no short sales" = min_variance_no_short(sigma_hat),
-    "Bayes-Stein and Ledoit-Wolf tangency" = tangency(bayes_stein(window)$mu, sigma_lw)
+    "Bayes-Stein and Ledoit-Wolf tangency" = tangency(
+      bayes_stein(window)$mu,
+      sigma_lw
+    )
   )
   tibble(
-    date = excess_wide$date[t], strategy = names(weights), weights = weights,
+    date = excess_wide$date[t],
+    strategy = names(weights),
+    weights = weights,
     ret_excess = map_dbl(weights, \(w) sum(w * returns_next))
   )
 }) |>
   bind_rows()
+backtest_period <- paste(
+  format(min(backtest$date), "%B %Y"),
+  "to",
+  format(max(backtest$date), "%B %Y")
+)
 ```
 
-## Python
+- From lecture 3: **1/N**, the **plug-in minimum-variance** portfolio and the **minimum-variance portfolio without short sales**
+- **Ledoit-Wolf minimum variance:** the minimum-variance portfolio of $\hat\Sigma_\text{LW}$
+- **Bayes-Stein and Ledoit-Wolf tangency:** the tangency portfolio of $\hat\mu_\text{BS}$ and $\hat\Sigma_\text{LW}$
+- The backtest of lecture 3: every month, estimate everything from the last `r window_length` months, $\hat\delta$ and $w$ included, and hold the portfolios for one month
 
-```{python}
-#| label: run-backtest-py
-#| eval: false
-records = []
-for t in range(window_length, n_months):
-    window = excess_matrix[t - window_length:t]
-    sigma_hat = np.cov(window, rowvar=False)
-    sigma_lw = LedoitWolf().fit(window).covariance_
-    weights = {
-        "1/N": iota / n_stocks,
-        "Plug-in minimum variance": mvp(sigma_hat),
-        "Ledoit-Wolf minimum variance": mvp(sigma_lw),
-        "Minimum variance, no short sales": min_variance_no_short(sigma_hat),
-        "Bayes-Stein and Ledoit-Wolf tangency": tangency(bayes_stein(window)[0], sigma_lw),
-    }
-    for strategy, w in weights.items():
-        records.append({"date": excess_wide["date"][t], "strategy": strategy,
-                        "ret_excess": w @ excess_matrix[t]})
-backtest = pl.DataFrame(records)
-```
-:::
-
-The loop is the one from lecture 3; `excess_matrix`, `min_variance_no_short()` and the other inputs as there
-
-## Out of sample, `r format(min(backtest$date), "%B %Y")` to `r format(max(backtest$date), "%B %Y")`
+## Out of sample, `r year(min(backtest$date))`–`r year(max(backtest$date))`
 
 ```{r}
 #| label: evaluate-backtest
@@ -532,14 +583,18 @@ returns_matrix <- returns_monthly |>
   arrange(date) |>
   select(-date) |>
   as.matrix()
-month_index <- set_names(seq_along(excess_wide$date), as.character(excess_wide$date))
+month_index <- set_names(
+  seq_along(excess_wide$date),
+  as.character(excess_wide$date)
+)
 
 turnover_of <- function(weights, dates) {
-  c(NA, map_dbl(seq_along(weights)[-1], \(k) {
-    returns_before <- returns_matrix[month_index[[as.character(dates[k - 1])]], ]
-    drifted <- weights[[k - 1]] * (1 + returns_before)
+  turnover <- map_dbl(seq_along(weights)[-1], \(k) {
+    month_before <- month_index[[as.character(dates[k - 1])]]
+    drifted <- weights[[k - 1]] * (1 + returns_matrix[month_before, ])
     sum(abs(weights[[k]] - drifted / sum(drifted)))
-  }))
+  })
+  c(NA, turnover)
 }
 
 performance <- backtest |>
@@ -561,60 +616,91 @@ performance |>
     turnover = percent(turnover, 1)
   ) |>
   rename(
-    Strategy = strategy, `Excess return` = mean, Volatility = volatility,
-    `Sharpe ratio` = sharpe, `Turnover per month` = turnover
+    Strategy = strategy,
+    `Excess return` = mean,
+    Volatility = volatility,
+    `Sharpe ratio` = sharpe,
+    `Turnover per month` = turnover
   )
 ```
 
-- Annualized, excess returns over the T-bill rate. Ledoit-Wolf beats the plug-in and the no-short-sale minimum-variance portfolios. Shrinking the means helps the tangency portfolio, but not enough
+- `r backtest_period`. Annualized excess returns over the T-bill rate
+- Ledoit-Wolf beats the plug-in and the no-short-sale minimum-variance portfolios. Shrinking the means helps the tangency portfolio, but not enough
 
 ## How much shrinkage?
 
 ```{r}
 #| label: fixed-shrinkage-backtest
 #| include: false
-# The same backtest for minimum-variance portfolios with a fixed intensity
-fixed_shrinkage <- map(seq(window_length + 1, nrow(excess_matrix)), \(t) {
+# The same backtest for minimum-variance portfolios with the same intensity in
+# every month, and the intensity Ledoit-Wolf estimates in each window
+fixed_shrinkage <- map(seq(window_length + 1, n_months), \(t) {
   window <- excess_matrix[(t - window_length):(t - 1), ]
   sample <- cov(window)
-  m <- mean(diag(sample))
+  target <- mean(diag(sample)) * diag(n_stocks)
   tibble(
     delta = deltas,
-    ret_excess = map_dbl(deltas, \(d) sum(mvp(d * m * diag(n_stocks) + (1 - d) * sample) * excess_matrix[t, ])),
+    ret_excess = map_dbl(deltas, \(d) {
+      sum(mvp(d * target + (1 - d) * sample) * excess_matrix[t, ])
+    }),
     estimated_delta = ledoit_wolf(window)$delta
   )
 }) |>
   bind_rows()
 
 sharpe_by_delta <- fixed_shrinkage |>
-  summarize(sharpe = mean(ret_excess) / sd(ret_excess) * sqrt(months_per_year), .by = delta)
+  summarize(
+    sharpe = mean(ret_excess) / sd(ret_excess) * sqrt(months_per_year),
+    .by = delta
+  )
 average_delta <- mean(fixed_shrinkage$estimated_delta)
 range_delta <- range(fixed_shrinkage$estimated_delta)
-lw_sharpe <- performance |> filter(strategy == "Ledoit-Wolf minimum variance") |> pull(sharpe)
+lw_sharpe <- performance |>
+  filter(strategy == "Ledoit-Wolf minimum variance") |>
+  pull(sharpe)
 ```
 
 ```{r}
 #| label: plot-sharpe-by-delta
 #| echo: false
 #| fig-width: 10
-#| fig-height: 4
+#| fig-height: 3.5
 ggplot(sharpe_by_delta, aes(x = delta, y = sharpe)) +
   geom_line(color = jet, linewidth = 1) +
   geom_point(color = jet) +
-  annotate("point", x = average_delta, y = lw_sharpe, color = ku_red, size = 4) +
   annotate(
-    "text", x = average_delta, y = lw_sharpe, vjust = -1.2, color = ku_red,
-    label = "Ledoit-Wolf, estimated every month"
+    "segment",
+    x = range_delta[1],
+    xend = range_delta[2],
+    y = lw_sharpe,
+    color = ku_red,
+    linewidth = 1.2
+  ) +
+  annotate(
+    "point",
+    x = average_delta,
+    y = lw_sharpe,
+    color = ku_red,
+    size = 4
+  ) +
+  annotate(
+    "text",
+    x = range_delta[2] + 0.02,
+    y = lw_sharpe,
+    hjust = 0,
+    vjust = 1.6,
+    color = ku_red,
+    label = "Ledoit-Wolf, δ estimated every month: range and average"
   ) +
   labs(
-    x = "Fixed shrinkage intensity δ (0: plug-in, 1: 1/N)",
-    y = "Sharpe ratio (annualized)",
-    title = "Out-of-sample Sharpe ratio of the minimum-variance portfolio, 2005–2025"
+    x = "Shrinkage intensity δ, the same in every month (0: plug-in, 1: 1/N)",
+    y = "Sharpe ratio (annualized)"
   )
 ```
 
-- Ledoit-Wolf chooses $\hat\delta$ between `r number(range_delta[1], 0.01)` and `r number(range_delta[2], 0.01)`: optimal for estimating $\Sigma$, not for the portfolio. Here, more shrinkage pays all the way to 1/N, helped by the survivorship of today's Dow Jones stocks
-- Shrinkage aimed at the portfolio's variance: Ledoit & Wolf (2017)
+- Out-of-sample Sharpe ratios of the minimum-variance portfolio, `r backtest_period`
+- Ledoit-Wolf estimates $\hat\delta$ anew every month from the last `r window_length` months: between `r number(range_delta[1], 0.01)` and `r number(range_delta[2], 0.01)`, `r number(average_delta, 0.01)` on average. Optimal for estimating $\Sigma$, not for the portfolio
+- Here, more shrinkage pays all the way to 1/N, helped by the survivorship of today's Dow Jones stocks. Shrinkage aimed at the portfolio's variance: Ledoit & Wolf (2017)
 
 ## Shrinkage everywhere
 
