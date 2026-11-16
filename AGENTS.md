@@ -20,7 +20,7 @@ This is the course repository of *Advanced Empirical Finance: Topics and Data Sc
 ## Data
 
 - `data/` holds the public course data as parquet files (`factors_ff3_monthly`, `industries_ff_monthly`, `macro_predictors`, `cpi_monthly`). Read files with relative paths from the repository root, e.g. `data/factors_ff3_monthly.parquet`.
-- Licensed files from Absalon, such as `data/crsp_monthly.parquet`, may be read by code, but never print their rows in the chat, never copy them elsewhere, and never commit them. Inspect them through column names, types and summary statistics.
+- Licensed files from Absalon, such as `data/crsp_monthly.parquet` and the VOLARE files `data/volare_*.parquet` (daily realized measures and covariances; see `data-raw/volare.R`), may be read by code, but never print their rows in the chat, never copy them elsewhere, and never commit them. Inspect them through column names, types and summary statistics.
 - The trading game token lives in `.Renviron` (R) or `.env` (Python), set with `set_token()`. Never write it into code, output or commits.
 
 ## Reports
