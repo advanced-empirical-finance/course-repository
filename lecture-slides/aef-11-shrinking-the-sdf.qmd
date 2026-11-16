@@ -16,8 +16,11 @@ library(patchwork)
 sample_start <- ymd("1973-01-01")
 sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")
+estimation_years <- paste0(year(sample_start), "–", year(test_start) - 1)
+test_years <- paste0(year(test_start), "–", year(sample_end))
 
-# Penalties and folds
+# Penalties of lecture 10 and the number of folds. The figures before the
+# cross-validation slide need them; that slide's code defines them again
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
 lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 n_folds <- 5
@@ -29,7 +32,9 @@ ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 size_poll <- "aef27-l11-sdf-size"
@@ -45,7 +50,9 @@ osap_url <- paste0(
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
 )
 osap_file <- "data/osap_long_short_returns.parquet"
-if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+if (!file.exists(osap_file)) {
+  download.file(osap_url, osap_file, mode = "wb")
+}
 anomalies <- read_parquet(osap_file) |>
   mutate(date = floor_date(as.Date(date), "month")) |>
   filter(between(date, sample_start, sample_end)) |>
@@ -66,7 +73,11 @@ ridge_weights <- function(x, lambda) {
 }
 lasso_weights <- function(x, lambda) {
   fit <- glmnet(
-    x, rep(1, nrow(x)), lambda = lambda, intercept = FALSE, standardize = FALSE,
+    x,
+    rep(1, nrow(x)),
+    lambda = lambda,
+    intercept = FALSE,
+    standardize = FALSE,
     control = list(thresh = 1e-12)
   )
   as.vector(coef(fit))[-1]
@@ -89,7 +100,10 @@ market_sharpe <- c(
 equal_sharpe <- portfolio_sharpe(rep(1 / ncol(returns), ncol(returns)))
 plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
 ridge_path <- map(ridge_lambdas, \(lambda) {
-  tibble(lambda = lambda, !!!portfolio_sharpe(ridge_weights(x_estimation, lambda)))
+  tibble(
+    lambda = lambda,
+    !!!portfolio_sharpe(ridge_weights(x_estimation, lambda))
+  )
 }) |>
   bind_rows()
 ```
@@ -102,9 +116,9 @@ ridge_path <- map(ridge_lambdas, \(lambda) {
 
 ## Which penalty?
 
-- **Lecture 10:** `r ncol(returns)` anomalies, estimation sample `r year(sample_start)`–`r year(test_start) - 1`, test sample `r year(test_start)`–`r year(sample_end)`. The plug-in portfolio falls from `r number(plug_in_sharpe[["estimation"]], 0.01)` to `r number(plug_in_sharpe[["test"]], 0.01)`
-- Ridge and the lasso do better in the test sample for a wide range of $\lambda$: with ridge, between `r number(min(ridge_path$test), 0.01)` and `r number(max(ridge_path$test), 0.01)`
-- The best $\lambda$ in the test sample is no option: an investor in 1999 does not know the test sample
+- **Lecture 10:** `r ncol(returns)` anomalies, estimation sample `r estimation_years`, test sample `r test_years`. The plug-in portfolio falls from `r number(plug_in_sharpe[["estimation"]], 0.01)` to `r number(plug_in_sharpe[["test"]], 0.01)`
+- In the test sample, the penalty decides: ridge earns a Sharpe ratio between `r number(min(ridge_path$test), 0.01)` and `r number(max(ridge_path$test), 0.01)`, depending on $\lambda$
+- The best $\lambda$ in the test sample is no option: an investor in `r year(test_start) - 1` does not know the test sample
 
 ::: {.highlight}
 **Today:** choose $\lambda$ with the estimation sample only, and give the penalty an economic meaning
@@ -119,7 +133,7 @@ ridge_path <- map(ridge_lambdas, \(lambda) {
 #| echo: false
 #| fig-width: 11
 #| fig-height: 3.2
-# Five consecutive blocks of the estimation sample, as in the code below
+# Consecutive blocks of the estimation sample, as in the code on the next slide
 fold_id <- ceiling(seq_len(sum(estimation)) / (sum(estimation) / n_folds))
 fold_years <- anomalies$date[estimation] |> year() |> split(fold_id)
 fold_plan <- expand_grid(fold = seq_len(n_folds), block = seq_len(n_folds)) |>
@@ -129,15 +143,34 @@ fold_plan <- expand_grid(fold = seq_len(n_folds), block = seq_len(n_folds)) |>
     role = if_else(fold == block, "Validation", "Estimation")
   ) |>
   bind_rows(tibble(
-    fold = seq_len(n_folds), block = 0, start = year(test_start), end = year(sample_end) + 1,
+    fold = seq_len(n_folds),
+    block = 0,
+    start = year(test_start),
+    end = year(sample_end) + 1,
     role = "Test, never used for tuning"
   ))
 
-ggplot(fold_plan, aes(xmin = start, xmax = end, ymin = fold - 0.4, ymax = fold + 0.4, fill = role)) +
+ggplot(
+  fold_plan,
+  aes(
+    xmin = start,
+    xmax = end,
+    ymin = fold - 0.4,
+    ymax = fold + 0.4,
+    fill = role
+  )
+) +
   geom_rect(color = "white") +
-  scale_y_reverse(breaks = seq_len(n_folds), labels = paste("Fold", seq_len(n_folds))) +
+  scale_y_reverse(
+    breaks = seq_len(n_folds),
+    labels = paste("Fold", seq_len(n_folds))
+  ) +
   scale_fill_manual(
-    values = c("Estimation" = "#b3b3b3", "Validation" = ku_red, "Test, never used for tuning" = light),
+    values = c(
+      "Estimation" = "#b3b3b3",
+      "Validation" = ku_red,
+      "Test, never used for tuning" = light
+    ),
     breaks = c("Estimation", "Validation", "Test, never used for tuning")
   ) +
   labs(x = NULL, y = NULL, fill = NULL) +
@@ -155,9 +188,7 @@ ggplot(fold_plan, aes(xmin = start, xmax = end, ymin = fold - 0.4, ymax = fold +
 
 ```{r}
 #| label: cross-validation-r
-# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
-folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
-
+# Estimate on all blocks but one, Sharpe ratio on the block left out
 cv_sharpe <- function(fit_weights, lambda) {
   map_dbl(seq_len(n_folds), \(k) {
     weights <- fit_weights(x_estimation[folds != k, ], lambda)
@@ -166,6 +197,11 @@ cv_sharpe <- function(fit_weights, lambda) {
     mean(na.rm = TRUE)
 }
 
+# Penalties of lecture 10; five consecutive blocks of the estimation sample
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
+n_folds <- 5
+folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
 ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
 ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
 lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(lasso_weights, lambda))
@@ -177,16 +213,20 @@ lasso_lambda <- lasso_lambdas[which.max(lasso_cv)]
 ```{python}
 #| label: cross-validation-py
 #| eval: false
-# Five consecutive blocks: estimate on four, Sharpe ratio on the fifth
-folds = np.ceil(np.arange(1, len(x_estimation) + 1) / (len(x_estimation) / n_folds))
-
-
+# Estimate on all blocks but one, Sharpe ratio on the block left out
 def cv_sharpe(fit_weights, lam):
-    sharpes = [sharpe_ratio(x_estimation[folds == k] @ fit_weights(x_estimation[folds != k], lam))
-               for k in range(1, n_folds + 1)]
+    sharpes = []
+    for k in range(1, n_folds + 1):
+        weights = fit_weights(x_estimation[folds != k], lam)
+        sharpes.append(sharpe_ratio(x_estimation[folds == k] @ weights))
     return np.nanmean(sharpes)
 
 
+# Penalties of lecture 10; five consecutive blocks of the estimation sample
+ridge_lambdas = 10 ** np.arange(-7, -0.99, 0.25)
+lasso_lambdas = 10 ** np.arange(-6, -2.49, 0.25)
+n_folds = 5
+folds = np.ceil(np.arange(1, len(x_estimation) + 1) / (len(x_estimation) / n_folds))
 ridge_cv = [cv_sharpe(ridge_weights, lam) for lam in ridge_lambdas]
 ridge_lambda = ridge_lambdas[np.argmax(ridge_cv)]
 lasso_cv = [cv_sharpe(lasso_weights, lam) for lam in lasso_lambdas]
@@ -206,7 +246,7 @@ lasso_sharpe <- portfolio_sharpe(lasso_chosen_weights)
 
 # The SDF of the zoo
 
-## Whiteboard: the SDF of the zoo
+## An SDF that prices all anomalies
 
 ::: {.box}
 Find the SDF $m = 1 - b'(F - E[F])$ that prices all anomaly returns $F$: $E[m\,F] = 0$
@@ -221,7 +261,7 @@ $$
 - Each anomaly is a characteristic-managed portfolio, a long-short sort (lectures 7 and 8). $b$ says how much each characteristic matters for prices
 :::
 
-## Whiteboard: a prior on Sharpe ratios
+## A prior on Sharpe ratios
 
 ::: {.box}
 Kozak, Nagel & Santosh (2020): before seeing the data, $\mu \sim N\big(0, \tfrac{\kappa^2}{\tau}\Sigma^2\big)$ with $\tau = \text{tr}(\Sigma)$. What does this prior say about the squared maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
@@ -243,15 +283,23 @@ $$
 #| include: false
 # The annual maximum Sharpe ratio that the prior expects for each penalty
 tau <- sum(diag(cov(x_estimation)))
-implied_kappa <- function(lambda) sqrt(tau / (lambda * nrow(x_estimation)) * months_per_year)
+implied_kappa <- function(lambda) {
+  sqrt(tau / (lambda * nrow(x_estimation)) * months_per_year)
+}
 kappa_path <- ridge_path |>
   mutate(kappa = implied_kappa(lambda), cv = ridge_cv) |>
   filter(lambda > 0)
 
 # Ridge on second moments and the posterior mean point in the same direction
 covariance <- cov(x_estimation) * (nrow(x_estimation) - 1) / nrow(x_estimation)
-posterior_weights <- solve(covariance + ridge_lambda * diag(ncol(returns)), colMeans(x_estimation))
-same_direction <- cor(posterior_weights, as.vector(ridge_weights(x_estimation, ridge_lambda)))
+posterior_weights <- solve(
+  covariance + ridge_lambda * diag(ncol(returns)),
+  colMeans(x_estimation)
+)
+same_direction <- cor(
+  posterior_weights,
+  as.vector(ridge_weights(x_estimation, ridge_lambda))
+)
 ```
 
 ```{r}
@@ -259,19 +307,35 @@ same_direction <- cor(posterior_weights, as.vector(ridge_weights(x_estimation, r
 #| echo: false
 #| fig-width: 10
 #| fig-height: 4.2
+sample_labels <- c(
+  estimation = paste("Estimation", estimation_years),
+  cv = "Cross-validation (estimation sample)",
+  test = paste("Test", test_years)
+)
+chosen_kappa <- implied_kappa(ridge_lambda)
+
 kappa_path |>
   select(kappa, cv, estimation, test) |>
   pivot_longer(-kappa, names_to = "sample", values_to = "sharpe") |>
-  mutate(sample = factor(
-    case_match(sample, "cv" ~ "Cross-validation (estimation sample)", "estimation" ~ "Estimation 1973–1999", "test" ~ "Test 2000–2023"),
-    levels = c("Estimation 1973–1999", "Cross-validation (estimation sample)", "Test 2000–2023")
-  )) |>
+  mutate(sample = factor(sample_labels[sample], levels = sample_labels)) |>
   ggplot(aes(x = kappa, y = sharpe, color = sample)) +
-  geom_vline(xintercept = implied_kappa(ridge_lambda), linetype = "dashed", color = grey) +
+  geom_vline(xintercept = chosen_kappa, linetype = "dashed", color = grey) +
+  annotate(
+    "text",
+    x = chosen_kappa * 0.9,
+    y = max(kappa_path$estimation),
+    label = "Chosen by cross-validation",
+    hjust = 1,
+    color = grey
+  ) +
   geom_line(linewidth = 1) +
   scale_x_log10() +
   scale_color_manual(values = c("#b3b3b3", jet, ku_red)) +
-  labs(x = "Maximum Sharpe ratio the prior expects (κ, annualized)", y = "Sharpe ratio", color = NULL) +
+  labs(
+    x = "Maximum Sharpe ratio the prior expects (κ, annualized)",
+    y = "Sharpe ratio (annualized)",
+    color = NULL
+  ) +
   theme(legend.position = "bottom")
 ```
 
@@ -284,7 +348,11 @@ kappa_path |>
 #| label: size-poll-setup
 #| include: false
 if (live) {
-  ojs_define(poll_base = poll_base, size_poll = size_poll, size_choices = size_choices)
+  ojs_define(
+    poll_base = poll_base,
+    size_poll = size_poll,
+    size_choices = size_choices
+  )
 }
 ```
 
@@ -321,7 +389,7 @@ cat(paste0("- ", size_choices, collapse = "\n"), "\n")
 ```
 :::
 
-# Sparse in anomalies or in principal components?
+# Anomalies or components?
 
 ## Principal components as portfolios
 
@@ -338,7 +406,9 @@ pc_lasso_weights <- function(x, lambda) {
   components %*% lasso_weights(x %*% components, lambda)
 }
 
-pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(pc_lasso_weights, lambda))
+pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) {
+  cv_sharpe(pc_lasso_weights, lambda)
+})
 pc_lasso_lambda <- lasso_lambdas[which.max(pc_lasso_cv)]
 ```
 
@@ -368,18 +438,27 @@ components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
 sparsity <- bind_rows(
   map(lasso_lambdas, \(lambda) {
     weights <- lasso_weights(x_estimation, lambda)
-    tibble(inputs = "Anomalies", lambda = lambda, kept = sum(weights != 0), !!!portfolio_sharpe(weights))
+    tibble(
+      inputs = "Anomalies",
+      lambda = lambda,
+      kept = sum(weights != 0),
+      !!!portfolio_sharpe(weights)
+    )
   }),
   map(lasso_lambdas, \(lambda) {
     pc_weights <- lasso_weights(x_estimation %*% components_estimation, lambda)
     tibble(
-      inputs = "Principal components", lambda = lambda, kept = sum(pc_weights != 0),
+      inputs = "Principal components",
+      lambda = lambda,
+      kept = sum(pc_weights != 0),
       !!!portfolio_sharpe(components_estimation %*% pc_weights)
     )
   })
 )
-pc_chosen <- sparsity |> filter(inputs == "Principal components", lambda == pc_lasso_lambda)
-anomaly_chosen <- sparsity |> filter(inputs == "Anomalies", lambda == lasso_lambda)
+pc_chosen <- sparsity |>
+  filter(inputs == "Principal components", lambda == pc_lasso_lambda)
+anomaly_chosen <- sparsity |>
+  filter(inputs == "Anomalies", lambda == lasso_lambda)
 ```
 
 ```{r}
@@ -391,11 +470,20 @@ chosen <- bind_rows(anomaly_chosen, pc_chosen)
 ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
   geom_line(linewidth = 1) +
   geom_point() +
-  geom_point(data = chosen, size = 5, shape = 21, stroke = 1.3, fill = NA) +
+  geom_point(
+    data = chosen,
+    size = 5,
+    shape = 21,
+    stroke = 1.3,
+    fill = NA,
+    show.legend = FALSE
+  ) +
   scale_color_manual(values = c(jet, ku_red)) +
   labs(
-    x = "Anomalies or principal components with a weight", y = "Sharpe ratio 2000–2023",
-    color = "Lasso on", caption = "Circles: penalty chosen by cross-validation"
+    x = "Number of anomalies or principal components with a weight",
+    y = paste0("Sharpe ratio ", test_years, "\n(annualized)"),
+    color = "Lasso on",
+    caption = "Circles: penalty chosen by cross-validation"
   ) +
   theme(legend.position = "bottom")
 ```
@@ -416,27 +504,43 @@ ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
 #| echo: false
 tibble(
   Portfolio = c(
-    "Market", "1/N over all anomalies", "Plug-in mean-variance",
+    "Market",
+    "1/N over all anomalies",
+    "Plug-in mean-variance",
     "Ridge (prior on Sharpe ratios)",
     "Lasso on anomalies",
     "Lasso on principal components"
   ),
   Inputs = c(
-    "Market", paste(ncol(returns), "anomalies"), paste(ncol(returns), "anomalies"),
-    paste(ncol(returns), "anomalies"), paste(anomaly_chosen$kept, "anomalies"),
+    "Market",
+    paste(ncol(returns), "anomalies"),
+    paste(ncol(returns), "anomalies"),
+    paste(ncol(returns), "anomalies"),
+    paste(anomaly_chosen$kept, "anomalies"),
     paste(pc_chosen$kept, "components")
   ),
   estimation = c(
-    market_sharpe[["estimation"]], equal_sharpe[["estimation"]], plug_in_sharpe[["estimation"]],
-    ridge_sharpe[["estimation"]], anomaly_chosen$estimation, pc_chosen$estimation
+    market_sharpe[["estimation"]],
+    equal_sharpe[["estimation"]],
+    plug_in_sharpe[["estimation"]],
+    ridge_sharpe[["estimation"]],
+    anomaly_chosen$estimation,
+    pc_chosen$estimation
   ),
   test = c(
-    market_sharpe[["test"]], equal_sharpe[["test"]], plug_in_sharpe[["test"]],
-    ridge_sharpe[["test"]], anomaly_chosen$test, pc_chosen$test
+    market_sharpe[["test"]],
+    equal_sharpe[["test"]],
+    plug_in_sharpe[["test"]],
+    ridge_sharpe[["test"]],
+    anomaly_chosen$test,
+    pc_chosen$test
   )
 ) |>
   mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
-  rename(`Sharpe ratio 1973–1999` = estimation, `Sharpe ratio 2000–2023` = test)
+  rename(
+    !!paste("Sharpe ratio", estimation_years) := estimation,
+    !!paste("Sharpe ratio", test_years) := test
+  )
 ```
 
 - Every penalty chosen by cross-validation in the estimation sample
