@@ -1,6 +1,6 @@
 ---
 subtitle: Reproducibility and non-standard errors
-date: 2027-03-18
+date: 2027-03-31
 revealjs-plugins:
   - chat-bubbles
 ---
