@@ -146,6 +146,24 @@ def iframes_to_pictures(page):
         frame = frames.first
         png = base64.b64encode(frame.screenshot()).decode()
         frame.evaluate(TO_PICTURE, "data:image/png;base64," + png)
+    # The screenshots scroll the page; Chrome prints fixed elements such as
+    # the logo only where the page is scrolled to, so scroll back to the top
+    page.evaluate("() => window.scrollTo(0, 0)")
+
+
+# Quarto's lightbox wraps figures in links that open them in large in the
+# HTML; in the PDF such links lead nowhere, so they are removed (the figure
+# stays)
+UNWRAP_LIGHTBOX = """
+() => {
+  let n = 0;
+  for (const link of document.querySelectorAll('a.lightbox')) {
+    link.replaceWith(...link.childNodes);
+    n++;
+  }
+  return n;
+}
+"""
 
 
 def launch(playwright):
@@ -179,6 +197,7 @@ def main(files):
             page.wait_for_timeout(2000)
             page.evaluate(LINK_IFRAMES)
             iframes_to_pictures(page)
+            page.evaluate(UNWRAP_LIGHTBOX)
             page.pdf(path=str(pdf), prefer_css_page_size=True, print_background=True)
             pages = page.evaluate("() => document.querySelectorAll('.pdf-page').length")
             copies = page.evaluate("() => window.__tabsetCopies || 0")
