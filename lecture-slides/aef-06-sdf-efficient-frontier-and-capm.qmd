@@ -11,6 +11,7 @@ library(nanoparquet)
 library(ggrepel)
 library(scales)
 
+# Monthly to annual: expected returns times 12, volatilities times sqrt(12)
 months_per_year <- 12
 
 # Colours of the slides, used by the figures
@@ -18,7 +19,9 @@ ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 beta_poll <- "aef27-l06-beta"
@@ -44,9 +47,9 @@ from scipy.stats import f as f_distribution
 **Today:** one equation that prices every asset, its link to the efficient frontier, and the CAPM as its best-known special case
 :::
 
-# The stochastic discount factor
+# Stochastic discount factors
 
-## Whiteboard: the fundamental equation
+## The fundamental pricing equation
 
 ::: {.box}
 An investor with utility $u(c)$ can buy an asset at price $p_t$ that pays $x_{t+1}$ next period. When is she indifferent about buying a little more? (Cochrane, 2005, chapter 1)
@@ -67,7 +70,7 @@ $$
 - An asset that pays off in bad times, when $m$ is high, insures the investor and earns a low return
 :::
 
-## Whiteboard: the SDF and the efficient frontier
+## The SDF and the efficient frontier
 
 ::: {.box}
 Which $m$ prices $N$ given assets, and how volatile must it be? (Cochrane, 2005, chapters 5 and 6)
@@ -81,7 +84,7 @@ $$
 \frac{\sigma(m)}{E(m)} \geq \max \text{ Sharpe ratio}
 $$
 
-- This is the **Hansen-Jagannathan bound** (Hansen & Jagannathan, 1991): the higher the best attainable Sharpe ratio, the more volatile any SDF must be
+- The **Hansen-Jagannathan bound** (Hansen & Jagannathan, 1991): the higher the best attainable Sharpe ratio, the more volatile any SDF must be
 :::
 
 ## The bound in the data
@@ -97,7 +100,11 @@ industries <- read_parquet("data/industries_ff_monthly.parquet") |>
   mutate(ret_excess = ret - risk_free)
 
 industries_wide <- industries |>
-  pivot_wider(id_cols = date, names_from = industry, values_from = ret_excess) |>
+  pivot_wider(
+    id_cols = date,
+    names_from = industry,
+    values_from = ret_excess
+  ) |>
   left_join(factors_ff3_monthly |> select(date, mkt_excess), join_by(date)) |>
   arrange(date)
 
@@ -105,8 +112,13 @@ industries_wide <- industries |>
 excess_all <- industries_wide |> select(-date) |> as.matrix()
 mu_all <- colMeans(excess_all)
 sigma_all <- crossprod(sweep(excess_all, 2, mu_all)) / nrow(excess_all)
-max_sharpe <- sqrt(as.numeric(t(mu_all) %*% solve(sigma_all) %*% mu_all) * months_per_year)
-market_sharpe <- with(factors_ff3_monthly, mean(mkt_excess) / sd(mkt_excess) * sqrt(months_per_year))
+max_sharpe <- sqrt(
+  as.numeric(t(mu_all) %*% solve(sigma_all) %*% mu_all) * months_per_year
+)
+market_sharpe <- with(
+  factors_ff3_monthly,
+  mean(mkt_excess) / sd(mkt_excess) * sqrt(months_per_year)
+)
 first_year <- year(min(industries$date))
 last_year <- year(max(industries$date))
 ```
@@ -117,7 +129,7 @@ last_year <- year(max(industries$date))
 
 # The CAPM
 
-## Whiteboard: the CAPM as an SDF
+## The CAPM as an SDF
 
 ::: {.box}
 Suppose the market portfolio is mean-variance efficient. What does that imply for $m$, and for expected returns?
@@ -138,7 +150,11 @@ $$
 #| label: poll-setup
 #| include: false
 if (live) {
-  ojs_define(poll_base = poll_base, beta_poll = beta_poll, beta_choices = beta_choices)
+  ojs_define(
+    poll_base = poll_base,
+    beta_poll = beta_poll,
+    beta_choices = beta_choices
+  )
 }
 ```
 
@@ -165,7 +181,7 @@ pollBars(beta_answers, beta_choices)
 :::
 
 ::: {.content-visible unless-profile="live"}
-Ten industries, 1960–2025: do the industries with high market betas have higher average excess returns?
+Ten industries, `r first_year`–`r last_year`: do the industries with high market betas have higher average excess returns?
 
 ```{r}
 #| label: beta-poll-choices
@@ -185,7 +201,9 @@ cat(paste0("- ", beta_choices, collapse = "\n"), "\n")
 capm <- industries |>
   nest(data = -industry) |>
   mutate(
-    fit = map(data, \(d) summary(lm(ret_excess ~ mkt_excess, data = d))$coefficients),
+    fit = map(data, \(d) {
+      summary(lm(ret_excess ~ mkt_excess, data = d))$coefficients
+    }),
     alpha = map_dbl(fit, \(f) f["(Intercept)", "Estimate"]),
     t_alpha = map_dbl(fit, \(f) f["(Intercept)", "t value"]),
     beta = map_dbl(fit, \(f) f["mkt_excess", "Estimate"]),
@@ -199,25 +217,23 @@ capm <- industries |>
 ```{python}
 #| label: estimate-capm-py
 #| eval: false
-factors_ff3_monthly = pl.read_parquet("data/factors_ff3_monthly.parquet")
-industries = (
-    pl.read_parquet("data/industries_ff_monthly.parquet")
-    .unpivot(index="date", variable_name="industry", value_name="ret")
-    .join(factors_ff3_monthly, on="date")
-    .with_columns(ret_excess=pl.col("ret") - pl.col("risk_free"))
-)
-
 rows = []
 for (industry,), data in industries.group_by("industry"):
     fit = smf.ols("ret_excess ~ mkt_excess", data=data.to_pandas()).fit()
-    rows.append({"industry": industry, "alpha": fit.params["Intercept"],
-                 "t_alpha": fit.tvalues["Intercept"], "beta": fit.params["mkt_excess"],
-                 "mean": data["ret_excess"].mean()})
+    rows.append(
+        {
+            "industry": industry,
+            "alpha": fit.params["Intercept"],
+            "t_alpha": fit.tvalues["Intercept"],
+            "beta": fit.params["mkt_excess"],
+            "mean": data["ret_excess"].mean(),
+        }
+    )
 capm = pl.DataFrame(rows).sort("industry")
 ```
 :::
 
-`industries` holds the monthly excess returns of the ten Fama-French industries, with the market excess return from `factors_ff3_monthly.parquet`
+`industries` has one row per industry and month, with the excess returns of the industry (`ret_excess`) and of the market (`mkt_excess`), from `data/industries_ff_monthly.parquet` and `data/factors_ff3_monthly.parquet`
 
 ## The security market line
 
@@ -225,25 +241,79 @@ capm = pl.DataFrame(rows).sort("industry")
 #| label: plot-security-market-line
 #| echo: false
 #| fig-width: 10
-#| fig-height: 5
+#| fig-height: 4.6
 market_mean <- mean(factors_ff3_monthly$mkt_excess) * months_per_year
 capm_annual <- capm |>
   mutate(mean = mean * months_per_year, alpha = alpha * months_per_year)
+beta_limits <- c(0.45, 1.35)
+return_limits <- c(0.045, 0.095)
+
+# The industries and the market share one layer of labels, so that no label
+# covers another
+sml_points <- capm_annual |>
+  transmute(
+    label = industry,
+    beta,
+    mean,
+    point_color = jet,
+    label_color = grey,
+    size = 2.5
+  ) |>
+  add_row(
+    label = "Market",
+    beta = 1,
+    mean = market_mean,
+    point_color = ku_red,
+    label_color = ku_red,
+    size = 4
+  )
+
+# Points without a label along both lines keep the labels off the lines
+fitted_line <- lm(mean ~ beta, data = capm_annual)
+beta_grid <- seq(beta_limits[1], beta_limits[2], by = 0.01)
+line_points <- bind_rows(
+  tibble(beta = beta_grid, mean = beta_grid * market_mean),
+  tibble(
+    beta = beta_grid,
+    mean = predict(fitted_line, tibble(beta = beta_grid))
+  ) |>
+    filter(between(beta, min(capm_annual$beta), max(capm_annual$beta)))
+) |>
+  filter(between(mean, return_limits[1], return_limits[2])) |>
+  mutate(label = "", label_color = grey, size = 1)
 
 ggplot(capm_annual, aes(x = beta, y = mean)) +
-  geom_abline(intercept = 0, slope = market_mean, color = ku_red, linewidth = 0.9) +
-  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = grey, linetype = "dashed", linewidth = 0.7) +
-  geom_point(color = jet, size = 2.5) +
-  geom_text_repel(aes(label = industry), color = grey, size = 4, seed = 1) +
-  annotate("point", x = 1, y = market_mean, color = ku_red, size = 4) +
-  annotate("text", x = 1.015, y = market_mean - 0.0025, label = "Market", hjust = 0, color = ku_red) +
-  coord_cartesian(xlim = c(0.45, 1.35), ylim = c(0.045, 0.095)) +
-  scale_y_continuous(labels = percent) +
-  labs(
-    x = "Market beta", y = "Average excess return (annualized)",
-    title = paste0("Ten industries, ", first_year, "–", last_year, ": the CAPM line in red, the fitted line dashed")
-  )
+  geom_abline(
+    intercept = 0,
+    slope = market_mean,
+    color = ku_red,
+    linewidth = 0.9
+  ) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE,
+    color = grey,
+    linetype = "dashed",
+    linewidth = 0.7
+  ) +
+  geom_point(data = sml_points, aes(color = point_color, size = size)) +
+  geom_text_repel(
+    data = bind_rows(sml_points, line_points),
+    aes(label = label, color = label_color, point.size = size),
+    size = 4,
+    point.padding = 0.2,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  scale_color_identity() +
+  scale_size_identity() +
+  coord_cartesian(xlim = beta_limits, ylim = return_limits) +
+  scale_y_continuous(labels = label_percent(accuracy = 1)) +
+  labs(x = "Market beta", y = "Average excess return (annualized)")
 ```
+
+Ten industries, `r first_year`–`r last_year`. Red line: the security market line of the CAPM, $E[R^e_i] = \beta_i\,E[R^e_m]$, through the market. Dashed line: the least-squares fit through the ten industries
 
 ## Pricing with the CAPM's SDF
 
@@ -266,7 +336,11 @@ sdf_inputs <- industries_wide |>
 b_capm <- mean(f) / mean((f - mean(f))^2)
 
 if (live) {
-  ojs_define(sdf_inputs = sdf_inputs, b_capm = b_capm, months_per_year = months_per_year)
+  ojs_define(
+    sdf_inputs = sdf_inputs,
+    b_capm = b_capm,
+    months_per_year = months_per_year
+  )
 }
 ```
 
@@ -307,7 +381,10 @@ Plot.plot({
 #| fig-width: 10
 #| fig-height: 3.2
 sdf_inputs |>
-  cross_join(tibble(b = c(0, b_capm), sdf = c("b = 0 (risk neutral)", "b = b* (CAPM)"))) |>
+  cross_join(tibble(
+    b = c(0, b_capm),
+    sdf = c("b = 0 (risk neutral)", "b = b* (CAPM)")
+  )) |>
   mutate(
     error = (mean - b * covariance) * months_per_year,
     asset = fct_inorder(asset),
@@ -335,7 +412,7 @@ capm_annual |>
   transmute(
     Industry = industry,
     Beta = number(beta, 0.01),
-    `Average excess return` = percent(mean, 0.1),
+    `Average excess return (annualized)` = percent(mean, 0.1),
     `Alpha (annualized)` = percent(alpha, 0.1),
     `t-statistic of alpha` = number(t_alpha, 0.01)
   )
@@ -343,7 +420,7 @@ capm_annual |>
 
 - Low-beta industries tend to have positive alphas, high-beta industries negative ones: the security market line is flatter than the CAPM says
 
-## Whiteboard: the GRS test
+## The GRS test
 
 ::: {.box}
 Test all alphas at once, $H_0: \alpha_1 = \ldots = \alpha_N = 0$, from $T$ months of time-series regressions on the market
@@ -352,7 +429,9 @@ Test all alphas at once, $H_0: \alpha_1 = \ldots = \alpha_N = 0$, from $T$ month
 ::: {.fragment}
 $$
 \text{GRS} = \frac{T - N - 1}{N}\,\frac{\hat\alpha'\hat\Sigma^{-1}\hat\alpha}{1 + \hat\mu_m^2/\hat\sigma_m^2} \sim F(N, T - N - 1)
-\qquad
+$$
+
+$$
 \hat\alpha'\hat\Sigma^{-1}\hat\alpha = \widehat{SR}^2_\text{market + assets} - \widehat{SR}^2_\text{market}
 $$
 
@@ -367,6 +446,7 @@ $$
 
 ```{r}
 #| label: compute-grs-r
+# industries_wide: monthly excess returns of the ten industries and the market
 y <- industries_wide |> select(-date, -mkt_excess) |> as.matrix()
 x <- industries_wide$mkt_excess
 n_months <- nrow(y)
@@ -377,8 +457,11 @@ alpha <- coef(fit)[1, ]
 sigma_resid <- crossprod(residuals(fit)) / n_months
 sharpe_market_2 <- mean(x)^2 / mean((x - mean(x))^2)
 
-grs <- (n_months - n_assets - 1) / n_assets *
-  as.numeric(t(alpha) %*% solve(sigma_resid, alpha)) / (1 + sharpe_market_2)
+alpha_quadratic <- as.numeric(t(alpha) %*% solve(sigma_resid, alpha))
+grs <- (n_months - n_assets - 1) /
+  n_assets *
+  alpha_quadratic /
+  (1 + sharpe_market_2)
 p_value <- 1 - pf(grs, n_assets, n_months - n_assets - 1)
 ```
 
@@ -387,13 +470,9 @@ p_value <- 1 - pf(grs, n_assets, n_months - n_assets - 1)
 ```{python}
 #| label: compute-grs-py
 #| eval: false
-wide = (
-    industries.pivot(on="industry", index="date", values="ret_excess")
-    .join(factors_ff3_monthly.select("date", "mkt_excess"), on="date")
-    .sort("date")
-)
-y = wide.drop("date", "mkt_excess").to_numpy()
-x = wide["mkt_excess"].to_numpy()
+# industries_wide: monthly excess returns of the ten industries and the market
+y = industries_wide.drop("date", "mkt_excess").to_numpy()
+x = industries_wide["mkt_excess"].to_numpy()
 n_months, n_assets = y.shape
 
 design = np.column_stack([np.ones(n_months), x])
@@ -403,8 +482,8 @@ residuals = y - design @ coef
 sigma_resid = residuals.T @ residuals / n_months
 sharpe_market_2 = x.mean() ** 2 / x.var()
 
-grs = ((n_months - n_assets - 1) / n_assets
-       * alpha @ np.linalg.solve(sigma_resid, alpha) / (1 + sharpe_market_2))
+alpha_quadratic = alpha @ np.linalg.solve(sigma_resid, alpha)
+grs = (n_months - n_assets - 1) / n_assets * alpha_quadratic / (1 + sharpe_market_2)
 p_value = 1 - f_distribution.cdf(grs, n_assets, n_months - n_assets - 1)
 ```
 :::
