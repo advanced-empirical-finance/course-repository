@@ -2,7 +2,8 @@
 subtitle: Realized volatility
 date: 2027-05-03
 # Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
+# Material from the 2026 decks that belongs here (removed from the repository on
+# 16 November 2026; restore with git show 62dcd3a:lecture-slides/<deck>.qmd):
 # - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Why do we care about volatility?" to "Small example: Value-at-risk"
 # - aef-6-high-frequency-econometrics.qmd: "Realized volatility" to "TSRV example with second-level data"
 # (the order book and LOBSTER are in lecture 16)

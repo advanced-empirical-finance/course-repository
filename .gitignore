@@ -4,15 +4,12 @@
 /.quarto/
 # Live version of the slides (quarto ... --profile live), never published
 *.live.html
-# Prototype renders
-lecture-slides/prototypes/*.html
+# Rendered slides: the repository keeps the PDFs only
+lecture-slides/*.html
 lecture-slides/*_cache/
 lecture-slides/*_files/
-lecture-slides/prototypes/*_cache/
-lecture-slides/prototypes/*_files/
 **/*.quarto_ipynb
 **/*.quarto_ipynb_*
-mandatory-assignments/MA_1_portfolio_choice_2026.qmd
 .claude/settings.local.json
 # Trading game token: set_token() saves it here (R: .Renviron, Python: .env)
 .Renviron

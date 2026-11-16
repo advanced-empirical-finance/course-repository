@@ -2,7 +2,8 @@
 subtitle: Realized covariances for portfolio choice
 date: 2027-05-13
 # Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here:
+# Material from the 2026 decks that belongs here (removed from the repository on
+# 16 November 2026; restore with git show 62dcd3a:lecture-slides/<deck>.qmd):
 # - aef-6-high-frequency-econometrics.qmd: "Realized Covariances" to "Blocked Realized Kernels"
 # - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Dynamic multivariate models" to "Obvious extension: DCC"
 ---
