@@ -4,11 +4,170 @@ date: 2027-03-11
 # The first hour is the assignment 1 discussion, so the lecture itself has one hour.
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(tidyfinance)
+library(scales)
 
-- Assignment 1 discussion (first hour)
-- From one factor to many
-- The Fama-French three-factor model
+# One sample for all results: the months of the beta portfolios of lecture 7
+start_date <- as.Date("1964-01-01")
+end_date <- as.Date("2025-12-31")
+
+# The beta portfolios of lecture 7: CAPM betas from the last 60 months (at
+# least 48), ten portfolios
+window_length <- 60
+min_months <- 48
+n_portfolios <- 10
+
+# The 25 portfolios: five size groups times five book-to-market groups
+n_groups <- 5
+
+months_per_year <- 12
+
+# 95% confidence intervals for the alphas
+z_95 <- qnorm(0.975)
+
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+import numpy as np
+import polars as pl
+import tidyfinance as tf
+from scipy.stats import f as f_distribution
+```
+
+```{r}
+#| label: load-data-r
+#| include: false
+crsp_monthly <- read_parquet("data/crsp_monthly.parquet") |>
+  select(permno, date, ret_excess, mktcap_lag, exchange)
+factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet")
+factors_sample <- factors_ff3_monthly |>
+  filter(between(date, start_date, end_date))
+```
+
+```{r}
+#| label: compute-beta-portfolios
+#| include: false
+#| cache: true
+# The ten beta portfolios exactly as in lecture 7: sorted on last month's
+# beta, value-weighted
+betas <- crsp_monthly |>
+  inner_join(factors_ff3_monthly |> select(date, mkt_excess), join_by(date)) |>
+  estimate_betas(
+    "ret_excess ~ mkt_excess",
+    months(window_length),
+    min_obs = min_months
+  )
+beta_lag <- betas |>
+  transmute(permno, date = date %m+% months(1), beta_lag = beta_mkt_excess)
+beta_portfolios <- crsp_monthly |>
+  inner_join(beta_lag, join_by(permno, date)) |>
+  compute_portfolio_returns(
+    "beta_lag",
+    "univariate",
+    breakpoint_options_main = breakpoint_options(n_portfolios = n_portfolios)
+  ) |>
+  filter(between(date, start_date, end_date)) |>
+  select(portfolio, date, ret_excess = ret_excess_vw)
+rm(betas, beta_lag)
+```
+
+```{r}
+#| label: download-size-bm-portfolios
+#| include: false
+#| cache: true
+# Ken French's 25 portfolios sorted on size and book-to-market: monthly
+# value-weighted returns, not in excess of the risk-free rate. The server
+# sometimes answers a request with an error and download_data() then returns
+# an empty table, so try a few times
+max_tries <- 5
+for (attempt in seq_len(max_tries)) {
+  portfolios_size_bm_raw <- download_data(
+    domain = "Fama-French",
+    dataset = "25 Portfolios Formed on Size and Book-to-Market (5 x 5)",
+    start_date = start_date,
+    end_date = end_date
+  )
+  if (nrow(portfolios_size_bm_raw) > 0) {
+    break
+  }
+}
+stopifnot(nrow(portfolios_size_bm_raw) > 0)
+```
+
+```{r}
+#| label: estimate-alphas
+#| include: false
+# The columns run from the smallest to the biggest stocks, within each size
+# group from growth (low book-to-market) to value (high book-to-market)
+size_bm_portfolios <- portfolios_size_bm_raw |>
+  pivot_longer(-date, names_to = "name", values_to = "ret") |>
+  mutate(
+    portfolio = match(name, colnames(portfolios_size_bm_raw)[-1]),
+    size = (portfolio - 1) %/% n_groups + 1,
+    bm = (portfolio - 1) %% n_groups + 1
+  ) |>
+  inner_join(factors_sample, join_by(date)) |>
+  transmute(portfolio, size, bm, date, ret_excess = ret - risk_free)
+
+# Time-series regressions of each test asset on the factors of each model
+factor_models <- c(
+  CAPM = "ret_excess ~ mkt_excess",
+  "Three factors" = "ret_excess ~ mkt_excess + smb + hml"
+)
+estimate_alphas <- function(test_assets) {
+  test_assets |>
+    inner_join(factors_sample, join_by(date)) |>
+    nest(data = -portfolio) |>
+    cross_join(tibble(model = names(factor_models), formula = factor_models)) |>
+    mutate(
+      fit = map2(data, formula, \(d, f) {
+        estimate_model(d, f, output = c("coefficients", "tstats"))
+      }),
+      alpha = map_dbl(fit, \(f) f$coefficients$intercept) * months_per_year,
+      se_alpha = alpha / map_dbl(fit, \(f) f$tstats$intercept),
+      # The CAPM has no HML loading
+      beta_hml = map_dbl(fit, \(f) f$coefficients[["hml"]] %||% NA_real_),
+      model = fct_inorder(model)
+    ) |>
+    select(portfolio, model, alpha, se_alpha, beta_hml)
+}
+alphas_size_bm <- estimate_alphas(size_bm_portfolios |> select(-size, -bm)) |>
+  left_join(
+    distinct(size_bm_portfolios, portfolio, size, bm),
+    join_by(portfolio)
+  )
+alphas_beta <- estimate_alphas(beta_portfolios)
+beta_alpha <- function(model_name, k) {
+  alphas_beta |>
+    filter(model == model_name, portfolio == k) |>
+    pull(alpha)
+}
+```
+
+## Beyond the market beta
+
+- **Lecture 7:** all US stocks in CRSP, sorted into `r n_portfolios` portfolios by their beta. Average returns barely rise with beta: CAPM alphas fall from `r percent(beta_alpha("CAPM", 1), 0.1)` a year for the lowest betas to `r percent(beta_alpha("CAPM", n_portfolios), 0.1)` for the highest
+- Size: small stocks earned more, mostly the tiniest ones. In Fama–MacBeth regressions, size predicts returns and beta does not
+- The CAPM's SDF has one factor, the market. If investors also fear other risks, the SDF needs more factors, and so does the model of expected returns
+
+::: {.highlight}
+**Today:** models with several factors: where the factors come from, how Fama and French build them, and what three factors explain that the market alone does not
+:::
 
 # Assignment 1 discussion
 
@@ -31,24 +190,572 @@ $$
 
 ## Where do factors come from?
 
-- We do not observe betas. A characteristic $z_i$ (size, book-to-market, past returns) is useful when it tells us something about the betas: $E[R^e_i] = \beta(z_i)'\lambda$
-- Value firms are often close to distress and lose most in bad states: high beta, high premium
-- A **portfolio sort turns a characteristic into a factor**: the top portfolio minus the bottom portfolio. Fama & French (1993) add SMB (small minus big) and HML (high minus low book-to-market) to the market: the three-factor model
-- The sort on beta of the last lecture: low-beta stocks earn too much, high-beta stocks too little. Frazzini & Pedersen (2014) find the same in many markets and asset classes and turn it into a factor, *betting against beta*
+```{r}
+#| label: hml-market-beta
+#| include: false
+hml_capm <- estimate_model(
+  factors_sample,
+  "hml ~ mkt_excess",
+  output = c("coefficients", "tstats")
+)
+```
 
-## The Fama-French three-factor model
+- The SDF says which risks earn a premium, but we observe neither $m$ nor each stock's exposure to it
+- A **characteristic** $z_i$ (size, book-to-market, past returns) helps if it proxies for that exposure: stocks with similar $z_i$ covary similarly with $m$ and have similar expected returns
+- A **portfolio sort turns a characteristic into a factor**: high-$z$ stocks minus low-$z$ stocks. If $z$ proxies for the exposure, this long-short return mimics the risk behind it
+- **Value** stocks (high book-to-market) earned more than growth stocks without higher CAPM betas, the anomaly: HML's market beta is `r number(hml_capm$coefficients$mkt_excess, 0.01)` (`r year(start_date)`–`r year(end_date)`). Fama & French (1996): value firms are often in distress and exposed to a bad-times risk that the market misses. Lakonishok, Shleifer & Vishny (1994): investors extrapolate past growth too far. The sort cannot tell the two apart
+- Fama & French (1993) add **SMB** (small minus big) and **HML** (high minus low book-to-market) to the market: the three-factor model
 
-TBD: SMB and HML as 2×3 sorts; the GRS test of the CAPM and of the three-factor model on the 25 size and book-to-market portfolios (public data via tidyfinance)
+# The three-factor model
 
+## How SMB and HML are built
+
+:::::{.columns}
+
+::: {.column width="55%"}
+```{r}
+#| label: plot-two-by-three-sort
+#| echo: false
+#| fig-width: 5.8
+#| fig-height: 4.4
+# The 2 x 3 sort of Fama & French (1993): size split at the NYSE median,
+# book-to-market at the NYSE 30th and 70th percentiles
+bm_groups <- c("growth", "neutral", "value")
+bm_breaks <- c(0, 30, 70, 100)
+sort_cells <- expand_grid(size = c("Small", "Big"), bm = bm_groups) |>
+  mutate(
+    xmin = bm_breaks[match(bm, bm_groups)],
+    xmax = bm_breaks[match(bm, bm_groups) + 1],
+    ymin = if_else(size == "Small", 0, 1),
+    ymax = ymin + 1,
+    label = paste0(size, "\n", bm)
+  )
+arrow_style <- arrow(length = unit(0.25, "cm"), type = "closed")
+
+ggplot(sort_cells) +
+  geom_rect(
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = bm),
+    color = "white",
+    linewidth = 2.5
+  ) +
+  geom_text(
+    aes(x = (xmin + xmax) / 2, y = (ymin + ymax) / 2, label = label),
+    color = jet,
+    size = 5
+  ) +
+  # SMB: the small row minus the big row
+  annotate(
+    "segment",
+    x = 104,
+    xend = 104,
+    y = 1.8,
+    yend = 0.2,
+    arrow = arrow_style,
+    color = ku_red,
+    linewidth = 0.8
+  ) +
+  annotate(
+    "text",
+    x = 106,
+    y = 1,
+    label = "SMB",
+    color = ku_red,
+    hjust = 0,
+    size = 5,
+    fontface = "bold"
+  ) +
+  # HML: the value column minus the growth column
+  annotate(
+    "segment",
+    x = 15,
+    xend = 85,
+    y = 2.12,
+    yend = 2.12,
+    arrow = arrow_style,
+    color = ku_red,
+    linewidth = 0.8
+  ) +
+  annotate(
+    "text",
+    x = 50,
+    y = 2.2,
+    label = "HML",
+    color = ku_red,
+    vjust = 0,
+    size = 5,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(
+    values = c(growth = "#d1cdc8", neutral = light, value = "#dcbcbd"),
+    guide = "none"
+  ) +
+  scale_x_continuous(
+    breaks = bm_breaks,
+    labels = c("0", "30th", "70th", "100th")
+  ) +
+  scale_y_continuous(breaks = 1, labels = "NYSE\nmedian") +
+  coord_cartesian(
+    xlim = c(0, 118),
+    ylim = c(0, 2.35),
+    expand = FALSE,
+    clip = "off"
+  ) +
+  labs(
+    x = "Book-to-market (NYSE percentiles)",
+    y = "Market capitalization"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title.x = element_text(hjust = 0.4)
+  )
+```
+:::
+::: {.column width="45%"}
+
+- **Each June:** split stocks at the NYSE median of market cap and at the NYSE 30th and 70th percentiles of book-to-market (book equity of the previous fiscal year over market cap at the end of December)
+- Six value-weighted portfolios, held from July to June
+- **SMB:** the average of the three small portfolios minus the average of the three big ones
+- **HML:** the average of the two value portfolios minus the average of the two growth ones
+
+:::
+::::
+
+- NYSE breakpoints, so that the many tiny NASDAQ stocks do not set them. Averaging over the other sort keeps SMB roughly free of value and HML roughly free of size
+
+## SMB from CRSP
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: build-smb-r
+#| cache: true
+rebalancing_month <- 7 # each July, on the market cap at the end of June
+n_size_groups <- 2 # small and big, split at the NYSE median
+
+size_portfolios <- crsp_monthly |>
+  compute_portfolio_returns(
+    "mktcap_lag",
+    "univariate",
+    rebalancing_month = rebalancing_month,
+    breakpoint_options_main = breakpoint_options(
+      n_portfolios = n_size_groups,
+      breakpoints_exchanges = "NYSE"
+    )
+  )
+
+smb_crsp <- size_portfolios |>
+  compute_long_short_returns(direction = "bottom_minus_top")
+```
+
+## Python
+
+```{python}
+#| label: build-smb-py
+#| eval: false
+rebalancing_month = 7  # each July, on the market cap at the end of June
+n_size_groups = 2  # small and big, split at the NYSE median
+
+size_portfolios = tf.compute_portfolio_returns(
+    crsp_monthly,
+    "mktcap_lag",
+    "univariate",
+    rebalancing_month=rebalancing_month,
+    breakpoint_options_main=tf.breakpoint_options(
+        n_portfolios=n_size_groups, breakpoints_exchanges="NYSE"
+    ),
+)
+
+smb_crsp = tf.compute_long_short_returns(size_portfolios, direction="bottom_minus_top")
+```
+:::
+
+```{r}
+#| label: compare-smb
+#| include: false
+smb_comparison <- smb_crsp |>
+  select(date, smb_crsp = ret_excess_vw) |>
+  inner_join(factors_sample, join_by(date))
+smb_correlation <- cor(smb_comparison$smb_crsp, smb_comparison$smb)
+smb_crsp_mean <- mean(smb_comparison$smb_crsp) * months_per_year
+smb_french_mean <- mean(smb_comparison$smb) * months_per_year
+```
+
+- CRSP has no book equity: a pure size split of all stocks, held for twelve months and value-weighted (`ret_excess_vw`), instead of the average over three book-to-market groups of stocks with book equity
+- `r year(start_date)`–`r year(end_date)`: correlation with Ken French's SMB `r number(smb_correlation, 0.01)`; average `r percent(smb_crsp_mean, 0.1)` a year against `r percent(smb_french_mean, 0.1)`
+
+## Market, SMB and HML since 1964
+
+```{r}
+#| label: summarize-factors
+#| include: false
+factor_names <- c(mkt_excess = "Market", smb = "SMB", hml = "HML")
+factor_returns <- factors_sample |>
+  select(all_of(names(factor_names))) |>
+  as.matrix()
+factor_means <- colMeans(factor_returns)
+factor_covariance <- crossprod(sweep(factor_returns, 2, factor_means)) /
+  nrow(factor_returns)
+
+# The tangency portfolio of the three factors, weights summing to one
+tangency_weights <- solve(factor_covariance, factor_means)
+tangency_weights <- tangency_weights / sum(tangency_weights)
+tangency_mean <- sum(tangency_weights * factor_means)
+tangency_volatility <- sqrt(
+  as.numeric(t(tangency_weights) %*% factor_covariance %*% tangency_weights)
+)
+
+factor_summary <- tibble(
+  factor = c(factor_names, "Tangency of all three"),
+  mean = c(factor_means, tangency_mean) * months_per_year,
+  volatility = sqrt(
+    c(diag(factor_covariance), tangency_volatility^2) * months_per_year
+  ),
+  sharpe = mean / volatility
+)
+market_sharpe <- factor_summary$sharpe[1]
+max_sharpe <- factor_summary$sharpe[4]
+factor_correlation <- cor(factor_returns)
+```
+
+:::::{.columns}
+
+::: {.column width="58%"}
+```{r}
+#| label: plot-cumulative-factors
+#| echo: false
+#| fig-width: 6.5
+#| fig-height: 4.6
+factor_colors <- c(Market = jet, SMB = grey, HML = ku_red)
+cumulative <- factors_sample |>
+  select(date, all_of(names(factor_names))) |>
+  pivot_longer(-date, names_to = "factor", values_to = "ret") |>
+  mutate(factor = factor_names[factor]) |>
+  arrange(date) |>
+  mutate(value = cumprod(1 + ret), .by = factor)
+end_labels <- cumulative |> slice_max(date, by = factor)
+
+ggplot(cumulative, aes(x = date, y = value, color = factor)) +
+  geom_hline(yintercept = 1, color = light) +
+  geom_line(linewidth = 0.7) +
+  geom_text(
+    data = end_labels,
+    aes(label = factor),
+    hjust = 0,
+    nudge_x = 400,
+    size = 4.5
+  ) +
+  scale_color_manual(values = factor_colors, guide = "none") +
+  scale_y_log10(labels = label_number(accuracy = 1)) +
+  scale_x_date(expand = expansion(mult = c(0.02, 0.12))) +
+  labs(
+    x = NULL,
+    y = "Value of 1 USD (log scale)",
+    caption = "Monthly returns compounded: market excess return, SMB and HML long-short"
+  ) +
+  theme(plot.caption = element_text(color = grey, hjust = 0))
+```
+:::
+::: {.column width="42%"}
+
+```{r}
+#| label: table-factors
+#| echo: false
+factor_summary |>
+  transmute(
+    ` ` = factor,
+    Average = percent(mean, 0.1),
+    Volatility = percent(volatility, 0.1),
+    `Sharpe ratio` = number(sharpe, 0.01)
+  )
+```
+
+- Annualized, `r year(start_date)`–`r year(end_date)`
+- SMB and HML earn less than the market, but are barely correlated with it (`r number(factor_correlation["mkt_excess", "smb"], 0.01)` and `r number(factor_correlation["mkt_excess", "hml"], 0.01)`), so they add to its Sharpe ratio
+
+:::
+::::
+
+## Market alone versus three factors
+
+```{r}
+#| label: plot-three-factor-frontier
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.9
+# The mean-variance frontier of the three factors (weights sum to one) in
+# closed form, with C, D and E as in lecture 2
+covariance_inverse <- solve(factor_covariance)
+iota <- rep(1, length(factor_means))
+C <- as.numeric(t(iota) %*% covariance_inverse %*% iota)
+D <- as.numeric(t(iota) %*% covariance_inverse %*% factor_means)
+E <- as.numeric(t(factor_means) %*% covariance_inverse %*% factor_means)
+frontier_annual <- tibble(mu = seq(0, 0.01, by = 0.00002)) |>
+  mutate(
+    sigma = sqrt(
+      (C * mu^2 - 2 * D * mu + E) / (C * E - D^2) * months_per_year
+    ),
+    mu = mu * months_per_year
+  )
+
+sigma_limits <- c(0, 0.18)
+mu_limits <- c(0, 0.09)
+
+frontier_points <- factor_summary |>
+  mutate(
+    label = if_else(factor == "Tangency of all three", "Tangency", factor),
+    color = c(jet, grey, grey, ku_red)
+  )
+line_labels <- tibble(
+  label = c(
+    paste0("Three factors (Sharpe ratio ", number(max_sharpe, 0.01), ")"),
+    paste0("Market alone (Sharpe ratio ", number(market_sharpe, 0.01), ")")
+  ),
+  sigma = c(0.052, 0.115),
+  mu = sigma * c(max_sharpe, market_sharpe) + c(0.004, -0.004),
+  hjust = c(1, 0),
+  vjust = c(0, 1),
+  color = c(ku_red, jet)
+)
+
+ggplot(mapping = aes(x = sigma, y = mu)) +
+  annotate(
+    "segment",
+    x = 0,
+    y = 0,
+    xend = 1,
+    yend = max_sharpe,
+    color = ku_red,
+    linewidth = 0.8
+  ) +
+  annotate(
+    "segment",
+    x = 0,
+    y = 0,
+    xend = 1,
+    yend = market_sharpe,
+    color = jet,
+    linewidth = 0.8,
+    linetype = "dashed"
+  ) +
+  geom_path(data = frontier_annual, color = jet, linewidth = 0.9) +
+  geom_point(
+    data = frontier_points,
+    aes(x = volatility, y = mean, color = color),
+    size = 3
+  ) +
+  geom_text(
+    data = frontier_points,
+    aes(x = volatility, y = mean, label = label, color = color),
+    nudge_x = 0.004,
+    hjust = 0,
+    vjust = 1.2,
+    size = 4
+  ) +
+  geom_text(
+    data = line_labels,
+    aes(label = label, color = color, hjust = hjust, vjust = vjust),
+    size = 4
+  ) +
+  scale_color_identity() +
+  scale_x_continuous(labels = percent, breaks = breaks_width(0.05)) +
+  scale_y_continuous(labels = percent, breaks = breaks_width(0.02)) +
+  coord_cartesian(xlim = sigma_limits, ylim = mu_limits) +
+  labs(x = "Volatility (annualized)", y = "Average excess return (annualized)")
+```
+
+- The tangency portfolio holds `r percent(tangency_weights[1], 1)` market, `r percent(tangency_weights[2], 1)` SMB and `r percent(tangency_weights[3], 1)` HML. **Lecture 6:** any SDF that prices the three factors needs $\sigma(m)/E(m) \geq$ `r number(max_sharpe, 0.01)` a year, not just `r number(market_sharpe, 0.01)`
+- The three-factor model says that no test asset raises the Sharpe ratio beyond this tangency portfolio. GRS tests exactly that: $\hat\alpha'\hat\Sigma^{-1}\hat\alpha = \widehat{SR}^2_\text{factors + assets} - \widehat{SR}^2_\text{factors}$
+
+## GRS with several factors
+
+With $K$ factors, $\text{GRS} = \frac{T - N - K}{N}\,\frac{\hat\alpha'\hat\Sigma^{-1}\hat\alpha}{1 + \hat\mu_f'\hat\Omega^{-1}\hat\mu_f} \sim F(N, T - N - K)$, where $\hat\mu_f'\hat\Omega^{-1}\hat\mu_f$ is the squared maximum Sharpe ratio of the factors; $K = 1$ gives the test of lecture 6
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: grs-test-r
+grs_test <- function(test_assets, factors) {
+  n_months <- nrow(test_assets)
+  n_assets <- ncol(test_assets)
+  n_factors <- ncol(factors)
+  fit <- lm(test_assets ~ factors)
+  alpha <- coef(fit)[1, ]
+  sigma_resid <- crossprod(residuals(fit)) / n_months
+  factor_means <- colMeans(factors)
+  sigma_factors <- crossprod(sweep(factors, 2, factor_means)) / n_months
+  numerator <- t(alpha) %*% solve(sigma_resid, alpha)
+  denominator <- 1 + t(factor_means) %*% solve(sigma_factors, factor_means)
+  grs <- (n_months - n_assets - n_factors) / n_assets * numerator / denominator
+  p_value <- 1 - pf(grs, n_assets, n_months - n_assets - n_factors)
+  c(grs = grs, p_value = p_value)
+}
+```
+
+## Python
+
+```{python}
+#| label: grs-test-py
+#| eval: false
+def grs_test(test_assets, factors):
+    n_months, n_assets = test_assets.shape
+    n_factors = factors.shape[1]
+    design = np.column_stack([np.ones(n_months), factors])
+    coef, *_ = np.linalg.lstsq(design, test_assets, rcond=None)
+    alpha = coef[0]
+    residuals = test_assets - design @ coef
+    sigma_resid = residuals.T @ residuals / n_months
+    factor_means = factors.mean(axis=0)
+    factors_demeaned = factors - factor_means
+    sigma_factors = factors_demeaned.T @ factors_demeaned / n_months
+    numerator = alpha @ np.linalg.solve(sigma_resid, alpha)
+    denominator = 1 + factor_means @ np.linalg.solve(sigma_factors, factor_means)
+    grs = (n_months - n_assets - n_factors) / n_assets * numerator / denominator
+    p_value = 1 - f_distribution.cdf(grs, n_assets, n_months - n_assets - n_factors)
+    return grs, p_value
+```
+:::
+
+```{r}
+#| label: compute-grs
+#| include: false
+# GRS for each set of test assets and each model
+factor_columns <- list(
+  CAPM = "mkt_excess",
+  "Three factors" = c("mkt_excess", "smb", "hml")
+)
+run_grs <- function(test_assets) {
+  wide <- test_assets |>
+    select(portfolio, date, ret_excess) |>
+    pivot_wider(names_from = portfolio, values_from = ret_excess) |>
+    inner_join(factors_sample, join_by(date)) |>
+    arrange(date)
+  returns <- wide |>
+    select(-date, -all_of(colnames(factors_sample)[-1])) |>
+    as.matrix()
+  map(factor_columns, \(columns) {
+    grs_test(returns, as.matrix(wide[, columns]))
+  })
+}
+grs_size_bm <- run_grs(size_bm_portfolios)
+grs_beta <- run_grs(beta_portfolios)
+p_value_text <- function(p) {
+  if_else(p < 0.001, "< 0.001", number(p, 0.01))
+}
+mean_abs_alpha <- alphas_size_bm |>
+  summarize(mean_abs_alpha = mean(abs(alpha)), .by = model) |>
+  deframe()
+```
+
+## 25 size and book-to-market portfolios
+
+```{r}
+#| label: plot-alphas-size-bm
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.7
+size_labels <- c("Small", "2", "3", "4", "Big")
+bm_labels <- c("Growth", "2", "3", "4", "Value")
+alpha_limit <- max(abs(alphas_size_bm$alpha))
+
+alphas_size_bm |>
+  mutate(
+    size = factor(size_labels[size], levels = rev(size_labels)),
+    bm = factor(bm_labels[bm], levels = bm_labels),
+    text_color = if_else(abs(alpha) > alpha_limit / 2, "white", jet)
+  ) |>
+  ggplot(aes(x = bm, y = size, fill = alpha)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(
+    aes(label = number(alpha * 100, 0.1), color = text_color),
+    size = 4.2
+  ) +
+  facet_wrap(~model) +
+  scale_fill_gradient2(
+    low = "#4d4d4d",
+    mid = "white",
+    high = ku_red,
+    limits = c(-alpha_limit, alpha_limit),
+    labels = label_percent(accuracy = 1)
+  ) +
+  scale_color_identity() +
+  labs(
+    x = "Book-to-market",
+    y = "Size",
+    fill = "Alpha\n(annualized)"
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text = element_text(size = 15, color = jet)
+  )
+```
+
+- Alphas in % a year, `r year(start_date)`–`r year(end_date)`; the portfolios come from Ken French's data library. Under the CAPM, value stocks earn too much and growth stocks too little. The three factors take out most of that pattern: the average absolute alpha falls from `r percent(mean_abs_alpha[["CAPM"]], 0.1)` to `r percent(mean_abs_alpha[["Three factors"]], 0.1)` a year
+- Not all of it: small growth stocks still earn `r percent(alphas_size_bm |> filter(model == "Three factors", size == 1, bm == 1) |> pull(alpha), 0.1)` a year. GRS rejects both models: `r number(grs_size_bm$CAPM[["grs"]], 0.01)` for the CAPM and `r number(grs_size_bm[["Three factors"]][["grs"]], 0.01)` for three factors, both with a p-value `r p_value_text(max(map_dbl(grs_size_bm, "p_value")))`
+
+## Ten beta portfolios
+
+```{r}
+#| label: plot-alphas-beta
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+model_colors <- c(CAPM = "#9a9a9a", "Three factors" = ku_red)
+dodge <- position_dodge(width = 0.5)
+
+ggplot(
+  alphas_beta,
+  aes(x = factor(portfolio), y = alpha, color = model)
+) +
+  geom_hline(yintercept = 0, color = grey) +
+  geom_errorbar(
+    aes(ymin = alpha - z_95 * se_alpha, ymax = alpha + z_95 * se_alpha),
+    width = 0.3,
+    position = dodge
+  ) +
+  geom_point(size = 2.5, position = dodge) +
+  scale_color_manual(values = model_colors) +
+  scale_y_continuous(labels = percent) +
+  labs(
+    x = "Beta portfolio (1 = lowest)",
+    y = "Alpha (annualized)\nwith 95% confidence interval",
+    color = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| label: summarize-beta-alphas
+#| include: false
+hml_loading <- alphas_beta |>
+  filter(model == "Three factors") |>
+  select(portfolio, beta_hml) |>
+  deframe()
+
+# High minus low: the highest-beta portfolio minus the lowest, as in lecture 7
+high_minus_low <- beta_portfolios |>
+  compute_long_short_returns() |>
+  inner_join(factors_sample, join_by(date))
+high_minus_low_fits <- map(factor_models, \(f) {
+  estimate_model(high_minus_low, f, output = c("coefficients", "tstats"))
+})
+```
+
+- Three factors explain only part of the pattern. Low-beta stocks load on HML (`r number(hml_loading[["1"]], 0.01)`), so the alpha of portfolio 1 falls from `r percent(beta_alpha("CAPM", 1), 0.1)` to `r percent(beta_alpha("Three factors", 1), 0.1)` a year; portfolio `r n_portfolios` keeps `r percent(beta_alpha("Three factors", n_portfolios), 0.1)` (CAPM: `r percent(beta_alpha("CAPM", n_portfolios), 0.1)`). High minus low: `r percent(high_minus_low_fits$CAPM$coefficients$intercept * months_per_year, 0.1)` a year (t = `r number(high_minus_low_fits$CAPM$tstats$intercept, 0.01)`) under the CAPM, `r percent(high_minus_low_fits[["Three factors"]]$coefficients$intercept * months_per_year, 0.1)` (t = `r number(high_minus_low_fits[["Three factors"]]$tstats$intercept, 0.01)`) under three factors
+- GRS: `r number(grs_beta$CAPM[["grs"]], 0.01)` for the CAPM (p-value `r p_value_text(grs_beta$CAPM[["p_value"]])`), `r number(grs_beta[["Three factors"]][["grs"]], 0.01)` for three factors (p-value `r p_value_text(grs_beta[["Three factors"]][["p_value"]])`): as in lecture 7, ten correlated portfolios reject neither model
+- Frazzini & Pedersen (2014) find the same flat line in many markets and asset classes and turn it into a factor, **betting against beta**: long low-beta, short high-beta assets, scaled to a beta of zero
 
 ## Anomalies
 
-| Anomaly | Finding | Key reference(s) |
+| Anomaly | Finding | Key reference |
 |---|---|---|
-| Betting against beta | $\alpha$ declining in $\beta$ across many asset classes | Frazzini & Pedersen (2014) |
-| Size | Small stocks outperform large stocks | Banz (1981); Fama & French (1992) |
-| Value | High book-to-market stocks outperform growth stocks | Rosenberg, Reid & Lanstein (1985); Fama & French (1992) |
-| Momentum | Intermediate-term winners outperform losers | Jegadeesh & Titman (1993); Carhart (1997) |
-| Liquidity | Illiquid stocks earn a return premium | Pástor & Stambaugh (2003) |
+| Size | Small stocks earn more than big stocks | Banz (1981) |
+| Value | High book-to-market stocks earn more than growth stocks | Rosenberg, Reid & Lanstein (1985); Fama & French (1992) |
+| Momentum | Winners of the past 3–12 months keep beating the losers | Jegadeesh & Titman (1993) |
+| Low beta | Alphas fall with beta | Frazzini & Pedersen (2014) |
+| Profitability | Profitable firms earn more | Novy-Marx (2013) |
+| Investment | Firms that grow their assets fast earn less | Cooper, Gulen & Schill (2008) |
 
-- Hundreds more have been published since: the *factor zoo*. Which of them survive is a question for the lecture on reproducibility; how to use many characteristics at once, for the machine learning lectures
+- New factors follow the anomalies: Carhart (1997) adds momentum to the three factors; the five-factor model adds profitability and investment (Fama & French, 2015), as does the q-factor model (Hou, Xue & Zhang, 2015)
+- Hundreds of anomalies have been published since: the **factor zoo**. Next lecture asks which of them survive a replication
