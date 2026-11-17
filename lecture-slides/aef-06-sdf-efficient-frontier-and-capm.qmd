@@ -24,8 +24,7 @@ theme_set(
 )
 
 source("lecture-slides/_live-poll.R")
-beta_poll <- "aef27-l06-beta"
-beta_choices <- c("Yes clearly", "A little", "No relation", "The opposite")
+test_capm_poll <- "aef27-l06-test-capm"
 ```
 
 ```{python}
@@ -77,7 +76,8 @@ Which $m$ prices $N$ given assets, and how volatile must it be? (Cochrane, 2005,
 :::
 
 ::: {.fragment}
-- An SDF that is linear in returns, $m = a + b'R$, prices the assets if and only if the portfolio with weights proportional to $b$ is **mean-variance efficient**: the tangency portfolio of lecture 2 is an SDF
+- An SDF that is linear in returns, $m = a + b'R$, prices the assets if and only if the portfolio with weights proportional to $b$ lies on the **mean-variance frontier**
+- So an SDF that is linear in the return of lecture 2's tangency portfolio, $m = a - b\,R_\text{tan}$ with suitable $a$ and $b > 0$, prices all $N$ assets
 - $|E[R^e]| \leq \frac{\sigma(m)}{E(m)}\,\sigma(R^e)$ for every excess return, so
 
 $$
@@ -141,6 +141,136 @@ last_year <- year(max(industries$date))
 - So any SDF that prices these assets has $\sigma(m)/E(m) \geq$ `r number(max_sharpe, 0.01)` a year
 - With $m = \beta\,u'(c_{t+1})/u'(c_t)$ and power utility, $\sigma(m) \approx \gamma\,\sigma(\Delta c)$. Consumption growth varies by about 1–2% a year, so $\gamma$ must be implausibly large: the **equity premium puzzle** (Mehra & Prescott, 1985)
 
+## The bound and the capital market line
+
+- Among all SDFs with a given mean, the least volatile one is linear in the tangency portfolio's return. Its $\sigma(m)/E(m)$ is the slope of the capital market line, `r number(max_sharpe, 0.01)`
+- Every other SDF with the same mean adds noise that is uncorrelated with the returns, so it is more volatile
+- Pricing the market alone requires only $\sigma(m)/E(m) \geq$ `r number(market_sharpe, 0.01)` (dashed line); the ten industries raise the bound to `r number(max_sharpe, 0.01)`
+
+```{r}
+#| label: plot-bound-frontier
+#| echo: false
+#| fig-width: 10
+#| fig-height: 4
+# The mean-variance frontier of the eleven excess returns (weights sum to
+# one) in closed form, with C, D and E as in lecture 2
+sigma_all_inv <- solve(sigma_all)
+iota_all <- rep(1, length(mu_all))
+C <- as.numeric(t(iota_all) %*% sigma_all_inv %*% iota_all)
+D <- as.numeric(t(iota_all) %*% sigma_all_inv %*% mu_all)
+E <- as.numeric(t(mu_all) %*% sigma_all_inv %*% mu_all)
+frontier_annual <- tibble(mu = seq(-0.01, 0.03, by = 0.0001)) |>
+  mutate(
+    sigma = sqrt(
+      (C * mu^2 - 2 * D * mu + E) / (C * E - D^2) * months_per_year
+    ),
+    mu = mu * months_per_year
+  )
+
+# The industries, the market and the tangency portfolio (expected excess
+# return E / D, volatility sqrt(E) / D) share one layer of labels, so that no
+# label covers another point or label
+frontier_points <- tibble(
+  label = c(industry_names[head(names(mu_all), -1)], "Market"),
+  mu = mu_all * months_per_year,
+  sigma = sqrt(diag(sigma_all) * months_per_year),
+  point_color = c(rep(grey, length(mu_all) - 1), jet),
+  label_color = c(rep(grey, length(mu_all) - 1), jet),
+  size = c(rep(2, length(mu_all) - 1), 3)
+) |>
+  add_row(
+    label = "",
+    mu = E / D * months_per_year,
+    sigma = sqrt(E) / D * sqrt(months_per_year),
+    point_color = ku_red,
+    label_color = ku_red,
+    size = 3
+  )
+
+# The tangency label sits above the capital market line, left of the point
+tangency_label <- frontier_points |>
+  slice_tail(n = 1) |>
+  mutate(label = "Tangency", sigma = sigma - 0.004, mu = mu + 0.002)
+
+sigma_limits <- c(0, 0.27)
+mu_limits <- c(0, 0.13)
+
+# Points without a label along the lines and the frontier keep the labels off
+# them
+sigma_grid <- seq(0, sigma_limits[2], by = 0.001)
+line_points <- bind_rows(
+  tibble(sigma = sigma_grid, mu = sigma_grid * max_sharpe),
+  tibble(sigma = sigma_grid, mu = sigma_grid * market_sharpe),
+  frontier_annual
+) |>
+  filter(between(mu, mu_limits[1], mu_limits[2]), sigma <= sigma_limits[2]) |>
+  mutate(label = "", label_color = grey, size = 1)
+
+# Both lines start at the risk-free rate, zero excess return; their slopes are
+# the Sharpe ratios
+line_labels <- tibble(
+  label = c(
+    paste0("Capital market line (Sharpe ratio ", number(max_sharpe, 0.01), ")"),
+    paste0("Market alone (Sharpe ratio ", number(market_sharpe, 0.01), ")")
+  ),
+  sigma = c(0.105, 0.06),
+  mu = sigma * c(max_sharpe, market_sharpe) + c(0.005, -0.005),
+  hjust = c(1, 0),
+  color = c(ku_red, jet)
+)
+
+ggplot(mapping = aes(x = sigma, y = mu)) +
+  annotate(
+    "segment",
+    x = 0,
+    y = 0,
+    xend = 1,
+    yend = max_sharpe,
+    color = ku_red,
+    linewidth = 0.8
+  ) +
+  annotate(
+    "segment",
+    x = 0,
+    y = 0,
+    xend = 1,
+    yend = market_sharpe,
+    color = jet,
+    linewidth = 0.8,
+    linetype = "dashed"
+  ) +
+  geom_path(data = frontier_annual, color = jet, linewidth = 0.9) +
+  geom_point(data = frontier_points, aes(color = point_color, size = size)) +
+  geom_text_repel(
+    data = bind_rows(frontier_points, line_points),
+    aes(label = label, color = label_color, point.size = size),
+    size = 3.2,
+    point.padding = 0.2,
+    box.padding = 0.4,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  geom_text(
+    data = tangency_label,
+    aes(label = label),
+    color = ku_red,
+    hjust = 1,
+    vjust = 0,
+    size = 3.4
+  ) +
+  geom_text(
+    data = line_labels,
+    aes(label = label, color = color, hjust = hjust),
+    size = 3.6
+  ) +
+  scale_color_identity() +
+  scale_size_identity() +
+  scale_x_continuous(labels = percent, breaks = breaks_width(0.05)) +
+  scale_y_continuous(labels = percent, breaks = breaks_width(0.05)) +
+  coord_cartesian(xlim = sigma_limits, ylim = mu_limits) +
+  labs(x = "Volatility (annualized)", y = "Average excess return (annualized)")
+```
+
 # The CAPM
 
 ## The CAPM as an SDF
@@ -158,17 +288,13 @@ $$
 - In a regression $R^e_{i,t} = \alpha_i + \beta_i R^e_{m,t} + \varepsilon_{i,t}$, the CAPM says $\alpha_i = 0$ for every asset
 :::
 
-## Do high-beta industries earn more?
+## How can we test the CAPM?
 
 ```{r}
 #| label: poll-setup
 #| include: false
 if (live) {
-  ojs_define(
-    poll_base = poll_base,
-    beta_poll = beta_poll,
-    beta_choices = beta_choices
-  )
+  ojs_define(poll_base = poll_base, test_capm_poll = test_capm_poll)
 }
 ```
 
@@ -176,33 +302,39 @@ if (live) {
 {{< include _live-poll-ojs.qmd >}}
 
 :::: {.columns}
-::: {.column width="40%"}
+::: {.column width="35%"}
 ```{ojs}
-//| label: beta-poll-qr
+//| label: test-capm-poll-qr
 //| echo: false
-pollQR(beta_poll, beta_choices)
+qrCode(`${poll_base}/?poll=${test_capm_poll}&type=text`, `${poll_base}/?poll=${test_capm_poll}`, 300)
 ```
+
+How can we test the CAPM? Up to 30 characters each
 :::
-::: {.column width="60%"}
+::: {.column width="65%"}
 ```{ojs}
-//| label: beta-poll-live
+//| label: test-capm-wordcloud-live
 //| echo: false
-beta_answers = pollAnswers(beta_poll)
-pollBars(beta_answers, beta_choices)
+wordcloud_refresh = Generators.observe(notify => {
+  let i = 0;
+  notify(i);
+  const timer = setInterval(() => notify(++i), 3000);
+  return () => clearInterval(timer);
+})
+html`<img src="${poll_base}/wordcloud?poll=${test_capm_poll}&refresh=${wordcloud_refresh}" style="width: 100%">`
 ```
+
+<p style="font-size: 0.5em; color: #666">An AI groups the answers into themes</p>
 :::
 ::::
 :::
 
 ::: {.content-visible unless-profile="live"}
-Ten industries, `r first_year`–`r last_year`: do the industries with high market betas have higher average excess returns?
+In the lecture, you answer on your phone: how can we test the CAPM? An AI groups the answers of the class into a word cloud of themes
+:::
 
-```{r}
-#| label: beta-poll-choices
-#| echo: false
-#| results: asis
-cat(paste0("- ", beta_choices, collapse = "\n"), "\n")
-```
+::: {.fragment}
+Next: do the ten industries with high betas earn more, and are all their alphas zero?
 :::
 
 ## Betas and alphas of ten industries
@@ -341,12 +473,17 @@ f <- industries_wide$mkt_excess
 sdf_inputs <- industries_wide |>
   select(-date) |>
   pivot_longer(everything(), names_to = "asset", values_to = "ret_excess") |>
-  mutate(asset = if_else(asset == "mkt_excess", "Market", industry_names[asset])) |>
+  mutate(
+    asset = if_else(asset == "mkt_excess", "Market", industry_names[asset])
+  ) |>
   summarize(
     mean = mean(ret_excess),
     covariance = mean((ret_excess - mean(ret_excess)) * (f - mean(f))),
     .by = asset
-  )
+  ) |>
+  # Industries from the highest to the lowest average excess return, then the
+  # market; the static and the live figure use this order
+  arrange(asset == "Market", desc(mean))
 b_capm <- mean(f) / mean((f - mean(f))^2)
 
 if (live) {
@@ -358,7 +495,13 @@ if (live) {
 }
 ```
 
-- Take $m = 1 - b\,(R^e_m - E[R^e_m])$. The pricing error of asset $i$ is $E[m R^e_i] = E[R^e_i] - b\,\text{Cov}(R^e_m, R^e_i)$
+- Take the CAPM's $m = a - b\,R_m$ with $R_m = R_f + R^e_m$. Excess returns satisfy $0 = E[mR^e]$ for any scale of $m$, so choose $a$ such that $E[m] = 1$: $m = 1 - b\,(R^e_m - E[R^e_m])$
+- The pricing error of asset $i$ is then
+
+$$
+E[m R^e_i] = E[R^e_i] - b\,\text{Cov}(R^e_m, R^e_i)
+$$
+
 - $b = 0$: a risk-neutral investor, the errors are the average excess returns. With the CAPM's $b^*$, the market is priced exactly and the errors of the industries are their alphas
 
 ::: {.content-visible when-profile="live"}
@@ -377,7 +520,7 @@ errors = transpose(sdf_inputs).map(d => ({
 }))
 Plot.plot({
   width: 900,
-  height: 320,
+  height: 260,
   marginBottom: 60,
   x: {label: null, domain: transpose(sdf_inputs).map(d => d.asset), tickRotate: -25},
   y: {label: "Pricing error, % a year", tickFormat: d => (d * 100).toFixed(0), domain: [-0.1, 0.1], clamp: true},
@@ -452,7 +595,7 @@ $$
 $$
 
 - $\hat\Sigma$ is the covariance matrix of the residuals (Gibbons, Ross & Shanken, 1989)
-- The test asks lecture 2's question: does adding the assets to the market raise the highest attainable Sharpe ratio?
+- The test asks: does adding the assets to the market raise the highest attainable Sharpe ratio, that of the tangency portfolio?
 :::
 
 ## GRS for the ten industries
@@ -508,7 +651,7 @@ GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: the ten industri
 
 ## What else is wrong with the CAPM?
 
-- **Power:** industries are similar to each other and to the market. Portfolios sorted on size and book-to-market have large CAPM alphas (Fama & French, 1993). Next lecture: all stocks, sorted on beta
+- **Power:** the ten industries have similar betas (`r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`) and similar average excess returns (`r percent(min(capm_annual$mean), 0.1)` to `r percent(max(capm_annual$mean), 0.1)` a year), so the test has little chance to reject the CAPM even if it is wrong. Test assets with more spread, e.g. portfolios sorted on size and book-to-market, have large CAPM alphas (Fama & French, 1993). Next lecture sorts all stocks on beta
 - **A flat security market line:** low-beta stocks earn too much, high-beta stocks too little (Fama & French, 2004; Frazzini & Pedersen, 2014)
 - **The market is unobservable:** a test of the CAPM tests the proxy, here the CRSP value-weighted index (Roll, 1977)
 - **Betas move over time:** exercise 3 estimates them with rolling windows for every CRSP stock
