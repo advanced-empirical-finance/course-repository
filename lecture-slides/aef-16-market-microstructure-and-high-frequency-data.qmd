@@ -55,7 +55,7 @@ import tidyfinance as tf
 - **Why:** trading costs (lecture 5 and the trading game), volatility measured within the day (lecture 17), covariances for portfolio choice (lecture 18)
 
 ::: {.highlight}
-Assignment 3 on realized volatility from high-frequency data starts today
+Assignment 3 on realized volatility from high-frequency data starts on 6 May
 :::
 
 # The limit order book
