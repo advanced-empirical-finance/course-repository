@@ -13,10 +13,11 @@ library(tidyfinance)
 library(scales)
 library(patchwork)
 
-# SPY order book snapshots: one month a year, and the month of the intraday figures
-years <- 2008:2025
-sample_month <- 3
-intraday_year <- 2024
+# A recent year: the intraday figures, and the comparisons with the first year
+recent_year <- 2024
+
+# The intraday figures average the snapshots over intervals of ten minutes
+bucket_minutes <- 10
 
 # Two crisis months: after the Lehman collapse, and the COVID-19 crash
 crisis_years <- c(2009, 2020)
@@ -26,12 +27,17 @@ ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 ```
 
 ```{python}
 #| label: load-packages-py
 #| include: false
+from calendar import monthrange
+from datetime import date
+
 import polars as pl
 import tidyfinance as tf
 ```
@@ -54,7 +60,7 @@ Assignment 3 on realized volatility from high-frequency data starts today
 
 # The limit order book
 
-## Whiteboard: the limit order book
+## How an order book works
 
 ::: {.box}
 An exchange collects orders to buy and to sell. Which trades happen, and at which prices?
@@ -77,20 +83,53 @@ An exchange collects orders to buy and to sell. Which trades happen, and at whic
 #| fig-height: 3.6
 # A stylized order book, for illustration only
 order_book <- bind_rows(
-  tibble(price = 99.96 + 0.01 * 0:3, depth = c(700, 500, 400, 50), side = "Bid: buy orders"),
-  tibble(price = 100.00 + 0.01 * 0:3, depth = c(300, 700, 500, 700), side = "Ask: sell orders")
+  tibble(
+    price = 99.96 + 0.01 * 0:3,
+    depth = c(700, 500, 400, 50),
+    side = "Bid: buy orders"
+  ),
+  tibble(
+    price = 100.00 + 0.01 * 0:3,
+    depth = c(300, 700, 500, 700),
+    side = "Ask: sell orders"
+  )
 )
+
+# A market order to buy takes the cheapest sell orders first
+market_buy <- 1000
+asks <- order_book |>
+  filter(side == "Ask: sell orders") |>
+  mutate(
+    taken = pmin(depth, pmax(market_buy - lag(cumsum(depth), default = 0), 0))
+  )
+new_best_ask <- min(asks$price[asks$taken < asks$depth])
 ggplot(order_book, aes(x = price, y = depth, fill = side)) +
   geom_col(width = 0.008) +
-  annotate("segment", x = 99.99, xend = 100.00, y = 820, yend = 820, arrow = arrow(ends = "both", length = unit(0.15, "cm")), color = jet) +
+  annotate(
+    "segment",
+    x = 99.99,
+    xend = 100.00,
+    y = 820,
+    yend = 820,
+    arrow = arrow(ends = "both", length = unit(0.15, "cm")),
+    color = jet
+  ) +
   annotate("text", x = 99.995, y = 880, label = "Spread", color = jet) +
-  scale_fill_manual(values = c("Bid: buy orders" = "#b3b3b3", "Ask: sell orders" = ku_red)) +
+  scale_fill_manual(
+    values = c("Bid: buy orders" = "#b3b3b3", "Ask: sell orders" = ku_red),
+    breaks = c("Bid: buy orders", "Ask: sell orders")
+  ) +
   scale_x_continuous(breaks = order_book$price, labels = number_format(0.01)) +
-  labs(x = "Price (USD)", y = "Shares waiting", fill = NULL, caption = "Illustration") +
+  labs(
+    x = "Price (USD)",
+    y = "Shares waiting",
+    fill = NULL,
+    caption = "Illustration"
+  ) +
   theme(legend.position = "bottom")
 ```
 
-- A market order to buy 1,000 shares takes 300 at 100.00 and 700 at 100.01: it clears both levels and moves the best ask up by two cents, to 100.02
+- A market order to buy `r comma(market_buy)` shares takes `r asks$taken[1]` at `r number(asks$price[1], 0.01)` and `r asks$taken[2]` at `r number(asks$price[2], 0.01)`: it clears both levels and moves the best ask from `r number(asks$price[1], 0.01)` up to `r number(new_best_ask, 0.01)`
 
 ## A NASDAQ trading day
 
@@ -129,14 +168,18 @@ ggplot(order_book, aes(x = price, y = depth, fill = side)) +
 ```{r}
 #| label: download-spy-r
 #| cache: true
-#| cache.extra: !expr list(years, sample_month)
 # Five-second snapshots of the SPY order book during regular trading hours,
 # for one month in every year
+years <- 2008:2025
+sample_month <- 3
+
 spy <- map(years, \(year) {
   start <- make_date(year, sample_month, 1)
   download_data(
-    domain = "Tidy Finance", dataset = "high_frequency_sp500",
-    start_date = start, end_date = ceiling_date(start, "month") - days(1)
+    domain = "Tidy Finance",
+    dataset = "high_frequency_sp500",
+    start_date = start,
+    end_date = ceiling_date(start, "month") - days(1)
   ) |>
     mutate(year = year)
 }) |>
@@ -150,17 +193,30 @@ spy <- map(years, \(year) {
 #| eval: false
 # Five-second snapshots of the SPY order book during regular trading hours,
 # for one month in every year
-spy = pl.concat([
-    tf.download_data(domain="Tidy Finance", dataset="high_frequency_sp500",
-                     start_date=f"{year}-03-01", end_date=f"{year}-03-31")
-    .with_columns(year=pl.lit(year))
-    for year in range(2008, 2026)
-])
+years = range(2008, 2026)
+sample_month = 3
+
+spy = pl.concat(
+    tf.download_data(
+        domain="Tidy Finance",
+        dataset="high_frequency_sp500",
+        start_date=date(year, sample_month, 1),
+        end_date=date(year, sample_month, monthrange(year, sample_month)[1]),
+    ).with_columns(year=pl.lit(year))
+    for year in years
+)
 ```
 :::
 
+```{r}
+#| label: month-label
+#| include: false
+# "March 2008": the sample month of a year, for the text and the figures
+month_label <- \(year) paste(month.name[sample_month], year)
+```
+
 - SPY, the ETF on the S&P 500, on NASDAQ from July 2007, built from LOBSTER: every 5 seconds the midquote, the **spread** (basis points of the midquote), the **depth** at the best quotes and within 5 bps (shares), the **dollar volume** traded, and the **signed order flow** (buyer- minus seller-initiated shares)
-- Here: March of every year `r min(years)`–`r max(years)`, `r comma(nrow(spy))` snapshots
+- Here: `r month.name[sample_month]` of every year `r min(years)`–`r max(years)`, `r comma(nrow(spy))` snapshots
 
 ## Liquidity through the day
 
@@ -169,13 +225,16 @@ spy = pl.concat([
 #| echo: false
 #| fig-width: 11
 #| fig-height: 3.6
-# Averages per ten minutes of the trading day, March of one year, without
-# the snapshots of the opening and closing auctions
+# Averages over intervals of the trading day in one year, without the
+# snapshots of the opening and closing auctions
 intraday <- spy |>
-  filter(year == intraday_year) |>
+  filter(year == recent_year) |>
   mutate(clock_exact = hour(ts) + minute(ts) / 60 + second(ts) / 3600) |>
   filter(clock_exact > 9.5 + 5 / 3600, clock_exact < 16) |>
-  mutate(time = floor_date(ts, "10 minutes"), clock = hour(time) + minute(time) / 60) |>
+  mutate(
+    time = floor_date(ts, paste(bucket_minutes, "minutes")),
+    clock = hour(time) + minute(time) / 60
+  ) |>
   summarize(
     spread = mean(spread),
     depth = mean((depth0_ask + depth0_bid) / 2 * midquote),
@@ -185,16 +244,27 @@ intraday <- spy |>
 intraday_panel <- function(column, label, formatter) {
   ggplot(intraday, aes(x = clock, y = .data[[column]])) +
     geom_line(color = ku_red, linewidth = 0.9) +
-    scale_x_continuous(breaks = c(10, 12, 14, 16), labels = c("10:00", "12:00", "14:00", "16:00")) +
+    scale_x_continuous(
+      breaks = c(10, 12, 14, 16),
+      labels = c("10:00", "12:00", "14:00", "16:00")
+    ) +
     scale_y_continuous(labels = formatter) +
     labs(x = NULL, y = label)
 }
 intraday_panel("spread", "Spread (bps)", number_format(0.01)) +
-  intraday_panel("depth", "Depth at the best quotes (USD)", label_dollar(scale = 1e-3, suffix = "k")) +
-  intraday_panel("volume", "Dollar volume per 5 seconds", label_dollar(scale = 1e-6, suffix = "m", accuracy = 0.1))
+  intraday_panel(
+    "depth",
+    "Depth at the best quotes (USD)",
+    label_dollar(scale = 1e-3, suffix = "k")
+  ) +
+  intraday_panel(
+    "volume",
+    "Volume per 5 seconds (USD)",
+    label_dollar(scale = 1e-6, suffix = "m", accuracy = 0.1)
+  )
 ```
 
-- March `r intraday_year`, averages per ten minutes of continuous trading (without the opening and closing auctions): trading is heaviest at the open and at the close (the U-shape); the spread is widest right after the open, when uncertainty is largest, and depth builds up during the day
+- `r month_label(recent_year)`, averages per `r bucket_minutes` minutes of continuous trading (without the opening and closing auctions): trading is heaviest at the open and at the close (the U-shape); the spread is widest right after the open, when uncertainty is largest, and depth builds up during the day
 
 ## Liquidity over the years
 
@@ -214,23 +284,32 @@ spread_years <- ggplot(yearly, aes(x = year, y = spread)) +
   geom_line(color = jet) +
   geom_point(color = jet) +
   geom_point(data = crisis, color = ku_red, size = 3) +
-  geom_text(data = crisis, aes(label = paste("March", year)), vjust = -0.9, hjust = 0.2, color = ku_red, size = 3.8) +
+  geom_text(
+    data = crisis,
+    aes(label = month_label(year)),
+    vjust = -0.9,
+    hjust = 0.2,
+    color = ku_red,
+    size = 3.8
+  ) +
   scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.15))) +
   labs(x = NULL, y = "Spread (bps)")
 depth_years <- ggplot(yearly, aes(x = year, y = depth)) +
   geom_line(color = jet) +
   geom_point(color = jet) +
-  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "m")) +
+  scale_y_continuous(
+    labels = label_dollar(scale = 1e-6, suffix = "m", accuracy = 0.1)
+  ) +
   labs(x = NULL, y = "Depth at the best quotes (USD)")
 spread_years + depth_years
 ```
 
-- The spread fell from `r number(yearly$spread[1], 0.01)` bps in March `r yearly$year[1]` to `r number(yearly$spread[yearly$year == 2024], 0.01)` bps in March 2024: SPY trades at the minimum tick of one cent, which became ever smaller relative to the price. Crises widen it: March `r crisis$year[1]` and March `r crisis$year[2]`
+- The spread fell from `r number(yearly$spread[yearly$year == min(years)], 0.01)` bps in `r month_label(min(years))` to `r number(yearly$spread[yearly$year == recent_year], 0.01)` bps in `r month_label(recent_year)`: SPY trades at the minimum tick of one cent, which became ever smaller relative to the price. Crises widen it: `r month_label(crisis$year[1])` and `r month_label(crisis$year[2])`
 - Depth at the best quotes shrank as well, with smaller orders spread over more trading venues
 
 # Price impact
 
-## Whiteboard: price impact
+## Kyle's lambda
 
 ::: {.box}
 Kyle (1985): a market maker sees only the total order flow $x$, from informed and uninformed traders. Which price does she set?
@@ -252,15 +331,17 @@ $$
 
 ```{r}
 #| label: price-impact-r
-# One-minute midquote returns (bps) on one-minute net buying in USD million:
+# Midquote returns (bps) on net buying in USD million per interval:
 # signed shares times the midquote of their snapshot
+interval_length <- "1 minute"
 price_impact <- spy |>
-  mutate(day = as_date(ts), minute = floor_date(ts, "minute")) |>
+  mutate(day = as_date(ts), minute = floor_date(ts, interval_length)) |>
   summarize(
-    midquote = last(midquote), flow = sum(signed_volume * midquote) / 1e6,
+    flow = sum(signed_volume * midquote) / 1e6,
+    midquote = last(midquote),
     .by = c(year, day, minute)
   ) |>
-  mutate(ret = 1e4 * (log(midquote) - lag(log(midquote))), .by = c(year, day)) |>
+  mutate(ret = 1e4 * log(midquote / lag(midquote)), .by = c(year, day)) |>
   drop_na() |>
   nest(data = -year) |>
   mutate(
@@ -275,24 +356,28 @@ price_impact <- spy |>
 ```{python}
 #| label: price-impact-py
 #| eval: false
-# One-minute midquote returns (bps) on one-minute net buying in USD million:
+# Midquote returns (bps) on net buying in USD million per interval:
 # signed shares times the midquote of their snapshot
-minutes = (spy
-    .with_columns(day=pl.col("ts").dt.date(), minute=pl.col("ts").dt.truncate("1m"))
+interval_length = "1m"
+price_impact = (
+    spy.with_columns(
+        day=pl.col("ts").dt.date(), minute=pl.col("ts").dt.truncate(interval_length)
+    )
     .group_by("year", "day", "minute", maintain_order=True)
-    .agg(midquote=pl.col("midquote").last(),
-         flow=(pl.col("signed_volume") * pl.col("midquote")).sum() / 1e6)
-    .sort("year", "day", "minute")
+    .agg(
+        flow=(pl.col("signed_volume") * pl.col("midquote")).sum() / 1e6,
+        midquote=pl.col("midquote").last(),
+    )
     .with_columns(ret=1e4 * pl.col("midquote").log().diff().over("year", "day"))
-    .drop_nulls())
-price_impact = (minutes.group_by("year")
-    .agg(lambda_=pl.cov("ret", "flow") / pl.col("flow").var(),
-         r2=pl.corr("ret", "flow") ** 2)
-    .sort("year"))
+    .drop_nulls()
+    .group_by("year", maintain_order=True)
+    .agg(
+        lambda_=pl.cov("ret", "flow") / pl.col("flow").var(),
+        r2=pl.corr("ret", "flow") ** 2,
+    )
+)
 ```
 :::
-
-The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per USD 1 million of net buying in a minute
 
 ## Price impact over the years
 
@@ -301,6 +386,8 @@ The slope of a regression of returns on order flow estimates $\lambda$, here in 
 #| echo: false
 #| fig-width: 11
 #| fig-height: 3.6
+# The two years with the largest price impact
+largest_impact <- sort(slice_max(price_impact, lambda, n = 2)$year)
 lambda_panel <- ggplot(price_impact, aes(x = year, y = lambda)) +
   geom_col(fill = ku_red, width = 0.7) +
   labs(x = NULL, y = "λ (bps per USD 1m of net buying)")
@@ -311,10 +398,11 @@ r2_panel <- ggplot(price_impact, aes(x = year, y = r2)) +
 lambda_panel + r2_panel
 ```
 
-- Net buying of USD 1 million in a minute moved SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.01)` bps in March `r min(years)` and by `r number(price_impact$lambda[price_impact$year == 2024], 0.01)` bps in March 2024. It moved it most in March `r sort(slice_max(price_impact, lambda, n = 2)$year)[1]` and March `r sort(slice_max(price_impact, lambda, n = 2)$year)[2]`
+- The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per USD 1 million of net buying in `r interval_length`
+- Net buying of USD 1 million in `r interval_length` moved SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.01)` bps in `r month_label(min(years))` and by `r number(price_impact$lambda[price_impact$year == recent_year], 0.01)` bps in `r month_label(recent_year)`. Price impact was largest in `r month_label(largest_impact[1])` and `r month_label(largest_impact[2])`
 - Order flow explains less and less of the minute's return: more of the price moves without trading, as quotes update on news and on other venues
 
-## Whiteboard: the bid-ask bounce
+## The bid-ask bounce
 
 ::: {.box}
 Roll (1984): the true price follows a random walk, but each trade happens at the bid or at the ask, with equal probability. What does that do to trade price changes?

@@ -28,7 +28,9 @@ ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 alpha_poll <- "aef27-l07-beta-alpha"
@@ -40,10 +42,6 @@ alpha_choices <- c("High-beta stocks", "Neither", "Low-beta stocks")
 #| include: false
 import polars as pl
 import tidyfinance as tf
-
-window_length = 60
-min_months = 48
-n_portfolios = 10
 ```
 
 ```{r}
@@ -80,9 +78,17 @@ The CAPM says: the higher the beta, the higher the average return, one for one w
 ```{r}
 #| label: estimate-betas-r
 #| cache: true
+# As in exercise 3: CAPM regressions on the last 60 months, at least 48
+window_length <- 60
+min_months <- 48
+
 betas <- crsp_monthly |>
   inner_join(factors_ff3_monthly, join_by(date)) |>
-  estimate_betas("ret_excess ~ mkt_excess", months(window_length), min_obs = min_months)
+  estimate_betas(
+    "ret_excess ~ mkt_excess",
+    months(window_length),
+    min_obs = min_months
+  )
 ```
 
 ## Python
@@ -90,13 +96,20 @@ betas <- crsp_monthly |>
 ```{python}
 #| label: estimate-betas-py
 #| eval: false
+# As in exercise 3: CAPM regressions on the last 60 months, at least 48
+window_length = 60
+min_months = 48
+
 betas = tf.estimate_betas(
     crsp_monthly.join(factors_ff3_monthly, on="date"),
-    "ret_excess ~ mkt_excess", lookback=f"{window_length}mo", min_obs=min_months,
+    "ret_excess ~ mkt_excess",
+    lookback=f"{window_length}mo",
+    min_obs=min_months,
 )
 ```
 :::
 
+- `crsp_monthly` holds the monthly excess returns of all US stocks in CRSP, `factors_ff3_monthly` the market excess return
 - `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 3 uses it, too
 - `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks, `r year(min(betas$date))`–`r year(max(betas$date))`; the median beta is `r number(median(betas$beta_mkt_excess), 0.01)`
 
@@ -109,22 +122,32 @@ betas = tf.estimate_betas(
 month_data <- crsp_monthly |>
   filter(date == illustration_month) |>
   inner_join(
-    betas |> filter(date == illustration_month %m-% months(1)) |> select(permno, beta_lag = beta_mkt_excess),
+    betas |>
+      filter(date == illustration_month %m-% months(1)) |>
+      select(permno, beta_lag = beta_mkt_excess),
     join_by(permno)
   )
 month_data <- month_data |>
-  mutate(portfolio = assign_portfolio(month_data, "beta_lag", breakpoint_options(n_portfolios = n_portfolios)))
+  mutate(
+    portfolio = assign_portfolio(
+      month_data,
+      "beta_lag",
+      breakpoint_options(n_portfolios = n_portfolios)
+    )
+  )
 breakpoints <- month_data |>
   summarize(low = min(beta_lag), high = max(beta_lag), .by = portfolio) |>
   arrange(portfolio)
 month_portfolios <- month_data |>
   summarize(
     ret_excess = weighted.mean(ret_excess, mktcap_lag),
-    low = min(beta_lag), high = max(beta_lag),
+    low = min(beta_lag),
+    high = max(beta_lag),
     .by = portfolio
   ) |>
   arrange(portfolio)
-spread <- month_portfolios$ret_excess[n_portfolios] - month_portfolios$ret_excess[1]
+spread <- month_portfolios$ret_excess[n_portfolios] -
+  month_portfolios$ret_excess[1]
 
 beta_range <- quantile(month_data$beta_lag, c(0.002, 0.998))
 return_range <- quantile(month_data$ret_excess, c(0.01, 0.99))
@@ -133,33 +156,53 @@ step_base <- ggplot(month_data, aes(x = beta_lag, y = ret_excess)) +
   coord_cartesian(xlim = beta_range, ylim = return_range) +
   scale_y_continuous(labels = percent) +
   labs(
-    x = "Beta, estimated until the end of last month",
-    y = "Excess return this month",
-    title = paste("All stocks with a beta,", format(illustration_month, "%B %Y"))
+    x = paste(
+      "Beta of each stock, estimated until",
+      format(illustration_month %m-% months(1), "%B %Y")
+    ),
+    y = paste("Excess return in", format(illustration_month, "%B %Y"))
   )
 step_breaks <- step_base +
-  geom_vline(xintercept = breakpoints$high[-n_portfolios], color = jet, linetype = "dashed")
+  geom_vline(
+    xintercept = breakpoints$high[-n_portfolios],
+    color = jet,
+    linetype = "dashed"
+  )
 step_means <- step_breaks +
   geom_segment(
-    data = month_portfolios, aes(x = low, xend = high, y = ret_excess, yend = ret_excess),
-    color = ku_red, linewidth = 1.6
+    data = month_portfolios,
+    aes(x = low, xend = high, y = ret_excess, yend = ret_excess),
+    color = ku_red,
+    linewidth = 1.6
   )
 step_spread <- step_means +
   annotate(
-    "segment", x = beta_range[2] * 0.97, xend = beta_range[2] * 0.97,
-    y = month_portfolios$ret_excess[1], yend = month_portfolios$ret_excess[n_portfolios],
-    arrow = arrow(ends = "both", length = unit(0.2, "cm")), color = ku_red
+    "segment",
+    x = beta_range[2] * 0.97,
+    xend = beta_range[2] * 0.97,
+    y = month_portfolios$ret_excess[1],
+    yend = month_portfolios$ret_excess[n_portfolios],
+    arrow = arrow(ends = "both", length = unit(0.2, "cm")),
+    color = ku_red
   ) +
   annotate(
-    "label", x = beta_range[2] * 0.95, y = mean(range(month_portfolios$ret_excess)),
-    label = paste("High minus low:", percent(spread, 0.1)), hjust = 1, color = ku_red
+    "label",
+    x = beta_range[2] * 0.95,
+    y = mean(range(month_portfolios$ret_excess)),
+    label = paste0("High minus low:\n", percent(spread, 0.1)),
+    hjust = 1,
+    color = ku_red
   )
 
 steps <- list(step_base, step_breaks, step_means, step_spread)
 walk2(steps, seq_along(steps), \(step, k) {
   ggsave(
-    paste0("lecture-slides/figures/beta-sort-step-", k, ".png"), step,
-    width = 7.5, height = 5, dpi = 200, bg = "white"
+    paste0("lecture-slides/figures/beta-sort-step-", k, ".png"),
+    step,
+    width = 7.5,
+    height = 5,
+    dpi = 200,
+    bg = "white"
   )
 })
 ```
@@ -205,6 +248,9 @@ In `r format(illustration_month, "%B %Y")` the market rose by `r percent(factors
 
 ```{r}
 #| label: sort-on-beta-r
+# Ten portfolios: the beta deciles
+n_portfolios <- 10
+
 # Sort on last month's beta, which investors know when they form portfolios
 beta_lag <- betas |>
   transmute(permno, date = date %m+% months(1), beta_lag = beta_mkt_excess)
@@ -212,7 +258,8 @@ beta_lag <- betas |>
 beta_portfolios <- crsp_monthly |>
   inner_join(beta_lag, join_by(permno, date)) |>
   compute_portfolio_returns(
-    "beta_lag", "univariate",
+    "beta_lag",
+    "univariate",
     breakpoint_options_main = breakpoint_options(n_portfolios = n_portfolios)
   ) |>
   left_join(factors_ff3_monthly, join_by(date))
@@ -223,63 +270,25 @@ beta_portfolios <- crsp_monthly |>
 ```{python}
 #| label: sort-on-beta-py
 #| eval: false
+# Ten portfolios: the beta deciles
+n_portfolios = 10
+
 # Sort on last month's beta, which investors know when they form portfolios
 beta_lag = betas.select(
     "permno", pl.col("date").dt.offset_by("1mo"), beta_lag=pl.col("beta_mkt_excess")
 )
 
-beta_portfolios = (
-    tf.compute_portfolio_returns(
-        crsp_monthly.join(beta_lag, on=["permno", "date"]),
-        "beta_lag", "univariate",
-        breakpoint_options_main=tf.breakpoint_options(n_portfolios=n_portfolios),
-    )
-    .join(factors_ff3_monthly, on="date", how="left")
-)
+beta_portfolios = tf.compute_portfolio_returns(
+    crsp_monthly.join(beta_lag, on=["permno", "date"]),
+    "beta_lag",
+    "univariate",
+    breakpoint_options_main=tf.breakpoint_options(n_portfolios=n_portfolios),
+).join(factors_ff3_monthly, on="date", how="left")
 ```
 :::
 
-`compute_portfolio_returns()` sets the breakpoints each month and returns the value-weighted (`ret_excess_vw`), equal-weighted and capped value-weighted excess returns of each portfolio
-
-## The CAPM for each portfolio
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: estimate-capm-r
-capm <- beta_portfolios |>
-  nest(data = -portfolio) |>
-  mutate(
-    fit = map(data, \(d) {
-      estimate_model(d, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats"))
-    }),
-    alpha = map_dbl(fit, \(f) f$coefficients$intercept),
-    t_alpha = map_dbl(fit, \(f) f$tstats$intercept),
-    beta = map_dbl(fit, \(f) f$coefficients$mkt_excess),
-    mean = map_dbl(data, \(d) mean(d$ret_excess_vw))
-  ) |>
-  select(portfolio, alpha, t_alpha, beta, mean) |>
-  arrange(portfolio)
-```
-
-## Python
-
-```{python}
-#| label: estimate-capm-py
-#| eval: false
-rows = []
-for (portfolio,), data in beta_portfolios.group_by("portfolio"):
-    fit = tf.estimate_model(data, "ret_excess_vw ~ mkt_excess", output=["coefficients", "tstats"])
-    rows.append({"portfolio": portfolio, "alpha": fit["coefficients"]["intercept"][0],
-                 "t_alpha": fit["tstats"]["intercept"][0],
-                 "beta": fit["coefficients"]["mkt_excess"][0],
-                 "mean": data["ret_excess_vw"].mean()})
-capm = pl.DataFrame(rows).sort("portfolio")
-```
-:::
-
-The same regression as for the industries in lecture 6, now for the `r n_portfolios` beta portfolios, with `estimate_model()` from tidyfinance
+- `compute_portfolio_returns()` sets the breakpoints each month and returns the value-weighted (`ret_excess_vw`), equal-weighted and capped value-weighted excess returns of each portfolio
+- For each portfolio, the CAPM regression of lecture 6, now with `estimate_model()` from tidyfinance
 
 ## Which stocks have the higher alpha?
 
@@ -287,7 +296,11 @@ The same regression as for the industries in lecture 6, now for the `r n_portfol
 #| label: poll-setup
 #| include: false
 if (live) {
-  ojs_define(poll_base = poll_base, alpha_poll = alpha_poll, alpha_choices = alpha_choices)
+  ojs_define(
+    poll_base = poll_base,
+    alpha_poll = alpha_poll,
+    alpha_choices = alpha_choices
+  )
 }
 ```
 
@@ -327,6 +340,29 @@ cat(paste0("- ", alpha_choices, collapse = "\n"), "\n")
 ## Ten beta portfolios
 
 ```{r}
+#| label: estimate-capm-r
+#| include: false
+# The CAPM regression of lecture 6 for each beta portfolio
+capm <- beta_portfolios |>
+  nest(data = -portfolio) |>
+  mutate(
+    fit = map(data, \(d) {
+      estimate_model(
+        d,
+        "ret_excess_vw ~ mkt_excess",
+        output = c("coefficients", "tstats")
+      )
+    }),
+    alpha = map_dbl(fit, \(f) f$coefficients$intercept),
+    t_alpha = map_dbl(fit, \(f) f$tstats$intercept),
+    beta = map_dbl(fit, \(f) f$coefficients$mkt_excess),
+    mean = map_dbl(data, \(d) mean(d$ret_excess_vw))
+  ) |>
+  select(portfolio, alpha, t_alpha, beta, mean) |>
+  arrange(portfolio)
+```
+
+```{r}
 #| label: summarize-beta-portfolios
 #| include: false
 market_premium <- beta_portfolios |>
@@ -339,7 +375,9 @@ high_minus_low <- beta_portfolios |>
   compute_long_short_returns() |>
   left_join(factors_ff3_monthly, join_by(date))
 hml_capm <- estimate_model(
-  high_minus_low, "ret_excess_vw ~ mkt_excess", output = c("coefficients", "tstats")
+  high_minus_low,
+  "ret_excess_vw ~ mkt_excess",
+  output = c("coefficients", "tstats")
 )
 
 # GRS test of all ten alphas, as in lecture 6
@@ -357,8 +395,10 @@ alpha <- coef(fit)[1, ]
 sigma_resid <- crossprod(residuals(fit)) / n_months
 sharpe_market_2 <- mean(x)^2 / mean((x - mean(x))^2)
 
-grs <- (n_months - n_portfolios - 1) / n_portfolios *
-  as.numeric(t(alpha) %*% solve(sigma_resid, alpha)) / (1 + sharpe_market_2)
+grs <- (n_months - n_portfolios - 1) /
+  n_portfolios *
+  as.numeric(t(alpha) %*% solve(sigma_resid, alpha)) /
+  (1 + sharpe_market_2)
 p_value <- 1 - pf(grs, n_portfolios, n_months - n_portfolios - 1)
 ```
 
@@ -367,6 +407,9 @@ p_value <- 1 - pf(grs, n_portfolios, n_months - n_portfolios - 1)
 #| echo: false
 #| fig-width: 11
 #| fig-height: 4.3
+# 95% confidence intervals for the alphas
+z_95 <- qnorm(0.975)
+
 annual <- capm |>
   mutate(
     se_alpha = alpha / t_alpha,
@@ -375,12 +418,26 @@ annual <- capm |>
   )
 
 sml_panel <- ggplot(annual, aes(x = beta)) +
-  geom_abline(intercept = 0, slope = market_premium * months_per_year, color = ku_red, linewidth = 0.9) +
+  geom_abline(
+    intercept = 0,
+    slope = market_premium * months_per_year,
+    color = ku_red,
+    linewidth = 0.9
+  ) +
   geom_point(aes(y = mean), color = jet, size = 2.5) +
-  geom_text(aes(y = mean, label = portfolio), nudge_y = 0.006, color = jet, size = 3.5) +
+  geom_text(
+    aes(y = mean, label = portfolio),
+    nudge_y = 0.006,
+    color = jet,
+    size = 3.5
+  ) +
   annotate(
-    "text", x = 1.55, y = 1.55 * market_premium * months_per_year + 0.008,
-    label = "CAPM", color = ku_red, hjust = 1
+    "text",
+    x = 1.55,
+    y = 1.55 * market_premium * months_per_year + 0.008,
+    label = "CAPM",
+    color = ku_red,
+    hjust = 1
   ) +
   scale_x_continuous(limits = c(0, NA)) +
   scale_y_continuous(labels = percent, limits = c(0, NA)) +
@@ -388,10 +445,17 @@ sml_panel <- ggplot(annual, aes(x = beta)) +
 
 alpha_panel <- ggplot(annual, aes(x = factor(portfolio), y = alpha)) +
   geom_hline(yintercept = 0, color = grey) +
-  geom_errorbar(aes(ymin = alpha - 1.96 * se_alpha, ymax = alpha + 1.96 * se_alpha), width = 0.25, color = grey) +
+  geom_errorbar(
+    aes(ymin = alpha - z_95 * se_alpha, ymax = alpha + z_95 * se_alpha),
+    width = 0.25,
+    color = grey
+  ) +
   geom_point(color = ku_red, size = 2.5) +
   scale_y_continuous(labels = percent) +
-  labs(x = "Beta portfolio (1 = lowest)", y = "CAPM alpha (annualized)")
+  labs(
+    x = "Beta portfolio (1 = lowest)",
+    y = "CAPM alpha (annualized)\nwith 95% confidence interval"
+  )
 
 sml_panel + alpha_panel
 ```

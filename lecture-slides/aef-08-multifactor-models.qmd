@@ -14,7 +14,7 @@ date: 2027-03-11
 
 # From one factor to many
 
-## Whiteboard: many factors
+## A linear SDF with many factors
 
 ::: {.box}
 Suppose the SDF is linear in $K$ factors, $m = a - b'f$. What does $E[m\,R^e_i] = 0$ imply for expected returns?

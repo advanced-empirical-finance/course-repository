@@ -31,12 +31,17 @@ forest_grid <- expand_grid(mtry = c(1, 3, 7), min_n = c(500, 2000))
 
 months_per_year <- 12
 
+# Test sample in labels, e.g. 2000–2023
+test_years <- paste0(year(test_start), "–", year(sample_end))
+
 # Colours of the slides, used by the figures
 ku_red <- "#901A1E"
 jet <- "#3d3d3d"
 grey <- "#666666"
 light <- "#e6e3df"
-theme_set(theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank()))
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
 source("lecture-slides/_live-poll.R")
 scoreboard_survey <- "aef27-ex08-scoreboard"
@@ -186,7 +191,12 @@ forecast_weights <- map(forecasts, \(forecast) {
 #| include: false
 # Weights each month: constant for the SDF portfolios, new each month for forecasts
 monthly_weights <- c(
-  map(static_weights, \(w) tibble(date = anomalies$date, weights = rep(list(as.vector(w)), nrow(anomalies)))),
+  map(static_weights, \(w) {
+    tibble(
+      date = anomalies$date,
+      weights = rep(list(as.vector(w)), nrow(anomalies))
+    )
+  }),
   forecast_weights
 )
 month_index <- match(monthly_weights[[1]]$date, anomalies$date)
@@ -207,15 +217,25 @@ turnover <- imap(monthly_weights, \(m, portfolio) {
 realized <- imap(monthly_weights, \(m, portfolio) {
   rows <- match(m$date, anomalies$date)
   tibble(
-    date = m$date, portfolio = portfolio,
+    date = m$date,
+    portfolio = portfolio,
     ret = map2_dbl(m$weights, rows, \(w, r) sum(w * returns[r, ]))
   )
 }) |>
   bind_rows()
 
-cpz_runs <- read_csv("lecture-slides/factor-zoo/results/cpz_light_runs.csv", show_col_types = FALSE) |>
+cpz_runs <- read_csv(
+  "lecture-slides/factor-zoo/results/cpz_light_runs.csv",
+  show_col_types = FALSE
+) |>
   filter(seeds == 9) |>
-  mutate(model = if_else(str_detect(model, "Chen"), "Chen–Pelger–Zhu light", "Feed-forward SDF")) |>
+  mutate(
+    model = if_else(
+      str_detect(model, "Chen"),
+      "Chen–Pelger–Zhu light",
+      "Feed-forward SDF"
+    )
+  ) |>
   slice_max(sr_valid, n = 1, by = model)
 
 scoreboard <- bind_rows(
@@ -230,17 +250,24 @@ scoreboard <- bind_rows(
       test = sharpe_ratio(ret[date >= test_start]),
       .by = portfolio
     ),
-  cpz_runs |> transmute(portfolio = model, estimation = sr_estimation, test = sr_test)
+  cpz_runs |>
+    transmute(portfolio = model, estimation = sr_estimation, test = sr_test)
 ) |>
   left_join(
-    turnover |> filter(date >= test_start) |> summarize(turnover = mean(turnover), .by = portfolio),
+    turnover |>
+      filter(date >= test_start) |>
+      summarize(turnover = mean(turnover), .by = portfolio),
     join_by(portfolio)
   )
 
 if (live) {
   ojs_define(
-    poll_base = poll_base, scoreboard_survey = scoreboard_survey,
-    ridge_test = scoreboard$test[scoreboard$portfolio == "Ridge (prior on Sharpe ratios)"]
+    poll_base = poll_base,
+    scoreboard_survey = scoreboard_survey,
+    ridge_test = scoreboard$test[
+      scoreboard$portfolio == "Ridge (prior on Sharpe ratios)"
+    ],
+    test_years = test_years
   )
 }
 ```
@@ -276,7 +303,7 @@ Plot.plot({
   width: 960,
   height: 420,
   marginLeft: 230,
-  x: {label: "Sharpe ratio 2000–2023", grid: true},
+  x: {label: `Sharpe ratio of your SDF portfolio, ${test_years}`, grid: true},
   y: {label: null, domain: ["Ridge, lasso or elastic net", "Principal components", "Trees or random forest", "Neural network", "Other"]},
   marks: [
     Plot.ruleX([ridge_test], {stroke: "#666666", strokeDasharray: "4,3"}),
@@ -302,22 +329,39 @@ In the open question of exercise 6, you tried to beat the best model of the lect
 #| fig-width: 10
 #| fig-height: 3.6
 turnover_shown <- c(
-  "Ridge (prior on Sharpe ratios)", "RP-PCA, 5 factors", "Lasso on anomalies",
-  "Forecasts: OLS", "Forecasts: random forest", "Forecasts: neural network"
+  "Ridge (prior on Sharpe ratios)",
+  "RP-PCA, 5 factors",
+  "Lasso on anomalies",
+  "Forecasts: OLS",
+  "Forecasts: random forest",
+  "Forecasts: neural network"
 )
 scoreboard |>
   filter(portfolio %in% turnover_shown) |>
   mutate(
     portfolio = fct_reorder(portfolio, turnover),
-    kind = if_else(str_starts(portfolio, "Forecasts"), "New weights every month", "Constant weights")
+    kind = if_else(
+      str_starts(portfolio, "Forecasts"),
+      "New weights every month",
+      "Constant weights"
+    )
   ) |>
   ggplot(aes(x = turnover, y = portfolio, fill = kind)) +
   geom_col(width = 0.65) +
   geom_text(aes(label = percent(turnover, 1)), hjust = -0.15, size = 4) +
   scale_x_continuous(labels = percent, expand = expansion(mult = c(0, 0.15))) +
-  scale_fill_manual(values = c("Constant weights" = "#b3b3b3", "New weights every month" = ku_red)) +
-  labs(x = "Turnover between anomalies per month, 2000–2023", y = NULL, fill = NULL) +
-  theme(legend.position = "bottom")
+  scale_fill_manual(
+    values = c(
+      "Constant weights" = "#b3b3b3",
+      "New weights every month" = ku_red
+    )
+  ) +
+  labs(
+    x = paste("Turnover between anomalies per month,", test_years),
+    y = NULL,
+    fill = NULL
+  ) +
+  theme(legend.position = "bottom", plot.margin = margin(5.5, 20, 5.5, 5.5))
 ```
 
 - **Between anomalies:** weights scaled to a gross position of 1. Constant SDF weights only trade back after the anomalies drift; forecasts change the weights every month
@@ -330,7 +374,7 @@ TBD: Sharpe ratios after trading costs, with the costs inside each anomaly from 
 ## The implementable efficient frontier
 
 - **Jensen, Kelly, Malamud & Pedersen:** judge a strategy by its return **after trading costs** at each level of risk, the *implementable efficient frontier*
-- Forecasts that ignore costs lean on short-lived characteristics: what looks best before costs trades the most
+- In their stock-level data, forecasts that ignore costs lean on short-lived characteristics: what looks best before costs trades the most
 - Better: learn the **portfolio weights** directly, with the trading costs in the objective. The same idea as the cost-aware weights of lecture 5, now with machine learning
 - *Economic feature importance:* which characteristics still matter after costs
 
@@ -346,9 +390,13 @@ scoreboard |>
     after_costs = "TBD"
   ) |>
   select(
-    Portfolio = portfolio, `Sharpe ratio, estimation` = estimation, `Sharpe ratio 2000–2023` = test,
-    `Turnover between anomalies` = turnover, `After costs` = after_costs
+    Portfolio = portfolio,
+    `Sharpe ratio, estimation` = estimation,
+    "Sharpe ratio {test_years}" := test,
+    `Turnover between anomalies` = turnover,
+    `After costs` = after_costs
   )
 ```
 
+- No turnover (–) for the market, which holds no anomalies, and for the network SDFs of lecture 14, whose weights are not stored
 - The trading game charges 10 bps of every trade since 1 March: your own record is a row of this scoreboard
