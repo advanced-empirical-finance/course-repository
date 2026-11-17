@@ -20,12 +20,12 @@ end_date <- "2025-12-31"
 # Backtest: estimate on the last 60 months, hold for one month
 window_length <- 60
 
-# Transaction costs: risk aversion, cost aversion, and the costs we pay.
-# The largest beta trades so little that the portfolio is buy and hold
+# Transaction costs: risk aversion, quadratic costs beta from 0 to
+# 1,000,000 bps (the largest trades so little that the portfolio is buy and
+# hold), and proportional costs for lecture 4's strategies
 gamma <- 4
-betas <- c(0, 10^seq(-4, 3, by = 0.25))
+betas <- c(0, 10^seq(-4, 2, by = 0.25))
 cost_levels <- c(0, 0.001, 0.005)
-game_cost <- 0.001
 
 # Path to the efficient portfolio with known moments: start, months, betas
 path_start <- "DIS"
@@ -175,7 +175,8 @@ lecture_4 <- map(
         strategy = strategy,
         date = dates[t],
         ret_excess = sum(w * excess_matrix[t, ]),
-        turnover = sum(abs(w - w_plus))
+        turnover = sum(abs(w - w_plus)),
+        squared_trades = sum((w - w_plus)^2)
       )
     }) |>
       bind_rows()
@@ -201,15 +202,13 @@ turnover_lecture_4 <- lecture_4 |>
 
 ## What trading costs
 
-- **Proportional costs:** spreads, fees, commissions. A trade of $|\Delta\omega_i|$ costs $c\,|\Delta\omega_i|$ of wealth, e.g. $c$ = 10 bps in the trading game
-- **Price impact:** large trades move the price; the cost grows faster than the trade. A quadratic cost $\frac{\beta}{2}\Delta\omega_i^2$ is a common approximation
+- **Proportional costs:** spreads, fees, commissions. A trade $\Delta\omega_i$ in asset $i$, the change of its portfolio weight, costs $c\,|\Delta\omega_i|$ of wealth, e.g. $c$ = 10 bps in the trading game
+- **Price impact:** large trades move the price; the cost grows faster than the trade. A common approximation: trading $\Delta\omega$ costs $\frac{\beta}{2}\sum_i \Delta\omega_i^2$ of wealth
 - **Weights drift:** even without trading, prices move the weights. Before rebalancing, the portfolio holds
-
-$$
-\omega_{t^+} = \frac{\omega_t \circ (1 + r_t)}{\iota'\big(\omega_t \circ (1 + r_t)\big)}
-$$
-
-so the trade is $\omega_{t+1} - \omega_{t^+}$, and the turnover is $\sum_i |\omega_{i,t+1} - \omega_{i,t^+}|$
+  $$
+  \omega_{t^+} = \frac{\omega_t \circ (1 + r_t)}{\iota'\big(\omega_t \circ (1 + r_t)\big)}
+  $$
+- **Trade and turnover:** the trade in asset $i$ is $\Delta\omega_i = \omega_{i,t+1} - \omega_{i,t^+}$, the turnover $\sum_i |\Delta\omega_i|$
 
 ## Lecture 4's strategies after costs
 
@@ -240,14 +239,14 @@ lecture_4 |>
   rename(Strategy = strategy, `Turnover per month` = turnover)
 ```
 
-- Dow Jones stocks, `r window_length`-month windows, `r year(dates[months[1]])`–`r year(max(dates))`, excess returns net of proportional costs on the turnover
+- Dow Jones stocks, `r window_length`-month windows, `r year(dates[months[1]])`–`r year(max(dates))`, excess returns net of **proportional costs**, $c$ times the turnover, as in the trading game
 - The more a strategy trades, the more costs take away: 1/N gains on the minimum-variance portfolios
 - **Buy and hold** starts with 1/N in `r format(dates[months[1]], "%B %Y")` and never trades, so the winners' weights grow. Today's Dow Jones stocks are the winners we know today: look-ahead bias in the choice of stocks (lecture 3)
 
 ## Quadratic transaction costs
 
 ::: {.box}
-Mean-variance with a cost for moving away from the current weights (Hautsch & Voigt, 2019):
+Mean-variance net of the quadratic cost of moving away from the current weights (Hautsch & Voigt, 2019):
 $$
 \omega_{t+1} = \arg\max_{\iota'\omega = 1} \ \omega'\mu - \frac{\beta}{2}(\omega - \omega_{t^+})'(\omega - \omega_{t^+}) - \frac{\gamma}{2}\omega'\Sigma\omega
 $$
@@ -337,7 +336,8 @@ if (live) {
 ```{ojs}
 //| label: path-controls
 //| echo: false
-viewof path_beta = Inputs.radio(path_betas, {value: path_betas[1], label: "Cost aversion β"})
+viewof path_beta = Inputs.radio(path_betas, {value: path_betas[1], label: "Quadratic cost β, bps",
+  format: d => d3.format(",")(Math.round(d * 1e4))})
 viewof path_month = Inputs.range([0, d3.max(transpose(cost_paths), d => d.month)], {step: 1, value: 0, width: 420, label: "Month"})
 cost_path = transpose(cost_paths).filter(d => d.beta === path_beta)
 ```
@@ -391,6 +391,7 @@ Plot.plot({
 #| fig-width: 11
 #| fig-height: 4.6
 path_colors <- set_names(c("#b3b3b3", ku_red, jet), path_betas)
+path_labels <- \(beta) comma(as.numeric(beta) * 1e4)
 path_panel <- ggplot(mapping = aes(x = sigma, y = mu)) +
   geom_point(data = stocks_full, color = light) +
   geom_path(data = frontier_full, color = jet, linewidth = 0.9) +
@@ -419,22 +420,22 @@ path_panel <- ggplot(mapping = aes(x = sigma, y = mu)) +
     hjust = 0,
     color = ku_red
   ) +
-  scale_color_manual(values = path_colors) +
+  scale_color_manual(values = path_colors, labels = path_labels) +
   scale_x_continuous(labels = percent, limits = c(0, 0.5)) +
   scale_y_continuous(labels = percent, limits = c(0, 0.6)) +
   labs(
     x = "Volatility (annualized)",
     y = "Expected return (annualized)",
-    color = "Cost aversion β"
+    color = "Quadratic cost β, bps"
   )
 turnover_path_panel <- cost_paths |>
   filter(month > 0) |>
   ggplot(aes(x = month, y = turnover, color = factor(beta))) +
   geom_line() +
   geom_point(size = 1.2) +
-  scale_color_manual(values = path_colors) +
+  scale_color_manual(values = path_colors, labels = path_labels) +
   scale_y_continuous(labels = percent) +
-  labs(x = "Month", y = "Turnover per month", color = "Cost aversion β")
+  labs(x = "Month", y = "Turnover per month", color = "Quadratic cost β, bps")
 path_panel +
   turnover_path_panel +
   plot_layout(widths = c(1.4, 1), guides = "collect") &
@@ -532,8 +533,8 @@ if (live) {
 ```{ojs}
 //| label: zone-beta-slider
 //| echo: false
-viewof zone_beta_index = Inputs.range([0, zone_betas.length - 1], {step: 1, value: 2, width: 330, label: "Quadratic, β",
-  format: i => zone_betas[i]})
+viewof zone_beta_index = Inputs.range([0, zone_betas.length - 1], {step: 1, value: 2, width: 330, label: "Quadratic, β in bps",
+  format: i => Math.round(zone_betas[i] * 1e4)})
 ```
 
 ```{ojs}
@@ -584,7 +585,7 @@ zonePlot = (moves, zone) => Plot.plot({
 #| fig-width: 11
 #| fig-height: 4
 zone_labels <- c(
-  Quadratic = paste0("Quadratic costs, β = ", zone_beta),
+  Quadratic = paste0("Quadratic costs, β = ", zone_beta * 1e4, " bps"),
   Proportional = paste0("Proportional costs, c = ", zone_cost * 1e4, " bps")
 )
 zone_moves <- trades |>
@@ -673,11 +674,14 @@ def cost_aware_weights(sigma, w_plus, beta):
 ```
 :::
 
-We choose the weights with the quadratic penalty and pay proportional costs on the trades
+The investor plans with the cost the market charges: every rebalancing costs $\frac{\beta}{2}\sum_i \Delta\omega_i^2$ of wealth
 
 ## Cost-aware weights without short sales
 
-The same objective as a quadratic program: minimize $\frac{1}{2}\omega'(\gamma\Sigma + \beta I)\,\omega - \beta\,\omega_{t^+}'\omega$ subject to $\iota'\omega = 1$ and $\omega \ge 0$
+The same objective as a quadratic program:
+$$
+\omega_{t+1} = \arg\min_{\iota'\omega = 1,\ \omega \ge 0} \ \frac{1}{2}\omega'(\gamma\Sigma + \beta I)\,\omega - \beta\,\omega_{t^+}'\omega
+$$
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -717,7 +721,7 @@ def cost_aware_weights_no_short(sigma, w_plus, beta):
 ```
 :::
 
-- $\beta = 0$: lecture 4's minimum variance with no short sales. $\beta \to \infty$: the weights stay at $\omega_{t^+}$, buy and hold
+- $\beta = 0$: lecture 4's minimum variance with no short sales. $\beta \to \infty$: buy and hold, $\omega_{t+1} = \omega_{t^+}$
 
 ## The Dow Jones with costs
 
@@ -725,7 +729,9 @@ def cost_aware_weights_no_short(sigma, w_plus, beta):
 #| label: run-cost-backtest-r
 #| include: false
 # The backtest of lecture 3 with drifting weights: every month, the
-# cost-aware weights given last month's weights after they drifted
+# cost-aware weights given last month's weights after they drifted. The
+# drift divides by the portfolio's value, so once that value is gone the
+# weights are meaningless: the summary marks such a strategy as bankrupt
 backtest_costs <- expand_grid(short_sales = c(TRUE, FALSE), beta = betas) |>
   pmap(\(short_sales, beta) {
     choose_weights <- if (short_sales) {
@@ -742,11 +748,16 @@ backtest_costs <- expand_grid(short_sales = c(TRUE, FALSE), beta = betas) |>
       w_plus <- drift / sum(drift)
       w <- choose_weights(sigma, w_plus, beta)
       results[[k]] <- tibble(
-        short_sales = short_sales,
+        portfolio = if_else(
+          short_sales,
+          "Short sales allowed",
+          "No short sales"
+        ),
         beta = beta,
         date = dates[t],
         ret_excess = sum(w * excess_matrix[t, ]),
-        turnover = sum(abs(w - w_plus))
+        turnover = sum(abs(w - w_plus)),
+        squared_trades = sum((w - w_plus)^2)
       )
     }
     bind_rows(results)
@@ -757,97 +768,83 @@ backtest_costs <- expand_grid(short_sales = c(TRUE, FALSE), beta = betas) |>
 - The backtest of lecture 3: every month from `r format(dates[months[1]], "%B %Y")` to `r format(max(dates), "%B %Y")`, estimate $\hat\Sigma$ from the last `r window_length` months and hold the portfolio for one month
 - Start from last month's weights after they drifted, $\omega_{t^+}$, and choose the cost-aware weights, with and without short sales; both start with 1/N
 - No expected returns ($\mu = 0$): with $\beta = 0$, the plug-in minimum-variance portfolio and the minimum-variance portfolio without short sales of lecture 4
-- `r length(betas)` values of $\beta$ from 0 to `r max(betas)`; excess returns net of proportional costs of `r cost_levels[2] * 1e4` or `r cost_levels[3] * 1e4` bps on the turnover, or without costs
+- `r length(betas)` values of $\beta$ from 0 to `r comma(max(betas) * 1e4)` bps. Every month, the backtest charges the cost the investor plans with, $\frac{\beta}{2}\sum_i \Delta\omega_i^2$, also to 1/N; buy and hold never trades
 
-## How much cost aversion?
+## Higher costs, slower trading
 
 ```{r}
 #| label: summarize-cost-backtest
 #| include: false
-cost_summary <- backtest_costs |>
+# Every month, each strategy pays beta / 2 * sum((w - w_plus)^2) on its
+# trades. 1/N rebalances every month; buy and hold never trades
+portfolios <- c("Short sales allowed", "No short sales", "1/N", "Buy and hold")
+cost_backtest <- lecture_4 |>
+  filter(strategy %in% c("1/N", "Buy and hold")) |>
+  rename(portfolio = strategy) |>
+  cross_join(tibble(beta = betas)) |>
+  bind_rows(backtest_costs) |>
   left_join(risk_free, join_by(date)) |>
-  cross_join(tibble(cost = cost_levels)) |>
-  mutate(ret_net = ret_excess - cost * turnover) |>
+  mutate(
+    cost = beta / 2 * squared_trades,
+    ret_net = ret_excess - cost
+  ) |>
+  arrange(portfolio, beta, date) |>
+  # A month that loses everything ends the strategy: bankrupt
+  mutate(
+    value = if_else(
+      cumall(ret_net + risk_free > -1),
+      cumprod(1 + ret_net + risk_free),
+      NA
+    ),
+    .by = c(portfolio, beta)
+  )
+
+cost_summary <- cost_backtest |>
   summarize(
     sharpe = mean(ret_net) / sd(ret_net) * sqrt(months_per_year),
     turnover = mean(turnover),
-    # A month that loses more than everything: the portfolio is bankrupt
-    bankrupt = any(ret_net + risk_free <= -1),
-    .by = c(short_sales, beta, cost)
+    cost = mean(cost) * months_per_year,
+    bankrupt = anyNA(value),
+    .by = c(portfolio, beta)
   ) |>
   mutate(
-    portfolio = factor(
-      if_else(short_sales, "Short sales allowed", "No short sales"),
-      levels = c("Short sales allowed", "No short sales")
-    ),
+    portfolio = factor(portfolio, levels = portfolios),
     sharpe = if_else(bankrupt, NA, sharpe),
     turnover = if_else(bankrupt, NA, turnover)
   )
 
-benchmarks <- lecture_4 |>
-  filter(strategy %in% c("1/N", "Buy and hold")) |>
-  mutate(ret_net = ret_excess - game_cost * turnover) |>
-  summarize(
-    sharpe = mean(ret_net) / sd(ret_net) * sqrt(months_per_year),
-    turnover = mean(turnover),
-    .by = strategy
-  )
-sharpe_benchmark <- deframe(select(benchmarks, strategy, sharpe))
-
 short_sales_allowed <- cost_summary |>
-  filter(cost == game_cost, short_sales)
+  filter(portfolio == "Short sales allowed")
 plug_in <- short_sales_allowed |>
   filter(beta == 0)
-best_small_beta <- short_sales_allowed |>
-  filter(beta < 1) |>
+# The best low cost, up to 1,000 bps
+best_low_beta <- short_sales_allowed |>
+  filter(beta <= 0.1) |>
   slice_max(sharpe, n = 1)
+sharpe_of <- function(name, b) {
+  cost_summary |>
+    filter(portfolio == name, beta == b) |>
+    pull(sharpe)
+}
 bankrupt_betas <- short_sales_allowed |>
   filter(bankrupt) |>
   pull(beta)
-bankrupt_years <- backtest_costs |>
-  filter(short_sales, beta %in% bankrupt_betas) |>
-  left_join(risk_free, join_by(date)) |>
-  filter(ret_excess + risk_free - game_cost * turnover <= -1) |>
+bankrupt_years <- cost_backtest |>
+  filter(portfolio == "Short sales allowed", beta %in% bankrupt_betas) |>
+  filter(is.na(value)) |>
   summarize(date = min(date), .by = beta) |>
   pull(date) |>
   year() |>
   range()
-
-cumulative_net <- backtest_costs |>
-  left_join(risk_free, join_by(date)) |>
-  mutate(ret_net = ret_excess + risk_free - game_cost * turnover) |>
-  arrange(short_sales, beta, date) |>
-  mutate(
-    value = if_else(cumall(ret_net > -1), cumprod(1 + ret_net), NA),
-    .by = c(short_sales, beta)
-  )
-cumulative_benchmarks <- lecture_4 |>
-  filter(strategy %in% c("1/N", "Buy and hold")) |>
-  left_join(risk_free, join_by(date)) |>
-  mutate(
-    value = cumprod(1 + ret_excess + risk_free - game_cost * turnover),
-    .by = strategy
-  )
 
 if (live) {
   ojs_define(
     poll_base = poll_base,
     characteristics_poll = characteristics_poll,
     cost_summary = cost_summary |>
-      filter(cost == game_cost) |>
       select(portfolio, beta, sharpe, turnover),
-    cumulative_net = cumulative_net |>
-      mutate(
-        portfolio = if_else(
-          short_sales,
-          "Short sales allowed",
-          "No short sales"
-        )
-      ) |>
+    cumulative_net = cost_backtest |>
       select(portfolio, beta, date, value),
-    benchmarks = benchmarks,
-    cumulative_benchmarks = cumulative_benchmarks |>
-      select(strategy, date, value),
     betas = betas
   )
 }
@@ -857,14 +854,17 @@ if (live) {
 {{< include _live-poll-ojs.qmd >}}
 
 ```{ojs}
-//| label: cost-aversion-slider
+//| label: cost-slider
 //| echo: false
-viewof beta_index = Inputs.range([0, betas.length - 1], {step: 1, value: 0, width: 520, label: "Cost aversion β",
-  format: i => Number(betas[i].toPrecision(2))})
+viewof beta_index = Inputs.range([0, betas.length - 1], {step: 1, value: 0, width: 520, label: "Quadratic cost β, bps",
+  format: i => d3.format(",")(Number((betas[i] * 1e4).toPrecision(2)))})
 beta = betas[beta_index]
-turnover_note = html`<div style="font-size: 0.55em">Turnover per month: ${transpose(cost_summary).filter(d => d.beta === beta)
-  .map(d => `${d.portfolio.toLowerCase()} ${d.sharpe == null ? "(bankrupt)" : (d.turnover * 100).toPrecision(2) + "%"}`).join(", ")}</div>`
-portfolio_colors = ({domain: ["Short sales allowed", "No short sales"], range: ["#3d3d3d", "#901A1E"]})
+turnover_note = html`<div style="font-size: 0.55em">Turnover per month: ${transpose(cost_summary)
+  .filter(d => d.beta === beta && d.portfolio !== "Buy and hold")
+  .map(d => `${d.portfolio === "1/N" ? "1/N" : d.portfolio.toLowerCase()} ${d.sharpe == null ? "(bankrupt)" : (d.turnover * 100).toPrecision(2) + "%"}`)
+  .join(", ")}</div>`
+portfolio_colors = ({domain: ["Short sales allowed", "No short sales", "1/N", "Buy and hold"],
+  range: ["#3d3d3d", "#901A1E", "#666666", "#b3b3b3"]})
 ```
 
 :::: {.columns}
@@ -875,15 +875,19 @@ portfolio_colors = ({domain: ["Short sales allowed", "No short sales"], range: [
 Plot.plot({
   width: 470,
   height: 330,
-  // beta = 0 is drawn at 1e-5, so that the axis can be logarithmic
-  x: {label: "Cost aversion β", type: "log", ticks: [1e-5, 1e-3, 0.1, 10, 1000], tickFormat: d => d < 1e-4 ? "0" : d},
-  y: {label: "Sharpe ratio after 10 bps", domain: [0.4, 1.15]},
+  marginRight: 30,
+  // beta = 0 is drawn at 0.1 bps, so that the axis can be logarithmic
+  x: {label: "Quadratic cost β, bps", type: "log", ticks: [0.1, 1, 100, 1e4, 1e6],
+    tickFormat: d => d < 0.5 ? "0" : d3.format(",")(d)},
+  y: {label: "Sharpe ratio after costs", domain: [0.3, 1.1]},
   color: {...portfolio_colors, legend: true},
   marks: [
-    Plot.ruleY(transpose(benchmarks), {y: "sharpe", stroke: "#b3b3b3", strokeDasharray: "4,3"}),
-    Plot.text(transpose(benchmarks), {x: 1e-5, y: "sharpe", text: "strategy", textAnchor: "start", dy: -8, fill: "#666666"}),
-    Plot.line(transpose(cost_summary), {x: d => d.beta + 1e-5, y: "sharpe", z: "portfolio", stroke: "portfolio", strokeWidth: 2}),
-    Plot.dot(transpose(cost_summary).filter(d => d.beta === beta && d.sharpe != null), {x: d => d.beta + 1e-5, y: "sharpe", fill: "portfolio", r: 7})
+    Plot.line(transpose(cost_summary).filter(d => d.portfolio === "Short sales allowed" || d.portfolio === "No short sales"),
+      {x: d => Math.max(d.beta * 1e4, 0.1), y: "sharpe", z: "portfolio", stroke: "portfolio", strokeWidth: 2}),
+    Plot.line(transpose(cost_summary).filter(d => d.portfolio === "1/N" || d.portfolio === "Buy and hold"),
+      {x: d => Math.max(d.beta * 1e4, 0.1), y: "sharpe", z: "portfolio", stroke: "portfolio", strokeWidth: 2, strokeDasharray: "4,3"}),
+    Plot.dot(transpose(cost_summary).filter(d => d.beta === beta && d.sharpe != null),
+      {x: d => Math.max(d.beta * 1e4, 0.1), y: "sharpe", fill: "portfolio", r: 7})
   ]
 })
 ```
@@ -896,13 +900,13 @@ Plot.plot({
   width: 470,
   height: 360,
   x: {label: null, type: "utc"},
-  y: {label: "Value of $1 after 10 bps", type: "log", grid: true},
+  y: {label: "Value of $1 after costs", type: "log", grid: true},
   color: portfolio_colors,
   marks: [
-    Plot.line(transpose(cumulative_benchmarks), {x: d => new Date(d.date), y: "value", z: "strategy", stroke: "#b3b3b3", strokeDasharray: "4,3"}),
-    Plot.text(transpose(cumulative_benchmarks), Plot.selectLast({x: d => new Date(d.date), y: "value", z: "strategy", text: "strategy",
-      textAnchor: "end", dy: -8, fill: "#666666"})),
-    Plot.line(transpose(cumulative_net).filter(d => d.beta === beta), {x: d => new Date(d.date), y: "value", z: "portfolio", stroke: "portfolio", strokeWidth: 2})
+    Plot.line(transpose(cumulative_net).filter(d => d.beta === beta && (d.portfolio === "Short sales allowed" || d.portfolio === "No short sales")),
+      {x: d => new Date(d.date), y: "value", z: "portfolio", stroke: "portfolio", strokeWidth: 2}),
+    Plot.line(transpose(cumulative_net).filter(d => d.beta === beta && (d.portfolio === "1/N" || d.portfolio === "Buy and hold")),
+      {x: d => new Date(d.date), y: "value", z: "portfolio", stroke: "portfolio", strokeWidth: 2, strokeDasharray: "4,3"})
   ]
 })
 ```
@@ -912,73 +916,70 @@ Plot.plot({
 
 ::: {.content-visible unless-profile="live"}
 ```{r}
-#| label: plot-cost-aversion
+#| label: plot-quadratic-cost-backtest
 #| echo: false
 #| fig-width: 11.5
 #| fig-height: 4
-cost_labels <- function(x) if_else(x == 0, "No costs", paste(x * 1e4, "bps"))
+# beta = 0 is drawn at 0.1 bps, so that the axis can be logarithmic
 beta_axis <- scale_x_log10(
-  breaks = c(1e-5, 1e-3, 0.1, 10, 1000),
-  labels = c("0", "0.001", "0.1", "10", "1000")
+  breaks = c(0.1, 1, 100, 1e4, 1e6),
+  labels = c("0", "1", "100", "10,000", "1,000,000")
+)
+portfolio_colors <- set_names(c(jet, ku_red, grey, "#b3b3b3"), portfolios)
+portfolio_lines <- set_names(
+  c("solid", "solid", "dashed", "dashed"),
+  portfolios
 )
 bankrupt_range <- tibble(
-  portfolio = factor(
-    "Short sales allowed",
-    levels = levels(cost_summary$portfolio)
-  ),
-  xmin = min(bankrupt_betas) / 10^0.125,
-  xmax = max(bankrupt_betas) * 10^0.125
+  xmin = min(bankrupt_betas) * 1e4 / 10^0.125,
+  xmax = max(bankrupt_betas) * 1e4 * 10^0.125
 )
-sharpe_panel <- cost_summary |>
-  mutate(cost = factor(cost_labels(cost), levels = cost_labels(cost_levels))) |>
-  ggplot(aes(x = beta + 1e-5, y = sharpe, color = cost)) +
-  geom_rect(
-    data = bankrupt_range,
-    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
-    inherit.aes = FALSE,
-    fill = light
-  ) +
-  geom_text(
-    data = bankrupt_range,
-    aes(x = sqrt(xmin * xmax), y = 0.8, label = "bankrupt"),
-    inherit.aes = FALSE,
+cost_plot <- function(y, y_label) {
+  cost_summary |>
+    ggplot(aes(
+      x = pmax(beta * 1e4, 0.1),
+      y = {{ y }},
+      color = portfolio,
+      linetype = portfolio
+    )) +
+    geom_rect(
+      data = bankrupt_range,
+      aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+      inherit.aes = FALSE,
+      fill = light
+    ) +
+    geom_line(linewidth = 0.9, na.rm = TRUE) +
+    beta_axis +
+    scale_color_manual(values = portfolio_colors) +
+    scale_linetype_manual(values = portfolio_lines) +
+    labs(
+      x = "Quadratic cost β, bps",
+      y = y_label,
+      color = NULL,
+      linetype = NULL
+    )
+}
+sharpe_panel <- cost_plot(sharpe, "Sharpe ratio after costs") +
+  annotate(
+    "text",
+    x = sqrt(bankrupt_range$xmin * bankrupt_range$xmax),
+    y = 0.55,
+    label = "bankrupt",
     color = grey,
     angle = 90
-  ) +
-  geom_hline(yintercept = sharpe_benchmark, linetype = "dashed", color = grey) +
-  geom_text(
-    data = benchmarks,
-    aes(x = 1e-5, y = sharpe + 0.03, label = strategy),
-    inherit.aes = FALSE,
-    hjust = 0,
-    color = grey,
-    size = 3.5
-  ) +
-  geom_line(linewidth = 0.9, na.rm = TRUE) +
-  geom_point(size = 1, na.rm = TRUE) +
-  facet_wrap(vars(portfolio)) +
-  beta_axis +
-  scale_color_manual(
-    values = set_names(c("#b3b3b3", jet, ku_red), cost_labels(cost_levels))
-  ) +
-  labs(x = "Cost aversion β", y = "Sharpe ratio (annualized)", color = NULL)
-turnover_panel <- cost_summary |>
-  filter(cost == 0) |>
-  ggplot(aes(x = beta + 1e-5, y = turnover, linetype = portfolio)) +
-  geom_line(color = jet, linewidth = 0.9, na.rm = TRUE) +
-  beta_axis +
-  scale_y_continuous(labels = percent) +
-  labs(x = "Cost aversion β", y = "Turnover per month", linetype = NULL)
+  )
+turnover_panel <- cost_plot(turnover, "Turnover per month") +
+  scale_y_continuous(labels = percent)
 sharpe_panel +
   turnover_panel +
-  plot_layout(widths = c(2.1, 1)) &
+  plot_layout(widths = c(1.4, 1), guides = "collect") &
   theme(legend.position = "bottom")
 ```
 :::
 
-- **Small $\beta$:** Sharpe ratio after `r game_cost * 1e4` bps from `r number(plug_in$sharpe, 0.01)` to `r number(best_small_beta$sharpe, 0.01)` at $\beta \approx$ `r signif(best_small_beta$beta, 1)`, turnover from `r percent(plug_in$turnover)` to `r percent(best_small_beta$turnover)`
-- **Large $\beta$:** no trading, buy and hold (`r number(sharpe_benchmark[["Buy and hold"]], 0.01)`), which wins here only through the choice of stocks
-- **Short sales allowed,** $\beta$ from `r signif(min(bankrupt_betas), 1)` to `r signif(max(bankrupt_betas), 2)`: too slow to close a short in NVIDIA while its price rises, bankrupt in `r paste(unique(bankrupt_years), collapse = "–")`
+- **Low costs:** slower trading lifts the Sharpe ratio with short sales from `r number(plug_in$sharpe, 0.01)` to `r number(best_low_beta$sharpe, 0.01)` at $\beta \approx$ `r comma(signif(best_low_beta$beta * 1e4, 1))` bps; turnover falls from `r percent(plug_in$turnover)` to `r percent(best_low_beta$turnover)` a month, and the costs paid are `r number(best_low_beta$cost * 1e4, 0.1)` bps a year
+- **High costs:** almost no trading, so the portfolios drift like buy and hold (`r number(sharpe_of("Buy and hold", 0), 0.01)`), which wins only through the choice of stocks. 1/N pays for every rebalancing: `r number(sharpe_of("1/N", max(betas)), 0.01)` at `r comma(max(betas) * 1e4)` bps
+- **Short sales allowed,** $\beta$ from `r comma(signif(min(bankrupt_betas) * 1e4, 2))` to `r comma(signif(max(bankrupt_betas) * 1e4, 2))` bps: a small short in NVIDIA grows with its price, and closing it costs too much. Bankrupt in `r paste(unique(bankrupt_years), collapse = "–")`
 
 # Parametric portfolio policies
 
@@ -1030,20 +1031,36 @@ Brandt, Santa-Clara & Valkanov (2009) use **size**, **book-to-market** and **mom
 ## Weights as a function of characteristics
 
 ::: {.box}
-Tilt a benchmark $\bar\omega_{i,t}$ (e.g. value weights) with standardized characteristics $\hat x_{i,t}$:
+Tilt a benchmark $\bar\omega_{i,t}$ (e.g. value weights) with standardized characteristics $\hat x_{i,t}$, and choose $\theta$ for the best mean-variance trade-off of the policy returns $r_{p,t+1} = \sum_i \omega_{i,t} r_{i,t+1}$:
 $$
 \omega_{i,t} = \bar\omega_{i,t} + \frac{1}{N_t}\theta'\hat x_{i,t}
-\qquad \text{and choose} \qquad
-\max_\theta \ \frac{1}{T}\sum_{t} u\big(r_{p,t+1}(\theta)\big)
+\qquad \text{and} \qquad
+\max_\theta \ \bar r_p(\theta) - \frac{\gamma}{2}\hat\sigma_p^2(\theta)
 $$
 :::
 
 ::: {.fragment}
-- $\theta$ is the same for every stock and month: **two parameters** for two characteristics, whether there are 30 or 5,000 stocks
+- $\theta$ is the same for every stock and month: **two parameters** for two characteristics
 - The characteristics have mean zero across stocks every month, so the tilts sum to zero and the weights to one
-- No $\mu$ or $\Sigma$: the policy maximizes the average utility of its own returns, so skewness and fat tails count, too
+- No $\mu$ or $\Sigma$ of the stocks, only the mean and variance of the policy's own returns. Other utilities work, too: Brandt, Santa-Clara & Valkanov use CRRA, where skewness and fat tails count
 - Costs and constraints (e.g. no short sales) can go into the objective
 :::
+
+## Characteristics and the SDF
+
+::: {.box}
+Suppose the SDF loads on stock $i$ with $b'\hat x_{i,t}/N_t$: characteristics as covariances (Kelly, Pruitt & Su, 2019). Then the SDF is linear in the characteristic-managed portfolios $F_{t+1} = \frac{1}{N_t}\sum_i \hat x_{i,t}\, r_{i,t+1}$ (Kozak, Nagel & Santosh, 2020):
+$$
+m_{t+1} = 1 - b'\big(F_{t+1} - E[F]\big), \qquad E[m_{t+1}F_{t+1}] = 0 \ \Rightarrow \ b = \Sigma_F^{-1}\mu_F
+$$
+:::
+
+- The SDF loadings are the tangency weights: the tangency portfolio puts $b'\hat x_{i,t}/N_t$ on stock $i$, linear in the characteristics, like the policy
+- The policy earns $r_p = r_b + \theta'F$, with $r_b$ the benchmark. Maximizing $E[r_p] - \frac{\gamma}{2}\text{Var}(r_p)$ gives $b$ up to scale, minus a hedge of the benchmark:
+  $$
+  \theta = \frac{b}{\gamma} - \Sigma_F^{-1}\text{Cov}(F, r_b)
+  $$
+- Exact with sample moments, too; the average of $r_p - \frac{\gamma}{2}r_p^2$ would use $E[FF']$, not $\Sigma_F$
 
 ## Characteristics from CRSP
 
@@ -1095,7 +1112,7 @@ policy_data <- policy_data |>
 
 ```{r}
 #| label: define-policy-utility-r
-# CRRA utility: risk aversion
+# Mean-variance utility: risk aversion
 gamma_policy <- 5
 
 # policy_data: one row per stock and month with the standardized
@@ -1108,9 +1125,9 @@ policy_returns <- function(theta, data) {
     summarize(ret = sum(weight * ret_excess), .by = date)
 }
 
-average_utility <- function(theta, data) {
+mean_variance_utility <- function(theta, data) {
   r <- policy_returns(theta, data)$ret
-  mean((1 + r)^(1 - gamma_policy) / (1 - gamma_policy))
+  mean(r) - gamma_policy / 2 * var(r)
 }
 ```
 
@@ -1119,7 +1136,7 @@ average_utility <- function(theta, data) {
 ```{python}
 #| label: define-policy-utility-py
 #| eval: false
-# CRRA utility: risk aversion
+# Mean-variance utility: risk aversion
 gamma_policy = 5
 
 
@@ -1137,9 +1154,9 @@ def policy_returns(theta, data):
     )
 
 
-def average_utility(theta, data):
+def mean_variance_utility(theta, data):
     r = policy_returns(theta, data)["ret"].to_numpy()
-    return np.mean((1 + r) ** (1 - gamma_policy) / (1 - gamma_policy))
+    return r.mean() - gamma_policy / 2 * r.var(ddof=1)  # ddof=1 as var() in R
 ```
 :::
 
@@ -1157,7 +1174,7 @@ in_sample <- policy_data |> filter(date < policy_split)
 # Start at theta = 0, the value-weighted market
 fit <- optim(
   c(0, 0),
-  \(theta) -average_utility(theta, in_sample),
+  \(theta) -mean_variance_utility(theta, in_sample),
   method = "Nelder-Mead",
   control = list(reltol = 1e-12, maxit = 1000)
 )
@@ -1175,7 +1192,7 @@ in_sample = policy_data.filter(pl.col("date") < policy_split)
 
 # Start at theta = 0, the value-weighted market
 fit = minimize(
-    lambda theta: -average_utility(theta, in_sample),
+    lambda theta: -mean_variance_utility(theta, in_sample),
     x0=[0, 0],
     method="Nelder-Mead",
     options={"xatol": 1e-8, "fatol": 1e-14},
@@ -1184,7 +1201,26 @@ theta = fit.x
 ```
 :::
 
-CRRA utility with $\gamma$ = `r gamma_policy`, estimated on `r format(policy_start, "%Y")`–`r year(policy_split) - 1`: $\hat\theta_\text{momentum}$ = `r number(theta[1], 0.01)`, $\hat\theta_\text{size}$ = `r number(theta[2], 0.01)`. The policy tilts toward past winners and toward small stocks
+```{r}
+#| label: decompose-policy
+#| include: false
+# The closed form: b / gamma minus the regression slopes of the benchmark
+# on the characteristic-managed portfolios
+managed <- in_sample |>
+  summarize(
+    benchmark = sum(weight_benchmark * ret_excess),
+    momentum = sum(momentum * ret_excess) / n[1],
+    size = sum(size * ret_excess) / n[1],
+    .by = date
+  )
+managed_returns <- as.matrix(select(managed, momentum, size))
+b_scaled <- solve(cov(managed_returns), colMeans(managed_returns)) /
+  gamma_policy
+hedge <- solve(cov(managed_returns), cov(managed_returns, managed$benchmark))
+pair <- function(x) paste0("(", paste(number(x, 0.01), collapse = ", "), ")")
+```
+
+Mean-variance utility with $\gamma$ = `r gamma_policy`, estimated on `r format(policy_start, "%Y")`–`r year(policy_split) - 1`: $\hat\theta_\text{momentum}$ = `r number(theta[1], 0.01)`, $\hat\theta_\text{size}$ = `r number(theta[2], 0.01)`, exactly $\hat b/\gamma$ = `r pair(b_scaled)` minus the hedge `r pair(hedge)`. The policy tilts toward past winners and toward small stocks
 
 ## In sample and out of sample
 
@@ -1241,7 +1277,7 @@ sharpe_of <- function(period_start, name) {
 ```
 
 - In sample, the policy beats the market (Sharpe ratio `r number(sharpe_of("In", "Parametric policy"), 0.01)` against `r number(sharpe_of("In", "Value-weighted market"), 0.01)`); out of sample it falls behind (`r number(sharpe_of("Out", "Parametric policy"), 0.01)` against `r number(sharpe_of("Out", "Value-weighted market"), 0.01)`): after 2009, large stocks led
-- Few parameters reduce estimation error, but they cannot protect against a world that changes. Out-of-sample evaluation again
+- Few parameters reduce estimation error, but they cannot protect against a world that changes
 
 ## Portfolio choice in five lectures
 
