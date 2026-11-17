@@ -490,7 +490,8 @@ $code-block-font-size: 0.75em !default;
   background: #EEF3F9;
   border: 1.5px solid #7BA7D1;
   border-radius: 55% 45% 50% 50% / 60% 55% 45% 40%;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  // No box-shadow: Chromium prints it as a blurred picture that PDF readers
+  // draw differently (a dark shadow or a grey patch around the clouds)
   white-space: nowrap;
   &::before,
   &::after {
