@@ -1,7 +1,7 @@
 ---
 subtitle: Portfolio sorts
 date: 2027-03-05
-# Fri 5 Mar replaces Mon 15 Mar (Stefan away). Two hours: the sort on beta below is about one; more to come.
+# Fri 5 Mar replaces Mon 15 Mar (Stefan away). Two hours: beta sorts in the first; size, double sorts and Fama-MacBeth regressions in the second.
 ---
 
 ```{r}
@@ -12,14 +12,15 @@ library(nanoparquet)
 library(tidyfinance)
 library(scales)
 library(patchwork)
+library(ggrepel)
 
-# Betas as in exercise 3: CAPM regressions on the last 60 months, at least 48
-window_length <- 60
-min_months <- 48
-
-# Ten portfolios; the month that shows the sort step by step
+# Ten portfolios in the analysis; the figure that shows the sort step by step
+# uses five, one month and fixed axis limits
 n_portfolios <- 10
+n_portfolios_illustration <- 5
 illustration_month <- as.Date("2020-04-01")
+illustration_betas <- c(-1, 4)
+illustration_returns <- c(-0.5, 1)
 
 months_per_year <- 12
 
@@ -31,10 +32,6 @@ light <- "#e6e3df"
 theme_set(
   theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
 )
-
-source("lecture-slides/_live-poll.R")
-alpha_poll <- "aef27-l07-beta-alpha"
-alpha_choices <- c("High-beta stocks", "Neither", "Low-beta stocks")
 ```
 
 ```{python}
@@ -53,22 +50,17 @@ factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet") |>
   select(date, mkt_excess)
 ```
 
-## Today
-
-- Sorting stocks on beta
-- TBD: the second hour
-
-# Sorting stocks on beta
-
 ## Where the CAPM stands
 
-- **Lecture 6:** ten industries, 1960–2025. Higher betas came with barely higher average returns, but the GRS test could not reject the CAPM: the industries are too similar to each other and to the market
-- **Today:** all US stocks in CRSP, sorted into `r n_portfolios` portfolios by their beta
-- The betas are those of exercise 3: each month, a CAPM regression on the last `r window_length` months (at least `r min_months`)
+- **Lecture 6:** expected excess returns come from the covariance with the SDF. The CAPM's SDF is linear in the market return, so only the beta matters: the higher the beta, the higher the average return, one for one with the market premium
+- Ten industries, 1960–2025: higher betas came with barely higher average returns, but the GRS test could not reject the CAPM: the industries are too similar to each other and to the market
+- A **characteristic** such as a stock's beta tells us about its exposure to the SDF. Sorting stocks into portfolios by the characteristic lets the data show how average returns change with it, without assuming a linear relation
 
 ::: {.highlight}
-The CAPM says: the higher the beta, the higher the average return, one for one with the market premium
+**Today:** the CAPM tested on all US stocks in CRSP, sorted into portfolios by their beta. In the second hour: size, double sorts on size and beta, and Fama–MacBeth regressions
 :::
+
+# Do high betas earn more?
 
 ## Betas for every stock and month
 
@@ -78,7 +70,6 @@ The CAPM says: the higher the beta, the higher the average return, one for one w
 ```{r}
 #| label: estimate-betas-r
 #| cache: true
-# As in exercise 3: CAPM regressions on the last 60 months, at least 48
 window_length <- 60
 min_months <- 48
 
@@ -96,7 +87,6 @@ betas <- crsp_monthly |>
 ```{python}
 #| label: estimate-betas-py
 #| eval: false
-# As in exercise 3: CAPM regressions on the last 60 months, at least 48
 window_length = 60
 min_months = 48
 
@@ -132,7 +122,7 @@ month_data <- month_data |>
     portfolio = assign_portfolio(
       month_data,
       "beta_lag",
-      breakpoint_options(n_portfolios = n_portfolios)
+      breakpoint_options(n_portfolios = n_portfolios_illustration)
     )
   )
 breakpoints <- month_data |>
@@ -146,25 +136,39 @@ month_portfolios <- month_data |>
     .by = portfolio
   ) |>
   arrange(portfolio)
-spread <- month_portfolios$ret_excess[n_portfolios] -
+spread <- month_portfolios$ret_excess[n_portfolios_illustration] -
   month_portfolios$ret_excess[1]
 
-beta_range <- quantile(month_data$beta_lag, c(0.002, 0.998))
-return_range <- quantile(month_data$ret_excess, c(0.01, 0.99))
+# The few stocks beyond the axis limits still count for the breakpoints and
+# the portfolio returns; the caption says how many there are
+n_not_shown <- month_data |>
+  filter(
+    !between(beta_lag, illustration_betas[1], illustration_betas[2]) |
+      !between(ret_excess, illustration_returns[1], illustration_returns[2])
+  ) |>
+  nrow()
 step_base <- ggplot(month_data, aes(x = beta_lag, y = ret_excess)) +
   geom_point(color = grey, alpha = 0.25, size = 0.8) +
-  coord_cartesian(xlim = beta_range, ylim = return_range) +
+  coord_cartesian(xlim = illustration_betas, ylim = illustration_returns) +
   scale_y_continuous(labels = percent) +
   labs(
     x = paste(
       "Beta of each stock, estimated until",
       format(illustration_month %m-% months(1), "%B %Y")
     ),
-    y = paste("Excess return in", format(illustration_month, "%B %Y"))
-  )
+    y = paste("Excess return in", format(illustration_month, "%B %Y")),
+    caption = paste(
+      "Not shown:",
+      n_not_shown,
+      "of",
+      comma(nrow(month_data)),
+      "stocks, beyond the axis limits"
+    )
+  ) +
+  theme(plot.caption = element_text(color = grey))
 step_breaks <- step_base +
   geom_vline(
-    xintercept = breakpoints$high[-n_portfolios],
+    xintercept = breakpoints$high[-n_portfolios_illustration],
     color = jet,
     linetype = "dashed"
   )
@@ -178,18 +182,18 @@ step_means <- step_breaks +
 step_spread <- step_means +
   annotate(
     "segment",
-    x = beta_range[2] * 0.97,
-    xend = beta_range[2] * 0.97,
+    x = illustration_betas[2] * 0.97,
+    xend = illustration_betas[2] * 0.97,
     y = month_portfolios$ret_excess[1],
-    yend = month_portfolios$ret_excess[n_portfolios],
+    yend = month_portfolios$ret_excess[n_portfolios_illustration],
     arrow = arrow(ends = "both", length = unit(0.2, "cm")),
     color = ku_red
   ) +
   annotate(
     "label",
-    x = beta_range[2] * 0.95,
+    x = illustration_betas[2] * 0.95,
     y = mean(range(month_portfolios$ret_excess)),
-    label = paste0("High minus low:\n", percent(spread, 0.1)),
+    label = paste("High minus low:", percent(spread, 0.1)),
     hjust = 1,
     color = ku_red
   )
@@ -211,8 +215,8 @@ walk2(steps, seq_along(steps), \(step, k) {
 
 ::: {.column width="36%"}
 
-- Each month, rank the stocks by **last month's beta**, which investors know when they form the portfolios
-- **Breakpoints** split them into `r n_portfolios` groups of equal size
+- Each month, rank the stocks by **last month's beta**, which investors can compute when they form the portfolios
+- **Breakpoints** split them into groups with equal numbers of stocks: `r n_portfolios_illustration` in the figure, `r n_portfolios` in the analysis
 - Each portfolio's return is the **value-weighted** average return of its stocks
 - **High minus low:** the top portfolio minus the bottom portfolio
 
@@ -251,7 +255,7 @@ In `r format(illustration_month, "%B %Y")` the market rose by `r percent(factors
 # Ten portfolios: the beta deciles
 n_portfolios <- 10
 
-# Sort on last month's beta, which investors know when they form portfolios
+# Last month's beta: investors can compute it when they form the portfolios
 beta_lag <- betas |>
   transmute(permno, date = date %m+% months(1), beta_lag = beta_mkt_excess)
 
@@ -273,7 +277,7 @@ beta_portfolios <- crsp_monthly |>
 # Ten portfolios: the beta deciles
 n_portfolios = 10
 
-# Sort on last month's beta, which investors know when they form portfolios
+# Last month's beta: investors can compute it when they form the portfolios
 beta_lag = betas.select(
     "permno", pl.col("date").dt.offset_by("1mo"), beta_lag=pl.col("beta_mkt_excess")
 )
@@ -289,53 +293,6 @@ beta_portfolios = tf.compute_portfolio_returns(
 
 - `compute_portfolio_returns()` sets the breakpoints each month and returns the value-weighted (`ret_excess_vw`), equal-weighted and capped value-weighted excess returns of each portfolio
 - For each portfolio, the CAPM regression of lecture 6, now with `estimate_model()` from tidyfinance
-
-## Which stocks have the higher alpha?
-
-```{r}
-#| label: poll-setup
-#| include: false
-if (live) {
-  ojs_define(
-    poll_base = poll_base,
-    alpha_poll = alpha_poll,
-    alpha_choices = alpha_choices
-  )
-}
-```
-
-::: {.content-visible when-profile="live"}
-{{< include _live-poll-ojs.qmd >}}
-
-:::: {.columns}
-::: {.column width="40%"}
-```{ojs}
-//| label: alpha-poll-qr
-//| echo: false
-pollQR(alpha_poll, alpha_choices)
-```
-:::
-::: {.column width="60%"}
-```{ojs}
-//| label: alpha-poll-live
-//| echo: false
-alpha_answers = pollAnswers(alpha_poll)
-pollBars(alpha_answers, alpha_choices)
-```
-:::
-::::
-:::
-
-::: {.content-visible unless-profile="live"}
-Ten portfolios sorted on beta, `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))`: which have the higher CAPM alpha?
-
-```{r}
-#| label: alpha-poll-choices
-#| echo: false
-#| results: asis
-cat(paste0("- ", alpha_choices, collapse = "\n"), "\n")
-```
-:::
 
 ## Ten beta portfolios
 
@@ -417,6 +374,26 @@ annual <- capm |>
     capm_mean = beta * market_premium * months_per_year
   )
 
+# The actual slope: least squares through the ten portfolios, as in lecture 6
+fitted_line <- lm(mean ~ beta, data = annual)
+fitted_slope <- coef(fitted_line)[["beta"]]
+fitted_start <- min(annual$beta)
+
+# Points without a label along both lines keep the labels off the lines
+beta_grid <- seq(0, max(annual$beta), by = 0.01)
+line_points <- bind_rows(
+  tibble(beta = beta_grid, mean = beta_grid * market_premium * months_per_year),
+  tibble(
+    beta = beta_grid,
+    mean = predict(fitted_line, tibble(beta = beta_grid))
+  ) |>
+    filter(beta >= fitted_start)
+) |>
+  mutate(label = "")
+portfolio_labels <- annual |>
+  transmute(beta, mean, label = as.character(portfolio)) |>
+  bind_rows(line_points)
+
 sml_panel <- ggplot(annual, aes(x = beta)) +
   geom_abline(
     intercept = 0,
@@ -424,12 +401,25 @@ sml_panel <- ggplot(annual, aes(x = beta)) +
     color = ku_red,
     linewidth = 0.9
   ) +
+  geom_smooth(
+    aes(y = mean),
+    method = "lm",
+    formula = y ~ x,
+    se = FALSE,
+    color = grey,
+    linetype = "dashed",
+    linewidth = 0.7
+  ) +
   geom_point(aes(y = mean), color = jet, size = 2.5) +
-  geom_text(
-    aes(y = mean, label = portfolio),
-    nudge_y = 0.006,
+  geom_text_repel(
+    data = portfolio_labels,
+    aes(y = mean, label = label),
     color = jet,
-    size = 3.5
+    size = 3.5,
+    point.padding = 0.15,
+    min.segment.length = Inf,
+    max.overlaps = Inf,
+    seed = 1
   ) +
   annotate(
     "text",
@@ -439,8 +429,21 @@ sml_panel <- ggplot(annual, aes(x = beta)) +
     color = ku_red,
     hjust = 1
   ) +
+  annotate(
+    "text",
+    x = fitted_start - 0.04,
+    y = predict(fitted_line, tibble(beta = fitted_start)),
+    label = "Least squares",
+    color = grey,
+    hjust = 1,
+    vjust = -0.2
+  ) +
   scale_x_continuous(limits = c(0, NA)) +
-  scale_y_continuous(labels = percent, limits = c(0, NA)) +
+  scale_y_continuous(
+    labels = percent,
+    breaks = breaks_width(0.03),
+    limits = c(0, NA)
+  ) +
   labs(x = "Beta of the portfolio", y = "Average excess return (annualized)")
 
 alpha_panel <- ggplot(annual, aes(x = factor(portfolio), y = alpha)) +
@@ -460,11 +463,623 @@ alpha_panel <- ggplot(annual, aes(x = factor(portfolio), y = alpha)) +
 sml_panel + alpha_panel
 ```
 
-- Betas from `r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`, average excess returns only from `r percent(annual$mean[1], 0.1)` to `r percent(annual$mean[n_portfolios], 0.1)` a year. The CAPM predicts `r percent(annual$capm_mean[1], 0.1)` to `r percent(annual$capm_mean[n_portfolios], 0.1)`: the line is too flat
+- Betas from `r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`, average excess returns only from `r percent(annual$mean[1], 0.1)` to `r percent(annual$mean[n_portfolios], 0.1)` a year. The CAPM predicts `r percent(annual$capm_mean[1], 0.1)` to `r percent(annual$capm_mean[n_portfolios], 0.1)`. The least-squares line (dashed) rises by `r percent(fitted_slope, 0.1)` per unit of beta, the CAPM line by the market premium of `r percent(market_premium * months_per_year, 0.1)`
 - High minus low: alpha `r percent(hml_capm$coefficients$intercept * months_per_year, 0.1)` a year (t = `r number(hml_capm$tstats$intercept, 0.01)`). GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: a clear pattern, but `r year(min(beta_portfolios$date))`–`r year(max(beta_portfolios$date))` is not enough to reject the CAPM with ten correlated portfolios
 
-# TBD: the second hour
+# Do small stocks earn more?
 
-## TBD
+## NYSE breakpoints and microcaps
 
-TBD
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: size-data-r
+# Microcaps: below the 20th percentile of NYSE market caps
+microcap_cutoff <- 0.2
+nyse_breakpoints <- breakpoint_options(
+  n_portfolios = n_portfolios,
+  breakpoints_exchanges = "NYSE"
+)
+
+size_data <- crsp_monthly |>
+  filter(!is.na(mktcap_lag)) |>
+  mutate(
+    microcap = mktcap_lag <
+      quantile(mktcap_lag[exchange == "NYSE"], microcap_cutoff),
+    .by = date
+  )
+```
+
+## Python
+
+```{python}
+#| label: size-data-py
+#| eval: false
+# Microcaps: below the 20th percentile of NYSE market caps
+microcap_cutoff = 0.2
+nyse_breakpoints = tf.breakpoint_options(
+    n_portfolios=n_portfolios, breakpoints_exchanges="NYSE"
+)
+
+size_data = crsp_monthly.drop_nulls("mktcap_lag").with_columns(
+    microcap=pl.col("mktcap_lag")
+    < pl.col("mktcap_lag")
+    .filter(pl.col("exchange") == "NYSE")
+    .quantile(microcap_cutoff, interpolation="linear")
+    .over("date")
+)
+```
+:::
+
+- **Size:** last month's market cap. The sort is the one on beta with `mktcap_lag` as the sorting variable, done three times: breakpoints from all stocks, from NYSE stocks, and from NYSE stocks without the microcaps
+- **NYSE breakpoints** (Fama & French, 1992): the deciles of NYSE stocks only, as AMEX and NASDAQ stocks are mostly small. **Microcaps** as in Fama & French (2008)
+
+```{r}
+#| label: sort-on-size-r
+#| include: false
+# The sort on beta with market cap as the sorting variable, in three versions
+size_versions <- tibble(
+  breakpoints = c(
+    "All-stock breakpoints",
+    "NYSE breakpoints",
+    "NYSE breakpoints, without microcaps"
+  ),
+  data = list(size_data, size_data, filter(size_data, !microcap)),
+  options = list(
+    breakpoint_options(n_portfolios = n_portfolios),
+    nyse_breakpoints,
+    nyse_breakpoints
+  )
+)
+size_portfolios <- size_versions |>
+  mutate(
+    returns = map2(data, options, \(data, options) {
+      compute_portfolio_returns(
+        data,
+        "mktcap_lag",
+        "univariate",
+        breakpoint_options_main = options
+      )
+    })
+  ) |>
+  select(breakpoints, returns) |>
+  unnest(returns)
+
+# How many of the sorted stocks each portfolio holds, on average over the months
+size_shares <- size_versions |>
+  mutate(
+    shares = map2(data, options, \(data, options) {
+      data |>
+        mutate(
+          portfolio = assign_portfolio(
+            pick(everything()),
+            "mktcap_lag",
+            options
+          ),
+          .by = date
+        ) |>
+        count(date, portfolio) |>
+        mutate(share = n / sum(n), .by = date) |>
+        summarize(share = mean(share), .by = portfolio)
+    })
+  ) |>
+  select(breakpoints, shares) |>
+  unnest(shares)
+
+size_summary <- size_portfolios |>
+  summarize(
+    mean = mean(ret_excess_vw) * months_per_year,
+    .by = c(breakpoints, portfolio)
+  ) |>
+  left_join(size_shares, join_by(breakpoints, portfolio))
+
+small_minus_big <- size_portfolios |>
+  select(breakpoints, portfolio, date, ret_excess_vw) |>
+  nest(data = -breakpoints) |>
+  mutate(
+    data = map(data, \(d) {
+      compute_long_short_returns(d, direction = "bottom_minus_top")
+    })
+  ) |>
+  unnest(data) |>
+  summarize(
+    mean = mean(ret_excess_vw) * months_per_year,
+    t = mean(ret_excess_vw) / sd(ret_excess_vw) * sqrt(n()),
+    .by = breakpoints
+  )
+
+microcap_shares <- size_data |>
+  summarize(
+    stocks = mean(microcap),
+    value = sum(mktcap_lag[microcap]) / sum(mktcap_lag),
+    .by = date
+  ) |>
+  summarize(stocks = mean(stocks), value = mean(value))
+
+size_row <- \(version, k) {
+  filter(size_summary, breakpoints == version, portfolio == k)
+}
+smb_text <- \(version) {
+  row <- small_minus_big[small_minus_big$breakpoints == version, ]
+  paste0(percent(row$mean, 0.1), " a year (t = ", number(row$t, 0.01), ")")
+}
+middle_range <- size_summary |>
+  filter(breakpoints == "All-stock breakpoints", portfolio > 1) |>
+  pull(mean) |>
+  range()
+```
+
+## Ten size portfolios
+
+```{r}
+#| label: plot-size-portfolios
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.3
+size_colors <- c(ku_red, jet, grey)
+size_linetypes <- c("solid", "solid", "dashed")
+names(size_colors) <- names(size_linetypes) <- size_versions$breakpoints
+
+size_panel <- \(y, y_label) {
+  ggplot(
+    size_summary,
+    aes(
+      x = portfolio,
+      y = {{ y }},
+      color = breakpoints,
+      linetype = breakpoints
+    )
+  ) +
+    geom_line(linewidth = 0.8) +
+    geom_point(size = 2) +
+    scale_x_continuous(breaks = 1:n_portfolios) +
+    scale_y_continuous(labels = percent, limits = c(0, NA)) +
+    scale_color_manual(values = size_colors) +
+    scale_linetype_manual(values = size_linetypes) +
+    labs(
+      x = "Size portfolio (1 = smallest)",
+      y = y_label,
+      color = NULL,
+      linetype = NULL
+    )
+}
+
+size_panel(mean, "Average excess return (annualized)") +
+  size_panel(share, "Share of the sorted stocks") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+```
+
+- **All-stock breakpoints:** the smallest decile earned `r percent(size_row("All-stock breakpoints", 1)$mean, 0.1)` a year, the others `r percent(middle_range[1], 0.1)` to `r percent(middle_range[2], 0.1)`. Small minus big: `r smb_text("All-stock breakpoints")`, the size effect of Banz (1981)
+- **NYSE breakpoints:** the smallest decile holds `r percent(size_row("NYSE breakpoints", 1)$share, 1)` of all stocks. Small minus big: `r smb_text("NYSE breakpoints")`
+- **Microcaps** are `r percent(microcap_shares$stocks, 1)` of the stocks but `r percent(microcap_shares$value, 1)` of the market value. Without them, small minus big: `r smb_text("NYSE breakpoints, without microcaps")`. Value-weighted, `r year(min(size_portfolios$date))`–`r year(max(size_portfolios$date))`
+
+# Beta or size?
+
+## Two ways to sort on two characteristics
+
+```{r}
+#| label: plot-double-sort-steps
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.4
+# The month of the first hour, now with five size groups and five beta groups
+n_groups_illustration <- 5
+size_options_illustration <- breakpoint_options(
+  n_portfolios = n_groups_illustration,
+  breakpoints_exchanges = "NYSE"
+)
+beta_options_illustration <- breakpoint_options(
+  n_portfolios = n_groups_illustration
+)
+month_double <- size_data |>
+  filter(date == illustration_month) |>
+  inner_join(beta_lag, join_by(permno, date)) |>
+  mutate(
+    size_group = assign_portfolio(
+      pick(everything()),
+      "mktcap_lag",
+      size_options_illustration
+    ),
+    beta_independent = assign_portfolio(
+      pick(everything()),
+      "beta_lag",
+      beta_options_illustration
+    )
+  ) |>
+  mutate(
+    beta_dependent = assign_portfolio(
+      pick(everything()),
+      "beta_lag",
+      beta_options_illustration
+    ),
+    .by = size_group
+  )
+
+size_edges <- month_double |>
+  summarize(low = min(mktcap_lag), high = max(mktcap_lag), .by = size_group) |>
+  arrange(size_group)
+sort_names <- c(
+  "Independent: beta breakpoints from all stocks",
+  "Dependent: beta breakpoints within each size group"
+)
+beta_cuts <- bind_rows(
+  month_double |>
+    summarize(cut = max(beta_lag), .by = beta_independent) |>
+    filter(beta_independent < n_groups_illustration) |>
+    mutate(
+      sort = sort_names[1],
+      low = min(month_double$mktcap_lag),
+      high = max(month_double$mktcap_lag)
+    ),
+  month_double |>
+    summarize(cut = max(beta_lag), .by = c(size_group, beta_dependent)) |>
+    filter(beta_dependent < n_groups_illustration) |>
+    left_join(size_edges, join_by(size_group)) |>
+    mutate(sort = sort_names[2])
+) |>
+  mutate(sort = factor(sort, levels = sort_names))
+
+month_points <- bind_rows(
+  month_double |> mutate(sort = sort_names[1]),
+  month_double |> mutate(sort = sort_names[2])
+) |>
+  mutate(sort = factor(sort, levels = sort_names))
+n_not_shown_double <- sum(
+  !between(month_double$beta_lag, illustration_betas[1], illustration_betas[2])
+)
+# Independent cells of the biggest stocks, from the lowest to the highest betas
+big_counts <- month_double |>
+  filter(size_group == n_groups_illustration) |>
+  count(beta_independent)
+
+ggplot(month_points, aes(x = mktcap_lag, y = beta_lag)) +
+  geom_point(color = grey, alpha = 0.25, size = 0.7) +
+  geom_vline(
+    xintercept = size_edges$high[-n_groups_illustration],
+    color = jet,
+    linetype = "dashed"
+  ) +
+  geom_segment(
+    data = beta_cuts,
+    aes(x = low, xend = high, y = cut, yend = cut),
+    color = ku_red,
+    linewidth = 0.9
+  ) +
+  facet_wrap(vars(sort)) +
+  scale_x_log10(
+    labels = label_dollar(scale = 1e6, scale_cut = cut_short_scale())
+  ) +
+  coord_cartesian(ylim = illustration_betas) +
+  labs(
+    x = paste(
+      "Market cap at the end of",
+      format(illustration_month %m-% months(1), "%B %Y"),
+      "(log scale)"
+    ),
+    y = paste(
+      "Beta, estimated until",
+      format(illustration_month %m-% months(1), "%B %Y")
+    ),
+    caption = paste(
+      "Not shown:",
+      n_not_shown_double,
+      "stocks with betas beyond the axis limits"
+    )
+  ) +
+  theme(
+    strip.text = element_text(size = 13, hjust = 0),
+    plot.caption = element_text(color = grey)
+  )
+```
+
+- `r format(illustration_month, "%B %Y")`, `r comma(nrow(month_double))` stocks. Dashed: size breakpoints, the quintiles of NYSE stocks. Red: beta breakpoints
+- **Independent:** the cells hold different numbers of stocks. Among the biggest stocks, `r big_counts$n[1]` have the lowest betas and only `r big_counts$n[n_groups_illustration]` the highest
+- **Dependent (conditional):** beta groups of equal size within each size group, but their beta ranges differ from one size group to the next
+
+## Double sorts in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: double-sort-r
+n_groups <- 5
+size_options <- breakpoint_options(
+  n_portfolios = n_groups,
+  breakpoints_exchanges = "NYSE"
+)
+beta_options <- breakpoint_options(n_portfolios = n_groups)
+
+beta_within_size <- size_data |>
+  inner_join(beta_lag, join_by(permno, date)) |>
+  compute_portfolio_returns(
+    c("beta_lag", "mktcap_lag"),
+    "bivariate-dependent",
+    breakpoint_options_main = beta_options,
+    breakpoint_options_secondary = size_options
+  )
+```
+
+## Python
+
+```{python}
+#| label: double-sort-py
+#| eval: false
+n_groups = 5
+size_options = tf.breakpoint_options(
+    n_portfolios=n_groups, breakpoints_exchanges="NYSE"
+)
+beta_options = tf.breakpoint_options(n_portfolios=n_groups)
+
+beta_within_size = tf.compute_portfolio_returns(
+    size_data.join(beta_lag, on=["permno", "date"]),
+    ["beta_lag", "mktcap_lag"],
+    "bivariate-dependent",
+    breakpoint_options_main=beta_options,
+    breakpoint_options_secondary=size_options,
+)
+```
+:::
+
+- `"bivariate-dependent"` sorts on the second variable, size, first and then on beta within each size group; `"bivariate-independent"` sets both breakpoints on all stocks
+- The return of a beta portfolio is the average over its five size cells, each value-weighted: every beta portfolio holds the same mix of sizes
+
+```{r}
+#| label: double-sort-results
+#| include: false
+beta_size_data <- size_data |>
+  inner_join(beta_lag, join_by(permno, date))
+beta_sorts <- tibble(
+  sort = c("Independent sort", "Dependent sort"),
+  method = c("bivariate-independent", "bivariate-dependent")
+)
+
+# Beta high minus low, averaged over the size groups
+beta_high_minus_low <- beta_sorts |>
+  mutate(
+    returns = map(method, \(method) {
+      beta_size_data |>
+        compute_portfolio_returns(
+          c("beta_lag", "mktcap_lag"),
+          method,
+          breakpoint_options_main = beta_options,
+          breakpoint_options_secondary = size_options
+        ) |>
+        select(portfolio, date, ret_excess_vw) |>
+        compute_long_short_returns()
+    })
+  ) |>
+  unnest(returns) |>
+  summarize(
+    mean = mean(ret_excess_vw) * months_per_year,
+    t = mean(ret_excess_vw) / sd(ret_excess_vw) * sqrt(n()),
+    .by = sort
+  )
+
+# Small minus big, averaged over the beta groups of the independent sort
+size_within_beta <- beta_size_data |>
+  compute_portfolio_returns(
+    c("mktcap_lag", "beta_lag"),
+    "bivariate-independent",
+    breakpoint_options_main = size_options,
+    breakpoint_options_secondary = beta_options
+  ) |>
+  select(portfolio, date, ret_excess_vw) |>
+  compute_long_short_returns(direction = "bottom_minus_top") |>
+  summarize(
+    mean = mean(ret_excess_vw) * months_per_year,
+    t = mean(ret_excess_vw) / sd(ret_excess_vw) * sqrt(n())
+  )
+
+# All 25 cells of both sorts, for the figure
+double_sort_cells <- beta_size_data |>
+  mutate(
+    size_group = assign_portfolio(
+      pick(everything()),
+      "mktcap_lag",
+      size_options
+    ),
+    beta_independent = assign_portfolio(
+      pick(everything()),
+      "beta_lag",
+      beta_options
+    ),
+    .by = date
+  ) |>
+  mutate(
+    beta_dependent = assign_portfolio(
+      pick(everything()),
+      "beta_lag",
+      beta_options
+    ),
+    .by = c(date, size_group)
+  ) |>
+  pivot_longer(
+    c(beta_independent, beta_dependent),
+    names_to = "sort",
+    values_to = "beta_group"
+  ) |>
+  summarize(
+    ret_excess = weighted.mean(ret_excess, mktcap_lag),
+    .by = c(sort, date, size_group, beta_group)
+  ) |>
+  summarize(
+    mean = mean(ret_excess) * months_per_year,
+    .by = c(sort, size_group, beta_group)
+  ) |>
+  mutate(
+    sort = factor(
+      sort,
+      levels = c("beta_independent", "beta_dependent"),
+      labels = beta_sorts$sort
+    )
+  )
+
+high_minus_low_text <- \(sort) {
+  row <- beta_high_minus_low[beta_high_minus_low$sort == sort, ]
+  paste0(percent(row$mean, 0.1), " a year (t = ", number(row$t, 0.01), ")")
+}
+```
+
+## Beta within size groups
+
+```{r}
+#| label: plot-double-sorts
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.2
+size_names <- c("Small", "2", "3", "4", "Big")
+size_group_colors <- c(ku_red, "#b0484b", "#c98a8c", "#8c8c8c", jet)
+
+ggplot(
+  double_sort_cells,
+  aes(x = beta_group, y = mean, color = factor(size_group))
+) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  geom_text_repel(
+    data = filter(double_sort_cells, beta_group == n_groups),
+    aes(label = size_names[size_group]),
+    direction = "y",
+    hjust = 0,
+    nudge_x = 0.15,
+    segment.color = NA,
+    size = 4,
+    seed = 1
+  ) +
+  facet_wrap(vars(sort)) +
+  scale_color_manual(values = size_group_colors, guide = "none") +
+  scale_x_continuous(
+    breaks = 1:n_groups,
+    expand = expansion(add = c(0.2, 0.7))
+  ) +
+  scale_y_continuous(labels = percent, limits = c(0, NA)) +
+  labs(
+    x = "Beta group within the size group (1 = lowest)",
+    y = "Average excess return (annualized)"
+  ) +
+  theme(strip.text = element_text(size = 13, hjust = 0))
+```
+
+- Within the size groups, average returns hardly rise with beta. Beta high minus low, averaged over the size groups: `r high_minus_low_text("Independent sort")` with independent and `r high_minus_low_text("Dependent sort")` with dependent sorts
+- Small stocks earned more in every beta group: small minus big, averaged over the beta groups of the independent sort, `r percent(size_within_beta$mean, 0.1)` a year (t = `r number(size_within_beta$t, 0.01)`). Fama & French (1992): once size is held fixed, beta does not explain average returns
+
+# Beta and size at once
+
+## Fama–MacBeth regressions
+
+::: {.box}
+Each month $t$, regress the excess returns of all stocks on last month's characteristics; then average each coefficient over the months (Fama & MacBeth, 1973):
+
+$$
+R^e_{i,t} = \lambda_{0,t} + \lambda_{\beta,t}\,\beta_{i,t-1} + \lambda_{\text{size},t}\,\log \text{ME}_{i,t-1} + \varepsilon_{i,t}, \qquad \hat\lambda = \frac{1}{T}\sum_{t=1}^T \hat\lambda_t
+$$
+:::
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: fama-macbeth-r
+fama_macbeth_data <- size_data |>
+  inner_join(beta_lag, join_by(permno, date)) |>
+  mutate(log_mktcap_lag = log(mktcap_lag))
+
+fama_macbeth <- fama_macbeth_data |>
+  estimate_fama_macbeth("ret_excess ~ beta_lag + log_mktcap_lag")
+```
+
+## Python
+
+```{python}
+#| label: fama-macbeth-py
+#| eval: false
+fama_macbeth_data = size_data.join(beta_lag, on=["permno", "date"]).with_columns(
+    log_mktcap_lag=pl.col("mktcap_lag").log()
+)
+
+fama_macbeth = tf.estimate_fama_macbeth(
+    fama_macbeth_data, "ret_excess ~ beta_lag + log_mktcap_lag"
+)
+```
+:::
+
+- $\hat\lambda_\beta$ is the premium per unit of beta, holding size fixed. Its t-statistic comes from the `r comma(nrow(distinct(fama_macbeth_data, date)))` monthly estimates, `r year(min(fama_macbeth_data$date))`–`r year(max(fama_macbeth_data$date))`, with Newey–West standard errors, the default of `estimate_fama_macbeth()`
+
+```{r}
+#| label: fama-macbeth-variants
+#| include: false
+fama_macbeth_models <- list(
+  "Beta" = list(fama_macbeth_data, "ret_excess ~ beta_lag"),
+  "Size" = list(fama_macbeth_data, "ret_excess ~ log_mktcap_lag"),
+  "Beta and size" = list(
+    fama_macbeth_data,
+    "ret_excess ~ beta_lag + log_mktcap_lag"
+  ),
+  "Without microcaps" = list(
+    filter(fama_macbeth_data, !microcap),
+    "ret_excess ~ beta_lag + log_mktcap_lag"
+  )
+) |>
+  map(\(model) estimate_fama_macbeth(model[[1]], model[[2]]))
+```
+
+```{r}
+#| label: fama-macbeth-table
+#| include: false
+# One table cell: the annualized coefficient with its t-statistic
+fama_macbeth_cell <- \(model, term) {
+  row <- filter(fama_macbeth_models[[model]], factor == term)
+  if (nrow(row) == 0) {
+    return("")
+  }
+  paste0(
+    percent(row$risk_premium * months_per_year, 0.1),
+    " (",
+    number(row$t_statistic, 0.01),
+    ")"
+  )
+}
+beta_coefficient <- fama_macbeth_models[["Beta and size"]] |>
+  filter(factor == "beta_lag")
+size_coefficient <- fama_macbeth_models[["Beta and size"]] |>
+  filter(factor == "log_mktcap_lag")
+ten_times_bigger <- log(10)
+```
+
+## Beta and size in one regression
+
+| | Beta | Size | Both | Both, without microcaps |
+|---|:---:|:---:|:---:|:---:|
+| Beta | `r fama_macbeth_cell("Beta", "beta_lag")` | | `r fama_macbeth_cell("Beta and size", "beta_lag")` | `r fama_macbeth_cell("Without microcaps", "beta_lag")` |
+| Log market cap | | `r fama_macbeth_cell("Size", "log_mktcap_lag")` | `r fama_macbeth_cell("Beta and size", "log_mktcap_lag")` | `r fama_macbeth_cell("Without microcaps", "log_mktcap_lag")` |
+
+Average monthly coefficients times 12; Newey–West t-statistics in parentheses
+
+- **Beta:** a premium of `r percent(beta_coefficient$risk_premium * months_per_year, 0.1)` a year per unit of beta, where the CAPM predicts the market premium of `r percent(market_premium * months_per_year, 0.1)`
+- **Size:** a stock ten times bigger earned `r percent(-size_coefficient$risk_premium * ten_times_bigger * months_per_year, 0.1)` a year less. Every stock counts the same in the regressions; without microcaps, the size coefficient shrinks but stays significant
+
+## Sorts or regressions?
+
+:::: {.columns}
+::: {.column width="50%"}
+**Portfolio sorts**
+
+- No functional form: the hump in beta, the smallest size decile
+- Value weights keep microcaps in check
+- One or two characteristics at a time: 5 × 5 = 25 portfolios, three characteristics already 125
+:::
+::: {.column width="50%"}
+**Fama–MacBeth regressions**
+
+- Many characteristics at once, each holding the others fixed
+- Linear in each characteristic, unless we transform it (logs, ranks)
+- Every stock counts the same: microcaps and outliers weigh heavily
+:::
+::::
+
+::: {.highlight}
+**Lecture 8:** a sort turns a characteristic into a return. Small minus big becomes a factor, next to the market and value (Fama & French, 1993)
+:::
