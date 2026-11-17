@@ -94,6 +94,20 @@ $$
 #| include: false
 factors_ff3_monthly <- read_parquet("data/factors_ff3_monthly.parquet")
 
+# Plain names for the Fama-French industry codes, as in lecture 1
+industry_names <- c(
+  nodur = "Non-durable goods",
+  durbl = "Durable goods",
+  manuf = "Manufacturing",
+  enrgy = "Energy",
+  hitec = "High tech",
+  telcm = "Telecom",
+  shops = "Retail",
+  hlth = "Health care",
+  utils = "Utilities",
+  other = "Other"
+)
+
 industries <- read_parquet("data/industries_ff_monthly.parquet") |>
   pivot_longer(-date, names_to = "industry", values_to = "ret") |>
   left_join(factors_ff3_monthly, join_by(date)) |>
@@ -252,7 +266,7 @@ return_limits <- c(0.045, 0.095)
 # covers another
 sml_points <- capm_annual |>
   transmute(
-    label = industry,
+    label = industry_names[industry],
     beta,
     mean,
     point_color = jet,
@@ -327,7 +341,7 @@ f <- industries_wide$mkt_excess
 sdf_inputs <- industries_wide |>
   select(-date) |>
   pivot_longer(everything(), names_to = "asset", values_to = "ret_excess") |>
-  mutate(asset = if_else(asset == "mkt_excess", "market", asset)) |>
+  mutate(asset = if_else(asset == "mkt_excess", "Market", industry_names[asset])) |>
   summarize(
     mean = mean(ret_excess),
     covariance = mean((ret_excess - mean(ret_excess)) * (f - mean(f))),
@@ -363,11 +377,12 @@ errors = transpose(sdf_inputs).map(d => ({
 }))
 Plot.plot({
   width: 900,
-  height: 300,
-  x: {label: null, domain: transpose(sdf_inputs).map(d => d.asset)},
+  height: 320,
+  marginBottom: 60,
+  x: {label: null, domain: transpose(sdf_inputs).map(d => d.asset), tickRotate: -25},
   y: {label: "Pricing error, % a year", tickFormat: d => (d * 100).toFixed(0), domain: [-0.1, 0.1], clamp: true},
   marks: [
-    Plot.barY(errors, {x: "asset", y: "error", fill: d => d.asset === "market" ? "#901A1E" : "#666666"}),
+    Plot.barY(errors, {x: "asset", y: "error", fill: d => d.asset === "Market" ? "#901A1E" : "#666666"}),
     Plot.ruleY([0])
   ]
 })
@@ -394,6 +409,7 @@ sdf_inputs |>
   geom_col(position = "dodge", width = 0.75) +
   geom_hline(yintercept = 0, color = jet) +
   scale_fill_manual(values = c("#b3b3b3", ku_red)) +
+  scale_x_discrete(labels = label_wrap(10)) +
   scale_y_continuous(labels = percent) +
   labs(x = NULL, y = "Pricing error (annualized)", fill = NULL) +
   theme(legend.position = "top")
@@ -410,7 +426,7 @@ sdf_inputs |>
 capm_annual |>
   arrange(desc(beta)) |>
   transmute(
-    Industry = industry,
+    Industry = industry_names[industry],
     Beta = number(beta, 0.01),
     `Average excess return (annualized)` = percent(mean, 0.1),
     `Alpha (annualized)` = percent(alpha, 0.1),
