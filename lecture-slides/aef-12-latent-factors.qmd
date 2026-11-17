@@ -1,6 +1,6 @@
 ---
 subtitle: Latent factors
-date: 2027-04-08
+date: 2027-04-12
 ---
 
 ```{r}

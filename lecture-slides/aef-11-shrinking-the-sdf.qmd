@@ -1,6 +1,6 @@
 ---
 subtitle: Shrinking the SDF
-date: 2027-04-05
+date: 2027-04-08
 ---
 
 ```{r}

@@ -1,6 +1,6 @@
 ---
 subtitle: Neural networks and learning the SDF
-date: 2027-04-19
+date: 2027-04-22
 ---
 
 ```{r}

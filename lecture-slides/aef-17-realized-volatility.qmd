@@ -1,6 +1,6 @@
 ---
 subtitle: Realized volatility
-date: 2027-05-03
+date: 2027-05-10
 # Template for 2027: every TBD slide still needs its content.
 # Material from the 2026 decks that belongs here (removed from the repository on
 # 16 November 2026; restore with git show 62dcd3a:lecture-slides/<deck>.qmd):

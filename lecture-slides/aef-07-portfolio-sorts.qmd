@@ -1,7 +1,7 @@
 ---
 subtitle: Portfolio sorts
 date: 2027-03-05
-# Fri 5 Mar replaces Mon 8 Mar (Stefan away). Two hours: the sort on beta below is about one; more to come.
+# Fri 5 Mar replaces Mon 15 Mar (Stefan away). Two hours: the sort on beta below is about one; more to come.
 ---
 
 ```{r}

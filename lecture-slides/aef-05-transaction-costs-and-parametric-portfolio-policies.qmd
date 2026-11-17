@@ -1,6 +1,6 @@
 ---
 subtitle: Transaction costs and parametric portfolio policies
-date: 2027-02-25
+date: 2027-03-01
 ---
 
 ```{r}
@@ -1252,5 +1252,5 @@ sharpe_of <- function(period_start, name) {
 - **Parametric policies** replace $N$ means and $N(N+1)/2$ covariances with a few coefficients
 
 ::: {.highlight}
-Assignment 1 on portfolio choice starts today
+Assignment 1 on portfolio choice is due on Thursday 4 March
 :::
