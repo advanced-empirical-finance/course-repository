@@ -304,7 +304,7 @@ depth_years <- ggplot(yearly, aes(x = year, y = depth)) +
 spread_years + depth_years
 ```
 
-- The spread fell from `r number(yearly$spread[yearly$year == min(years)], 0.01)` bps in `r month_label(min(years))` to `r number(yearly$spread[yearly$year == recent_year], 0.01)` bps in `r month_label(recent_year)`: SPY trades at the minimum tick of one cent, which became ever smaller relative to the price. Crises widen it: `r month_label(crisis$year[1])` and `r month_label(crisis$year[2])`
+- The spread fell from `r number(yearly$spread[yearly$year == min(years)], 0.01)` bps in `r month_label(min(years))` to `r number(yearly$spread[yearly$year == recent_year], 0.01)` bps in `r month_label(recent_year)`, and rose again to `r number(yearly$spread[yearly$year == max(years)], 0.01)` bps in `r month_label(max(years))`. SPY trades at the minimum tick of one cent, which became ever smaller relative to the price. Crises widen the spread: `r month_label(crisis$year[1])` and `r month_label(crisis$year[2])`
 - Depth at the best quotes shrank as well, with smaller orders spread over more trading venues
 
 # Price impact
@@ -399,7 +399,7 @@ lambda_panel + r2_panel
 ```
 
 - The slope of a regression of returns on order flow estimates $\lambda$, here in basis points per USD 1 million of net buying in `r interval_length`
-- Net buying of USD 1 million in `r interval_length` moved SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.01)` bps in `r month_label(min(years))` and by `r number(price_impact$lambda[price_impact$year == recent_year], 0.01)` bps in `r month_label(recent_year)`. Price impact was largest in `r month_label(largest_impact[1])` and `r month_label(largest_impact[2])`
+- Net buying of USD 1 million in `r interval_length` moved SPY by `r number(price_impact$lambda[price_impact$year == min(years)], 0.01)` bps in `r month_label(min(years))`, by `r number(price_impact$lambda[price_impact$year == recent_year], 0.01)` bps in `r month_label(recent_year)` and by `r number(price_impact$lambda[price_impact$year == max(years)], 0.01)` bps in `r month_label(max(years))`. Price impact was largest in `r month_label(largest_impact[1])` and `r month_label(largest_impact[2])`
 - Order flow explains less and less of the minute's return: more of the price moves without trading, as quotes update on news and on other venues
 
 ## The bid-ask bounce
