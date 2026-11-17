@@ -1,6 +1,6 @@
 ---
 subtitle: Mean-variance optimization
-date: 2027-02-11
+date: 2027-02-15
 ---
 
 ```{r}

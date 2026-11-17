@@ -1,6 +1,6 @@
 ---
 subtitle: From predictions to implementable portfolios
-date: 2027-04-22
+date: 2027-04-26
 # The first hour is the assignment 2 discussion, so the lecture itself has one hour.
 # The Sharpe ratios after costs wait for the factor library with trading costs
 # (decision of 14 Nov 2026, course-homepage#16).

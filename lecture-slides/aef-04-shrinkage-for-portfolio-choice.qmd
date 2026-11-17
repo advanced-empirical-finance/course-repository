@@ -1,6 +1,6 @@
 ---
 subtitle: Shrinkage for portfolio choice
-date: 2027-02-22
+date: 2027-02-25
 ---
 
 ```{r}
@@ -709,5 +709,5 @@ ggplot(sharpe_by_delta, aes(x = delta, y = sharpe)) +
 - **Next lecture:** transaction costs act like shrinkage, too, and parametric portfolio policies
 
 ::: {.highlight}
-Assignment 1 on portfolio choice starts on 25 February
+Assignment 1 on portfolio choice starts today
 :::

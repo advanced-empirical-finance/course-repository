@@ -1,6 +1,6 @@
 ---
 subtitle: Welcome, setup and financial data
-date: 2027-02-08
+date: 2027-02-11
 ---
 
 ```{r}
@@ -268,7 +268,7 @@ Questions about content go to the **Absalon discussion board**, so everyone bene
 
 ## Every week
 
-- **Lectures:** Mondays 10–12 in even weeks (CSS 7-0-28) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
+- **Lectures:** Mondays 10–12 in odd weeks (CSS 35.3.12) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
 - **Exercises:** eight sets, in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions
 - **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36): open office hours with Nikolai
 
@@ -283,8 +283,8 @@ The learning curve is steep: ask early, on the **Absalon discussion board** (so 
 | | Topic | Date |
 |---|---|---|
 | 1 | Portfolio choice | 25 February – 4 March |
-| 2 | Machine learning in asset pricing | 8–15 April |
-| 3 | Realized volatility from high-frequency data | 29 April – 6 May |
+| 2 | Machine learning in asset pricing | 12–19 April |
+| 3 | Realized volatility from high-frequency data | 6–13 May |
 
 - Group work, in teams of up to three students; one week each; the assignments and the data come through Absalon
 - Hand in one `.qmd` file and the PDF rendered from it: at most 7 pages, 12 pt, in English, from the [templates](https://github.com/advanced-empirical-finance/course-repository/tree/main/mandatory-assignments)
