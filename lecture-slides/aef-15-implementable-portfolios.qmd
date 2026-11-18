@@ -333,12 +333,15 @@ if (live) {
 }
 ```
 
-## Today
+## The scoreboard so far
 
-- Assignment 2 discussion (first hour)
-- Your scoreboard
-- What the portfolios trade
-- After costs: the implementable efficient frontier
+- **Lectures 10 to 12:** the SDF, the best portfolio of the zoo, estimated directly, with shrinkage (ridge, lasso) or with a few factors (PCA, RP-PCA). The SDF weights stay constant
+- **Lectures 13 and 14:** forecasts of each anomaly's return from random forests and neural networks, turned into new weights every month, and SDFs from neural networks
+- Every Sharpe ratio so far is **before trading costs**, but an investor earns the return after costs
+
+::: {.highlight}
+**Today:** after the assignment 2 discussion in the first hour, your results against the scoreboard, how much each portfolio trades, and what is left after trading costs
+:::
 
 # Assignment 2 discussion
 
