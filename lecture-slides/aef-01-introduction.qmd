@@ -295,7 +295,7 @@ The learning curve is steep: ask early, on the **Absalon discussion board** (so 
 
 ## Peer feedback
 
-- Peer feedback opens **one day** after the deadline and stays open for **five** days
+- Peer feedback opens **one day** after the deadline and stays open for **seven** days
 - Each of you gives feedback on **two** submissions of other teams
 - Start by reproducing their report: does it render from their files, and do the numbers match?
 - We discuss the feedback in class: you see how others solved the same problem
@@ -344,7 +344,7 @@ ggplot() +
   annotate("segment", x = 7.5, xend = 7.5, y = 0.45, yend = 3.55, color = ku_red, linewidth = 0.8) +
   annotate("text", x = 7.35, y = 0.2, label = "Deadline", color = ku_red, size = 5.4, hjust = 1) +
   annotate("text", x = 10.45, y = 3.8, label = "Each of you reviews two reports of other teams", color = jet, size = 5.4) +
-  annotate("text", x = 7.7, y = 0.2, label = "Opens the next day, for five days", color = grey, size = 5.2, hjust = 0) +
+  annotate("text", x = 7.7, y = 0.2, label = "Opens the next day, for seven days", color = grey, size = 5.2, hjust = 0) +
   geom_rect(
     data = reports, aes(xmin = xmin, xmax = xmax, ymin = row - 0.33, ymax = row + 0.33),
     fill = "white", color = "#b3b3b3"
