@@ -34,7 +34,9 @@ from datetime import date
 
 import numpy as np
 import polars as pl
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LinearRegression
+
+months_per_year = 12
 ```
 
 ```{r}
@@ -50,6 +52,8 @@ osap_file <- "data/osap_long_short_returns.parquet"
 if (!file.exists(osap_file)) {
   download.file(osap_url, osap_file, mode = "wb")
 }
+# All anomalies in the file, before the filter for complete data
+n_osap <- ncol(read_parquet(osap_file)) - 1
 ```
 
 ```{r}
@@ -60,20 +64,33 @@ if (!file.exists(osap_file)) {
 # first slides can name the number of anomalies
 ```
 
-## Today
+## Machine learning in finance
 
-- The factor zoo: `r ncol(returns)` anomalies, one portfolio
-- Overfitting
-- The bias-variance trade-off: ridge and lasso
+:::: {.columns}
+::: {.column width="62%"}
+- **Machine learning:** flexible models with many parameters, regularization against overfitting, and fast algorithms to search over many models (Gu, Kelly & Xiu, 2020)
+- **New data:** satellite images, text of filings and news
+
+**Why it is hard in finance** (Kelly & Xiu, 2023):
+
+- **Small data:** a few hundred months, and new data arrive only as time passes. Markets evolve, so the effective sample is even smaller
+- **Efficient markets:** competition trades predictability away, so the signal-to-noise ratio is low
+- **Economic structure helps:** the more structure a model imposes, the fewer parameters it has to estimate from the data
+:::
+::: {.column width="38%"}
+![Cars in a store's parking lot, counted from a satellite image](figures/satellite_image_parking_lot.jpg){width=100%}
+:::
+::::
 
 ## From 27 stocks to `r ncol(returns)` anomalies
 
 - **Lectures 2 to 5:** with 27 Dow Jones stocks, the plug-in portfolio already failed out of sample, and shrinkage helped
 - **Lectures 7 to 9:** a portfolio sort turns a characteristic into a long-short portfolio. Researchers have published hundreds of them: the factor zoo
-- **Today:** which combination of the zoo should an investor hold? The mean-variance efficient portfolio of the anomalies is also the SDF that prices them (lecture 6)
+- **The question:** which combination of the zoo should an investor hold? The mean-variance efficient portfolio of the anomalies is also the SDF that prices them (lecture 6)
+- **The SDF does not prescribe OLS:** theory says which portfolio to hold, not how to estimate its weights. The weights may also depend non-linearly on characteristics (lectures 13 and 14)
 
 ::: {.highlight}
-The machine learning lectures use one dataset, one sample split and one scoreboard: every method adds a row
+**Today:** the plug-in portfolio of all `r ncol(returns)` anomalies overfits; ridge regression and the lasso trade a little bias for much less variance
 :::
 
 ## The factor zoo
@@ -89,12 +106,11 @@ sample_start <- ymd("1973-01-01")
 sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")
 
-# Anomalies with a return in every month; the returns are in percent
 anomalies <- read_parquet("data/osap_long_short_returns.parquet") |>
-  mutate(date = floor_date(as.Date(date), "month")) |>
   filter(between(date, sample_start, sample_end)) |>
-  select(date, where(\(x) !anyNA(x)))
-returns <- as.matrix(select(anomalies, -date)) / 100
+  select(date, where(\(x) !anyNA(x))) |>
+  mutate(across(-date, \(x) x / 100))
+returns <- as.matrix(select(anomalies, -date))
 estimation <- anomalies$date < test_start
 ```
 
@@ -108,21 +124,18 @@ sample_start = date(1973, 1, 1)
 sample_end = date(2023, 12, 31)
 test_start = date(2000, 1, 1)
 
-anomalies = (
-    pl.read_parquet("data/osap_long_short_returns.parquet")
-    .with_columns(pl.col("date").dt.truncate("1mo"))
-    .filter(pl.col("date").is_between(sample_start, sample_end))
+anomalies = pl.read_parquet("data/osap_long_short_returns.parquet").filter(
+    pl.col("date").is_between(sample_start, sample_end)
 )
-# Anomalies with a return in every month; the returns are in percent
 complete = [
     c for c in anomalies.columns if c != "date" and anomalies[c].null_count() == 0
 ]
-returns = anomalies.select(complete).to_numpy() / 100
+returns = anomalies.select(pl.col(complete) / 100).to_numpy()
 estimation = (anomalies["date"] < test_start).to_numpy()
 ```
 :::
 
-`r ncol(returns)` long-short portfolios from Open Source Asset Pricing (Chen & Zimmermann), the same data as exercise 5: estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r sum(estimation)` months), test sample `r year(test_start)`–`r year(sample_end)` (`r sum(!estimation)` months)
+Long-short portfolios from Open Source Asset Pricing (Chen & Zimmermann), the same data as exercise 5; the file stores returns in percent. `r ncol(returns)` of the `r n_osap` anomalies have a return in every month. Estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r sum(estimation)` months), test sample `r year(test_start)`–`r year(sample_end)` (`r sum(!estimation)` months)
 
 ## Sharpe ratios in both samples
 
@@ -166,7 +179,11 @@ sample_names <- c(
 
 ## The plug-in portfolio of the zoo
 
-- The mean-variance efficient weights are proportional to $\hat\Sigma^{-1}\hat\mu$. Britten-Jones (1999): the same weights come from a regression of a vector of ones on the returns, without an intercept
+- The mean-variance efficient weights are proportional to $\hat\Sigma^{-1}\hat\mu$. Britten-Jones (1999): the same weights come from an OLS regression without an intercept, of the number one on the vector $F_t$ of the $N$ anomaly returns in month $t$
+
+$$
+1 = b'F_t + u_t, \qquad t = 1, \dots, T
+$$
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -174,7 +191,10 @@ sample_names <- c(
 ```{r}
 #| label: plug-in-r
 x_estimation <- returns[estimation, ]
-plug_in_weights <- solve(crossprod(x_estimation), colSums(x_estimation))
+ones <- rep(1, nrow(x_estimation))
+plug_in_weights <- coef(lm(ones ~ x_estimation - 1))
+
+sharpe_ratio <- function(r) mean(r) / sd(r) * sqrt(months_per_year)
 ```
 
 ## Python
@@ -183,9 +203,13 @@ plug_in_weights <- solve(crossprod(x_estimation), colSums(x_estimation))
 #| label: plug-in-py
 #| eval: false
 x_estimation = returns[estimation]
-plug_in_weights = np.linalg.solve(
-    x_estimation.T @ x_estimation, x_estimation.sum(axis=0)
-)
+ones = np.ones(len(x_estimation))
+plug_in = LinearRegression(fit_intercept=False).fit(x_estimation, ones)
+plug_in_weights = plug_in.coef_
+
+
+def sharpe_ratio(r):
+    return r.mean() / r.std(ddof=1) * np.sqrt(months_per_year)
 ```
 :::
 
@@ -202,7 +226,7 @@ if (live) {
 }
 ```
 
-- `r ncol(returns)` weights from `r sum(estimation)` months. In the estimation sample, this portfolio has a Sharpe ratio of **`r number(plug_in_sharpe[["estimation"]], 0.1)`**
+- `r ncol(returns)` weights from `r sum(estimation)` months. In the estimation sample, this portfolio has an annualized Sharpe ratio of **`r number(plug_in_sharpe[["estimation"]], 0.1)`**
 
 ## Your guess: the Sharpe ratio since `r year(test_start)`
 
@@ -280,14 +304,14 @@ ggplot(overfitting, aes(x = portfolio, y = sharpe, fill = sample)) +
 ```
 
 - In the test sample, the plug-in portfolio keeps `r percent(plug_in_sharpe[["test"]] / plug_in_sharpe[["estimation"]])` of its Sharpe ratio: the weights fit the noise of `r sum(estimation)` months as well as the signal
-- Still `r number(plug_in_sharpe[["test"]], 0.01)` against `r number(equal_sharpe[["test"]], 0.01)` for 1/N: there is something to learn from the data, if we learn less of the noise
+- Still `r number(plug_in_sharpe[["test"]], 0.01)` against `r number(equal_sharpe[["test"]], 0.01)` for 1/N: the estimated weights beat equal weights, despite their noise. The rest of the lecture estimates them with less noise
 
 # The bias-variance trade-off
 
 ## Bias, variance and noise
 
 ::: {.box}
-A new observation $y = f(x) + \varepsilon$ and an estimate $\hat f(x)$ from a sample. Split the expected squared error $E\big[(y - \hat f(x))^2\big]$
+A new observation $y = f(x) + \varepsilon$ and an estimate $\hat f(x)$ from a sample. Where does the expected squared error $E\big[(y - \hat f(x))^2\big]$ of the estimate come from?
 :::
 
 ::: {.fragment}
@@ -303,17 +327,20 @@ $$
 
 ::: {.box}
 $$
-\hat b_\lambda = \arg\min_b \ \frac{1}{2T}(y - Xb)'(y - Xb) + \frac{\lambda}{2}\, b'b
+\hat b^{\text{ridge}}_\lambda = \arg\min_b \ \underbrace{(y - Fb)'(y - Fb)}_{\text{sum of squared errors}} + T\lambda\, b'b
 $$
+
+On the zoo: $y$ is a vector of $T$ ones, $F$ has one row of anomaly returns $F_t'$ per month. $\lambda$ is the penalty (`lambda` in `glmnet()`), not the risk premium of lectures 7–8; the factor $T$ makes it mean the same for any sample length
 :::
 
 ::: {.fragment}
 $$
-\hat b_\lambda = (X'X + T\lambda I)^{-1}X'y \qquad X\hat b_\lambda = \sum_j u_j\, \frac{d_j^2}{d_j^2 + T\lambda}\, u_j'y \quad \text{with } X = UDV'
+\hat b^{\text{ridge}}_\lambda = (F'F + T\lambda I)^{-1}F'y = \sum_{j=1}^{N} q_j\, \frac{q_j'\hat\mu}{\ell_j + \lambda}
 $$
 
-- Ridge shrinks most where the data vary least, $d_j$ small: the combinations of anomalies that look best in the sample, because their variance is underestimated
-- $\lambda = 0$: the plug-in portfolio. $\lambda \to \infty$: weights proportional to $X'y$, the average returns, as if all anomalies were uncorrelated
+- **Principal components:** $q_j$ and $\ell_j$ are the eigenvectors and eigenvalues of $F'F/T$. Portfolio $q_j$ earns $q_j'\hat\mu$ on average; $\ell_j$ is its average squared return
+- $\lambda = 0$: the plug-in portfolio. $\lambda \to \infty$: $\hat b^{\text{ridge}}_\lambda \approx \hat\mu / \lambda \to 0$; scaled to absolute weights that sum to one, the weights follow the average returns, as if the anomalies were uncorrelated with equal variances
+- Ridge shrinks portfolio $j$ by $\ell_j / (\ell_j + \lambda)$, most where $\ell_j$ is small: combinations that look best in the sample, partly because their variance is underestimated (lecture 4)
 :::
 
 ## Ridge on the zoo
@@ -324,16 +351,18 @@ $$
 ```{r}
 #| label: ridge-path-r
 ridge_weights <- function(x, lambda) {
-  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+  y <- rep(1, nrow(x))
+  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), crossprod(x, y))
 }
 
-# Penalties from 10^-7 to 10^-1, four per power of ten
+x_test <- returns[!estimation, ]
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
-ridge_path <- map(ridge_lambdas, \(lambda) {
-  weights <- ridge_weights(x_estimation, lambda)
-  tibble(lambda, weights = list(weights), !!!portfolio_sharpe(weights))
-}) |>
-  bind_rows()
+ridge_path <- tibble(lambda = ridge_lambdas) |>
+  mutate(
+    weights = map(lambda, \(lambda) ridge_weights(x_estimation, lambda)),
+    estimation = map_dbl(weights, \(w) sharpe_ratio(x_estimation %*% w)),
+    test = map_dbl(weights, \(w) sharpe_ratio(x_test %*% w))
+  )
 ```
 
 ## Python
@@ -342,21 +371,24 @@ ridge_path <- map(ridge_lambdas, \(lambda) {
 #| label: ridge-path-py
 #| eval: false
 def ridge_weights(x, lam):
-    return np.linalg.solve(x.T @ x + len(x) * lam * np.eye(x.shape[1]), x.sum(axis=0))
+    y = np.ones(len(x))
+    return np.linalg.solve(x.T @ x + len(x) * lam * np.eye(x.shape[1]), x.T @ y)
 
 
-# Penalties from 10^-7 to 10^-1, four per power of ten
+x_test = returns[~estimation]
 ridge_lambdas = 10 ** np.arange(-7, -0.99, 0.25)
+weights = [ridge_weights(x_estimation, lam) for lam in ridge_lambdas]
 ridge_path = pl.DataFrame(
-    [
-        {"lambda": lam, **portfolio_sharpe(ridge_weights(x_estimation, lam))}
-        for lam in ridge_lambdas
-    ]
+    {
+        "lambda": ridge_lambdas,
+        "estimation": [sharpe_ratio(x_estimation @ w) for w in weights],
+        "test": [sharpe_ratio(x_test @ w) for w in weights],
+    }
 )
 ```
 :::
 
-$y$ is a vector of ones, so $X'y$ is the sum of each anomaly's returns, `colSums(x)`; the penalty is scaled as in `glmnet()`. `portfolio_sharpe()` gives the annualized Sharpe ratios of the weights in both samples
+`ridge_weights()` is the formula $(F'F + T\lambda I)^{-1}F'y$ of the previous slide, with $F$ = `x`, $T$ its number of rows and $y$ a vector of ones. `sharpe_ratio()` evaluates the weights of each penalty in both samples
 
 ## The penalty in action
 
@@ -400,6 +432,22 @@ ridge_lambda_now = ridge_lambdas[ridge_index]
 :::: {.columns}
 ::: {.column width="50%"}
 ```{ojs}
+//| label: ridge-weights-live
+//| echo: false
+Plot.plot({
+  width: 470,
+  height: 360,
+  x: {label: "Anomalies, sorted by weight", ticks: []},
+  y: {label: "Weight (absolute weights sum to 100%)", tickFormat: "%", domain: [-0.08, 0.08], clamp: true, grid: true},
+  marks: [
+    Plot.ruleY([0], {stroke: "#b3b3b3"}),
+    Plot.barY(transpose(ridge_shares).filter(d => d.lambda === ridge_lambda_now), {x: "rank", y: "share", fill: "#3d3d3d"})
+  ]
+})
+```
+:::
+::: {.column width="50%"}
+```{ojs}
 //| label: ridge-sharpe-live
 //| echo: false
 Plot.plot({
@@ -415,22 +463,6 @@ Plot.plot({
     Plot.dot(transpose(ridge_path).filter(d => d.lambda === ridge_lambda_now), {x: "lambda", y: "test", fill: "#901A1E", r: 7}),
     Plot.text(transpose(ridge_path).filter(d => d.lambda === ridge_lambda_now), {x: "lambda", y: "test", dy: -16,
       text: d => d.test.toFixed(2), fill: "#901A1E"})
-  ]
-})
-```
-:::
-::: {.column width="50%"}
-```{ojs}
-//| label: ridge-weights-live
-//| echo: false
-Plot.plot({
-  width: 470,
-  height: 360,
-  x: {label: "Anomalies, sorted by weight", ticks: []},
-  y: {label: "Weight, share of the gross position", tickFormat: "%", domain: [-0.08, 0.08], clamp: true, grid: true},
-  marks: [
-    Plot.ruleY([0], {stroke: "#b3b3b3"}),
-    Plot.barY(transpose(ridge_shares).filter(d => d.lambda === ridge_lambda_now), {x: "rank", y: "share", fill: "#3d3d3d"})
   ]
 })
 ```
@@ -469,28 +501,108 @@ weights_panel <- ridge_shares |>
   scale_color_manual(values = c(jet, ku_red, "#b3b3b3")) +
   labs(
     x = "Anomalies, sorted by weight",
-    y = "Share of the gross position",
+    y = "Weight\n(absolute weights sum to 100%)",
     color = "Penalty"
   )
-sharpe_panel + weights_panel & theme(legend.position = "bottom")
+weights_panel + sharpe_panel & theme(legend.position = "bottom")
 ```
 :::
 
-- The larger $\lambda$, the lower the Sharpe ratio in the estimation sample. In the test sample, the Sharpe ratio first rises, from `r number(ridge_path$test[1], 0.01)` to `r number(max(ridge_path$test), 0.01)`, then falls: too little and too much shrinkage both cost
 - Small penalties bet heavily long and short on a few combinations; large ones spread the weights
+- The larger $\lambda$, the lower the Sharpe ratio in the estimation sample. In the test sample, the Sharpe ratio first rises, from `r number(ridge_path$test[1], 0.01)` to `r number(max(ridge_path$test), 0.01)`, then falls
 
 ## The lasso
 
 ::: {.box}
 $$
-\hat b_\lambda = \arg\min_b \ \frac{1}{2T}(y - Xb)'(y - Xb) + \lambda \sum_i |b_i|
+\hat b^{\text{lasso}}_\lambda = \arg\min_b \ (y - Fb)'(y - Fb) + 2T\lambda \sum_{i=1}^{N} |b_i|
 $$
 :::
 
 ::: {.fragment}
-- No closed form. With orthonormal regressors, each coefficient is **soft-thresholded**: $\hat b_i = \text{sign}(\hat b_i^{\text{OLS}})\max\big(|\hat b_i^{\text{OLS}}| - \lambda, 0\big)$
-- The corners of the $L_1$ ball set coefficients to exactly zero: the lasso **selects** anomalies
+:::: {.columns}
+::: {.column width="58%"}
+- No closed form. If $F'F = TI$ (uncorrelated anomalies with mean square one), each weight is **soft-thresholded**:
+
+$$
+\hat b^{\text{lasso}}_{\lambda, i} = \text{sign}\big(\hat b_i^{\text{OLS}}\big)\max\big(|\hat b_i^{\text{OLS}}| - \lambda, 0\big)
+$$
+
+- The same problem with a budget instead of a penalty: the weights with the smallest squared error (dots) within the diamond (lasso) or the disk (ridge). The diamond's corners set weights to exactly zero: the lasso **selects** anomalies
 - **Elastic net:** a mix of both penalties, for groups of similar anomalies
+:::
+::: {.column width="42%"}
+```{r}
+#| label: plot-lasso-ridge
+#| echo: false
+#| fig-width: 5
+#| fig-height: 5
+# Two weights: contours of the squared error around the OLS estimate, and
+# the best weights within a budget for the absolute (lasso) and squared
+# (ridge) weights
+b_ols <- c(1.1, 1.9)
+error_matrix <- matrix(c(1, 0.5, 0.5, 1.6), 2)
+budget <- 1
+squared_error <- function(b1, b2) {
+  map2_dbl(b1, b2, \(b1, b2) {
+    deviation <- c(b1, b2) - b_ols
+    drop(deviation %*% error_matrix %*% deviation)
+  })
+}
+angle <- seq(0, 2 * pi, length.out = 3601)
+diamond <- tibble(
+  b1 = budget * cos(angle) / (abs(cos(angle)) + abs(sin(angle))),
+  b2 = budget * sin(angle) / (abs(cos(angle)) + abs(sin(angle)))
+) |>
+  mutate(error = squared_error(b1, b2))
+disk <- tibble(b1 = budget * cos(angle), b2 = budget * sin(angle)) |>
+  mutate(error = squared_error(b1, b2))
+best <- bind_rows(
+  lasso = slice_min(diamond, error, n = 1),
+  ridge = slice_min(disk, error, n = 1),
+  .id = "method"
+)
+# Each contour: all weights with the same squared error
+error_root <- with(
+  eigen(error_matrix),
+  vectors %*% diag(1 / sqrt(values)) %*% t(vectors)
+)
+contours <- map(c(best$error, best$error[2] / 4), \(level) {
+  points <- b_ols + sqrt(level) * error_root %*% rbind(cos(angle), sin(angle))
+  tibble(b1 = points[1, ], b2 = points[2, ], level = level)
+}) |>
+  bind_rows()
+
+ggplot(mapping = aes(x = b1, y = b2)) +
+  geom_hline(yintercept = 0, color = grey) +
+  geom_vline(xintercept = 0, color = grey) +
+  geom_path(data = contours, aes(group = level), color = "#b3b3b3") +
+  geom_polygon(data = diamond, fill = ku_red, alpha = 0.15, color = ku_red) +
+  geom_path(data = disk, color = jet, linetype = "dashed") +
+  geom_point(data = best, aes(color = method), size = 3) +
+  annotate("point", x = b_ols[1], y = b_ols[2], color = jet, size = 3) +
+  annotate(
+    "label",
+    x = c(b_ols[1] + 0.12, best$b1[1] - 0.1, best$b1[2] + 0.12),
+    y = c(b_ols[2], best$b2[1] + 0.12, best$b2[2]),
+    label = c("OLS", "Lasso", "Ridge"),
+    hjust = c(0, 1, 0),
+    color = c(jet, ku_red, jet),
+    size = 7,
+    border.colour = NA,
+    label.padding = unit(0.1, "lines")
+  ) +
+  scale_color_manual(values = c(lasso = ku_red, ridge = jet), guide = "none") +
+  coord_equal() +
+  labs(x = expression(b[1]), y = expression(b[2])) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_text(size = 20)
+  )
+```
+:::
+::::
 :::
 
 ## The lasso in code
@@ -513,11 +625,11 @@ lasso_weights <- function(x, lambda) {
 }
 
 lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
-lasso_path <- map(lasso_lambdas, \(lambda) {
-  weights <- lasso_weights(x_estimation, lambda)
-  tibble(lambda, anomalies = sum(weights != 0), !!!portfolio_sharpe(weights))
-}) |>
-  bind_rows()
+lasso_path <- tibble(lambda = lasso_lambdas) |>
+  mutate(
+    weights = map(lambda, \(lambda) lasso_weights(x_estimation, lambda)),
+    anomalies = map_dbl(weights, \(w) sum(w != 0))
+  )
 ```
 
 ## Python
@@ -526,24 +638,34 @@ lasso_path <- map(lasso_lambdas, \(lambda) {
 #| label: lasso-path-py
 #| eval: false
 def lasso_weights(x, lam):
-    fit = Lasso(alpha=lam, fit_intercept=False, max_iter=100_000).fit(
-        x, np.ones(len(x))
-    )
+    y = np.ones(len(x))
+    fit = Lasso(alpha=lam, fit_intercept=False, max_iter=100_000).fit(x, y)
     return fit.coef_
 
 
 lasso_lambdas = 10 ** np.arange(-6, -2.49, 0.25)
+weights = [lasso_weights(x_estimation, lam) for lam in lasso_lambdas]
 lasso_path = pl.DataFrame(
-    [
-        {"lambda": lam, "anomalies": int(np.sum(w != 0)), **portfolio_sharpe(w)}
-        for lam in lasso_lambdas
-        for w in [lasso_weights(x_estimation, lam)]
-    ]
+    {
+        "lambda": lasso_lambdas,
+        "anomalies": [int(np.sum(w != 0)) for w in weights],
+    }
 )
 ```
 :::
 
-`glmnet()` and `Lasso()` minimize the same objective: $\frac{1}{2T}$ times the squared errors plus $\lambda$ times the sum of absolute weights
+```{r}
+#| label: lasso-sharpe
+#| include: false
+# Sharpe ratios of the lasso weights in both samples, as for ridge
+lasso_path <- lasso_path |>
+  mutate(
+    estimation = map_dbl(weights, \(w) sharpe_ratio(x_estimation %*% w)),
+    test = map_dbl(weights, \(w) sharpe_ratio(x_test %*% w))
+  )
+```
+
+`glmnet()` and `Lasso()` minimize the objective of the lasso slide divided by $2T$: $\frac{1}{2T}$ times the squared errors plus $\lambda$ times the sum of absolute weights. Sharpe ratios as for ridge
 
 ## The lasso on the zoo
 
@@ -556,7 +678,7 @@ count_panel <- ggplot(lasso_path, aes(x = lambda, y = anomalies)) +
   geom_line(color = jet, linewidth = 1) +
   geom_point(color = jet) +
   scale_x_log10(labels = label_log()) +
-  labs(x = "Penalty λ", y = "Anomalies with a weight")
+  labs(x = "Penalty λ", y = "Anomalies with\na non-zero weight")
 lasso_sharpe_panel <- lasso_path |>
   pivot_longer(
     c(estimation, test),
@@ -572,7 +694,7 @@ lasso_sharpe_panel <- lasso_path |>
 count_panel + lasso_sharpe_panel & theme(legend.position = "bottom")
 ```
 
-- The larger $\lambda$, the fewer anomalies get a weight: from `r max(lasso_path$anomalies)` of the `r ncol(returns)` down to `r min(lasso_path$anomalies)`
+- The larger $\lambda$, the fewer anomalies get a non-zero weight
 - In hindsight, `r lasso_path$anomalies[which.max(lasso_path$test)]` anomalies do best in the test sample (Sharpe ratio `r number(max(lasso_path$test), 0.01)`), better than all of them. But picking $\lambda$ by the test sample would be overfitting again
 
 ## Scoreboard
