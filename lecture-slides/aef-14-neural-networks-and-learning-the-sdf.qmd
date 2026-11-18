@@ -8,7 +8,10 @@ date: 2027-04-22
 #| include: false
 library(tidyverse)
 library(nanoparquet)
+library(glmnet)
+library(rpart)
 library(nnet)
+library(tidymodels)
 library(scales)
 
 # The factor zoo of lectures 10 to 13
@@ -17,14 +20,26 @@ sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")
 n_folds <- 5
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 macro_names <- c("dp", "tbl", "tms", "dfy", "svar")
 test_years <- paste0(year(test_start), "–", year(sample_end))
 
+# The rows of lectures 12 and 13 on the scoreboard: up to 60 PCA and RP-PCA
+# factors, chosen by cross-validation; the tree and the forest of lecture 13
+max_factors <- 60
+phi_rp <- 10
+tree_depth <- 2
+min_leaf <- 500
+n_trees <- 100
+forest_grid <- expand_grid(mtry = c(1, 3, 7), min_n = c(500, 2000))
+
 # The inputs and hidden units of the network for the forecasts. The slide
-# "A feed-forward network" counts its parameters; the network's code on the
-# slide "A network for the returns of the zoo" defines them again
+# "A feed-forward network" counts its parameters and draws the network; the
+# hidden code of the network defines them again
 features <- c("ret_lag_1", "momentum_12", macro_names)
 hidden_units <- 5
+# Weights and constants: into the hidden layer, then into the output
+n_parameters <- (length(features) + 1) * hidden_units + hidden_units + 1
 
 months_per_year <- 12
 
@@ -144,19 +159,139 @@ forecast_row <- function(method, forecast) {
 }
 ```
 
-## Today
+```{r}
+#| label: lectures-10-to-13-rows
+#| include: false
+#| cache: true
+#| cache.extra: !expr list(lasso_lambdas, max_factors, phi_rp, tree_depth, min_leaf, n_trees, forest_grid, ridge_lambda, rlang::hash(panel), rlang::hash(returns))
+# The other rows of the scoreboard, with the code of lectures 10 to 13
+portfolio_sharpe <- function(weights) {
+  c(
+    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
+    test = sharpe_ratio(returns[!estimation, ] %*% weights)
+  )
+}
+lasso_weights <- function(x, lambda) {
+  fit <- glmnet(
+    x,
+    rep(1, nrow(x)),
+    lambda = lambda,
+    intercept = FALSE,
+    standardize = FALSE,
+    control = list(thresh = 1e-12)
+  )
+  as.vector(coef(fit))[-1]
+}
+components <- function(x) eigen(cov(x), symmetric = TRUE)$vectors
+pc_lasso_weights <- function(x, lambda) {
+  components(x) %*% lasso_weights(x %*% components(x), lambda)
+}
+factor_weights <- function(x, k, phi = 0) {
+  mu <- colMeans(x)
+  vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
+  loadings <- vectors[, seq_len(k), drop = FALSE]
+  factors <- x %*% loadings
+  loadings %*% solve(cov(factors), colMeans(factors))
+}
+choose <- function(fit_weights, lambdas) {
+  lambdas[which.max(map_dbl(lambdas, \(l) cv_sharpe(fit_weights, l)))]
+}
 
-- Neural networks: a short introduction
-- A network for the returns of the zoo
-- Learning the SDF directly: Chen, Pelger & Zhu (2024)
-- Flexibility against economic structure
+market <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  filter(between(date, sample_start, sample_end))
+lasso_lambda <- choose(lasso_weights, lasso_lambdas)
+pc_lasso_lambda <- choose(pc_lasso_weights, lasso_lambdas)
+pca_factors <- choose(\(x, k) factor_weights(x, k), seq_len(max_factors))
+rp_pca_factors <- choose(
+  \(x, k) factor_weights(x, k, phi_rp),
+  seq_len(max_factors)
+)
+sdf_rows <- tibble(
+  Portfolio = c(
+    "Market",
+    "1/N over all anomalies",
+    "Plug-in mean-variance",
+    "Ridge (prior on Sharpe ratios)",
+    "Lasso on anomalies",
+    "Lasso on principal components",
+    "PCA",
+    paste0("RP-PCA, φ = ", phi_rp)
+  ),
+  Inputs = c(
+    "Market",
+    rep(paste(ncol(returns), "anomalies"), 3),
+    paste(sum(lasso_weights(x_estimation, lasso_lambda) != 0), "anomalies"),
+    paste(
+      sum(
+        lasso_weights(
+          x_estimation %*% components(x_estimation),
+          pc_lasso_lambda
+        ) !=
+          0
+      ),
+      "components"
+    ),
+    paste(c(pca_factors, rp_pca_factors), "factors")
+  ),
+  sharpe = list(
+    c(
+      estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
+      test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+    ),
+    portfolio_sharpe(rep(1 / ncol(returns), ncol(returns))),
+    portfolio_sharpe(ridge_weights(x_estimation, 0)),
+    ridge_sharpe,
+    portfolio_sharpe(lasso_weights(x_estimation, lasso_lambda)),
+    portfolio_sharpe(pc_lasso_weights(x_estimation, pc_lasso_lambda)),
+    portfolio_sharpe(factor_weights(x_estimation, pca_factors)),
+    portfolio_sharpe(factor_weights(x_estimation, rp_pca_factors, phi_rp))
+  )
+) |>
+  unnest_wider(sharpe)
+
+# Lecture 13: the tree of depth 2 and the forest tuned on blocks of months
+tree <- rpart(
+  ret ~ momentum_12 + ret_lag_1,
+  data = train,
+  control = rpart.control(maxdepth = tree_depth, minbucket = min_leaf, cp = 0)
+)
+forest_workflow <- workflow() |>
+  add_formula(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar) |>
+  add_model(
+    rand_forest(mtry = tune(), min_n = tune(), trees = n_trees) |>
+      set_engine("ranger", seed = 2027) |>
+      set_mode("regression")
+  )
+block_folds <- train |>
+  mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds))) |>
+  group_vfold_cv(group = block, v = n_folds)
+forest_tuning <- tune_grid(forest_workflow, block_folds, grid = forest_grid)
+forest_fit <- forest_workflow |>
+  finalize_workflow(select_best(forest_tuning, metric = "rmse")) |>
+  fit(train)
+tree_row <- forecast_row(
+  paste("Tree of depth", tree_depth),
+  predict(tree, panel)
+)
+forest_row <- forecast_row("Random forest", predict(forest_fit, panel)$.pred)
+```
+
+## From forests to networks
+
+- **Lectures 10 to 12:** the SDF of the zoo with constant weights. The ridge SDF leads the scoreboard with a Sharpe ratio of `r number(ridge_sharpe[["test"]], 0.01)` in `r test_years`
+- **Lecture 13:** forecasts of each anomaly's return from its last return, its momentum and `r length(macro_names)` macro predictors. The portfolio of the random forest's forecasts earns `r number(forest_row$test, 0.01)`
+- Both uses of machine learning can take a more flexible function: a neural network
+
+::: {.highlight}
+**Today:** neural networks, first for the forecasts of lecture 13, then for the SDF itself (Chen, Pelger & Zhu, 2024): each anomaly's weight depends on the state of the economy, and a second network chooses the test assets. Can flexibility beat the ridge SDF?
+:::
 
 # Neural networks
 
 ## A feed-forward network
 
 ::: {.box}
-Build a flexible function $g(z)$ from simple pieces: each **neuron** takes a weighted sum of its inputs and passes it through a nonlinear **activation**
+Build a flexible function $g(z)$ from simple pieces: each **neuron** takes a weighted sum of its inputs and passes it through a nonlinear **activation function**
 :::
 
 ::: {.fragment}
@@ -165,27 +300,119 @@ h^{(1)} = \sigma\big(W^{(1)} z + c^{(1)}\big), \quad h^{(2)} = \sigma\big(W^{(2)
 $$
 
 - $\sigma(x) = \max(x, 0)$ (ReLU) or the logistic function. Without $\sigma$, the network would be linear regression
-- With enough neurons, a network approximates any smooth function. The price: many parameters, here `r (length(features) + 1) * hidden_units + hidden_units + 1` already for one layer of `r hidden_units` neurons and `r length(features)` inputs
+- With enough neurons, a network approximates any continuous function (Hornik, Stinchcombe & White, 1989). The price: many parameters, here `r n_parameters` already for one layer of `r hidden_units` neurons and `r length(features)` inputs
+
+```{r}
+#| label: plot-network
+#| echo: false
+#| fig-width: 10
+#| fig-height: 2.7
+# The network of the forecasts: the inputs of lecture 13, one hidden layer
+input_names <- c(
+  "Last return",
+  "Momentum",
+  "Dividend-price ratio",
+  "T-bill rate",
+  "Term spread",
+  "Default spread",
+  "Stock variance"
+)
+n_inputs <- length(features)
+# Nodes of a layer spaced as the inputs, centred on zero
+spread <- function(n) seq(1, -1, length.out = n) * (n - 1) / (n_inputs - 1)
+nodes <- tibble(
+  layer = rep(1:3, c(n_inputs, hidden_units, 1)),
+  y = c(spread(n_inputs), spread(hidden_units), 0)
+)
+edges <- bind_rows(
+  expand_grid(from = which(nodes$layer == 1), to = which(nodes$layer == 2)),
+  expand_grid(from = which(nodes$layer == 2), to = which(nodes$layer == 3))
+) |>
+  mutate(
+    x = nodes$layer[from],
+    y = nodes$y[from],
+    xend = nodes$layer[to],
+    yend = nodes$y[to]
+  )
+layer_titles <- c(
+  "Inputs~italic(z)",
+  "Hidden~layer~italic(h)^'(1)'",
+  "Output~italic(g)(italic(z))"
+)
+parameter_counts <- c(
+  str_glue("{n_inputs} × {hidden_units} weights + {hidden_units} constants"),
+  str_glue("{hidden_units} weights + 1 constant")
+)
+ggplot() +
+  geom_segment(
+    data = edges,
+    aes(x = x, y = y, xend = xend, yend = yend),
+    color = "#b3b3b3",
+    linewidth = 0.4
+  ) +
+  geom_point(
+    data = nodes,
+    aes(x = layer, y = y, fill = factor(layer)),
+    shape = 21,
+    size = 7,
+    color = "white",
+    stroke = 1
+  ) +
+  annotate(
+    "text",
+    x = 0.93,
+    y = spread(n_inputs),
+    label = input_names,
+    hjust = 1,
+    size = 4.2,
+    color = jet
+  ) +
+  annotate(
+    "text",
+    x = 1:3,
+    y = 1.35,
+    label = layer_titles,
+    parse = TRUE,
+    size = 5,
+    color = jet
+  ) +
+  annotate(
+    "text",
+    x = c(1.5, 2.5),
+    y = -1.3,
+    label = parameter_counts,
+    size = 4.2,
+    color = grey
+  ) +
+  scale_fill_manual(values = c(grey, ku_red, jet), guide = "none") +
+  scale_x_continuous(limits = c(0.2, 3.2)) +
+  scale_y_continuous(limits = c(-1.45, 1.5)) +
+  theme_void()
+```
 :::
 
 ## Training a network
 
-- **Loss:** the mean squared forecast error, as for OLS. No closed form: **gradient descent** moves all weights a small step against the gradient of the loss
-- **Backpropagation:** the chain rule gives the gradients of all layers in one backward pass; mini-batches of observations make each step cheap
-- **Regularization**, because the network can fit the noise:
-  - **weight decay:** a ridge penalty on the weights
-  - **early stopping:** stop when the loss in a validation sample rises; the validation sample also chooses the penalty
-  - **dropout:** switch off random neurons during training
-  - **ensembles:** average networks from different random starts
+- **Loss:** the mean squared forecast error, as for OLS, but without a closed form. **Gradient descent** moves all weights $\theta$ of the network (every $W$, $c$ and $w$) a small step $\eta$ against the gradient of the loss, step $k$ after step:
+
+$$
+\theta_{k+1} = \theta_k - \eta\, \nabla_\theta \, \frac{1}{|B_k|} \sum_{(i,t) \in B_k} \big(r_{i,t+1} - g(z_{i,t}; \theta_k)\big)^2
+$$
+
+- **Mini-batches:** $B_k$ holds all anomaly-months $(i, t)$ of the estimation sample, or, with many observations, a small random subset of them, new in every step. Each step is cheaper but noisier: **stochastic** gradient descent
+- **Backpropagation:** the chain rule gives the gradient for all layers in one backward pass, from the output to the first layer
+
+## Regularization
+
+- **Weight decay:** a ridge penalty on the weights
+- **Early stopping:** stop when the loss in a validation sample rises; the validation sample also chooses the penalty
+- **Dropout:** switch off random neurons during training
+- **Ensembles:** average networks from different random starts
 - Gu, Kelly & Xiu (2020) use all of them; their best networks have three or four layers
-
-## A network for the returns of the zoo
-
-::: {.panel-tabset group="language"}
-## R
 
 ```{r}
 #| label: network-function-r
+#| include: false
 # The predictors of lecture 13, scaled with the estimation sample
 features <- c("ret_lag_1", "momentum_12", "dp", "tbl", "tms", "dfy", "svar")
 scale_inputs <- function(data) {
@@ -208,10 +435,9 @@ fit_network <- function(data, decay, seed) {
 }
 ```
 
-## Python
-
 ```{python}
 #| label: network-function-py
+#| include: false
 #| eval: false
 # The predictors of lecture 13, scaled with the estimation sample
 features = ["ret_lag_1", "momentum_12", "dp", "tbl", "tms", "dfy", "svar"]
@@ -234,7 +460,6 @@ def fit_network(data, decay, seed):
     )
     return network.fit(scale_inputs(data), data["ret"].to_numpy() / ret_sd)
 ```
-:::
 
 ## Weight decay and an ensemble
 
@@ -303,7 +528,14 @@ ols_row <- forecast_row("OLS", predict(ols_fit, panel))
 
 ## The network's forecasts
 
-- One hidden layer of `r hidden_units` logistic neurons, weight decay `r decay` (chosen on `r year(validation_start)`–`r year(test_start) - 1`), `r n_networks` networks averaged
+- One hidden layer of `r hidden_units` logistic neurons. Inputs: the `r length(features)` predictors of lecture 13, standardized with the estimation sample; target: the return in units of its standard deviation $\sigma_r$ in the estimation sample
+- **Weight decay** $\lambda$: a ridge penalty on all $K = `r n_parameters`$ weights and constants $\theta_k$, added to the squared forecast errors of the $T$ months of the estimation sample:
+
+$$
+\min_{\theta} \ \sum_{t=1}^{T} \sum_{i=1}^{N} \Big(\frac{r_{i,t+1}}{\sigma_r} - g(z_{i,t}; \theta)\Big)^2 + \lambda \sum_{k=1}^{K} \theta_k^2
+$$
+
+- $\lambda = `r decay`$, chosen on `r year(validation_start)`–`r year(test_start) - 1` from `r min(decays)` to `r comma(max(decays))`; `r n_networks` networks from different random starts averaged
 - Out-of-sample $R^2$ `r percent(network_row$oos_r2, 0.01)` (OLS: `r percent(ols_row$oos_r2, 0.01)`); as a portfolio with the forecasts as expected returns (lecture 13): Sharpe ratio `r number(network_row$test, 0.01)` in the test sample
 - `nnet()` and scikit-learn (same penalty scale) start from different random weights, so their networks differ a little
 
@@ -312,28 +544,35 @@ ols_row <- forecast_row("OLS", predict(ols_fit, panel))
 ## SDF weights that depend on the state
 
 ::: {.box}
-Lecture 11: constant weights, $m = 1 - b'(F - E[F])$; written without centring, [$M_{t+1} = 1 - b'F_{t+1}$,]{style="white-space: nowrap"} the weights are proportional to the same $\Sigma^{-1}\mu$. Now each anomaly's weight depends on what we know at $t$: $M_{t+1} = 1 - \sum_i \omega(I_{t}, z_{i,t})\, F_{i,t+1}$
+Lecture 11: the same weights $b_i$ in every month. Written without subtracting the means, as from now on: $M_{t+1} = 1 - \sum_{i=1}^{N} b_i F_{i,t+1}$, with $b$ proportional to $\Sigma^{-1}\mu$. Now each anomaly's weight depends on what we know at $t$:
+
+$$
+M_{t+1} = 1 - \sum_{i=1}^{N} \omega(I_t, z_{i,t})\, F_{i,t+1}
+$$
 :::
+
+- $I_t$: the **macro state**, the same for all anomalies; $z_{i,t}$: the **features** of anomaly $i$, such as its last return and its momentum. $\omega$ is a feed-forward network, the same for all $N$ anomalies
 
 ::: {.fragment}
 $$
-E\big[M_{t+1} F_{i,t+1} \mid I_t\big] = 0 \qquad \Longleftrightarrow \qquad E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big] = 0 \ \text{ for all } g
+E_t\big[M_{t+1} F_{i,t+1}\big] = 0 \qquad \Longleftrightarrow \qquad E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big] = 0 \ \text{ for all functions } g
 $$
 
-- The conditional moments hold for every **instrument** $g$: every managed portfolio $F_{i,t+1}\, g(\cdot)$ must be priced, too
-- A network $\omega(\cdot)$ for the weights, estimated by minimizing the squared pricing errors of these moments
+- The conditional moments hold for every **instrument** $g$: every managed portfolio $F_{i,t+1}\, g(I_t, z_{i,t})$ must be priced, too
+- The network $\omega$ minimizes the squared pricing errors $E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big]^2$ for a set of instruments $g$. Which ones? Next slide
 :::
 
 ## The adversary
 
-- Infinitely many instruments $g$: which ones should the SDF price? Chen, Pelger & Zhu (2024): let a **second network** choose them
-- The adversary picks the managed portfolios with the **largest pricing errors**; the SDF network then learns to price them. A game, like a generative adversarial network:
+- Infinitely many instruments $g$: which ones should the SDF price? Chen, Pelger & Zhu (2024): let a **second network** choose them, a feed-forward network with the same inputs as $\omega$
+- The adversary $g$ picks the managed portfolios with the **largest pricing errors**; the SDF network $\omega$ then learns to price them. Chen, Pelger & Zhu call this game a generative adversarial network (GAN):
 
 $$
-\min_{\omega} \ \max_{g} \ \frac{1}{N}\sum_i \Big\| E\big[M_{t+1} F_{i,t+1}\, g(I_t, z_{i,t})\big] \Big\|^2
+\min_{\omega} \ \max_{g} \ \frac{1}{N}\sum_{i=1}^{N} \bigg\| E\bigg[\Big(1 - \sum_{j=1}^{N} \omega(I_t, z_{j,t})\, F_{j,t+1}\Big) F_{i,t+1}\, g(I_t, z_{i,t})\bigg] \bigg\|^2
 $$
 
-- Their result on US stocks: an SDF with an out-of-sample Sharpe ratio far above linear factor models, using the macro state and characteristics
+- $g$ has several outputs, one instrument each; $\|\cdot\|^2$ adds up their squared pricing errors
+- Their result on US stocks: an SDF with an out-of-sample Sharpe ratio far above linear factor models. Inputs: 46 firm characteristics and the **macro state**, a few variables that a recurrent network (LSTM) extracts from 178 macroeconomic time series
 
 ## Chen–Pelger–Zhu light on the zoo
 
@@ -381,30 +620,9 @@ cpz_start <- list.files(
 validation_years <- paste0(year(validation_start), "–", year(test_start) - 1)
 ```
 
-```{python}
-#| label: show-cpz-networks
-#| eval: false
-def network(n_out, hidden, dropout):
-    return nn.Sequential(
-        nn.Linear(n_inputs, hidden),
-        nn.ReLU(),
-        nn.Dropout(dropout),
-        nn.Linear(hidden, hidden),
-        nn.ReLU(),
-        nn.Dropout(dropout),
-        nn.Linear(hidden, n_out),
-    )
-
-
-def pricing_loss(weights, instruments, months):
-    """Mean squared pricing error of the moments E[M F_i g_j] = 0."""
-    sdf = 1 - (weights * returns).sum(dim=1)
-    priced = sdf[:, None, None] * returns[:, :, None] * instruments
-    moments = priced[months].mean(dim=0)
-    return (moments**2).sum(dim=1).mean()
-```
-
-- **Inputs of each anomaly:** last month's return, factor momentum, its historical mean, its loadings on the first `r max(cpz_runs$pcs)` principal components; optionally the macro state
+- **Two networks** as in Chen, Pelger & Zhu, each with two hidden layers (ReLU activation and dropout): the SDF network $\omega$, and the adversary $g$ with `r cpz_light$instruments` instruments per anomaly
+- **Inputs of each anomaly:** last month's return, factor momentum, its historical mean, its loadings on the first `r max(cpz_runs$pcs)` principal components; optionally the macro state, here the `r length(macro_names)` macro predictors of lecture 13 instead of an LSTM`r if (cpz_light$no_macro) " (the chosen setting leaves it out)"`
+- **Steps:** the SDF network first prices the unconditional moments ($g = 1$); then, `r cpz_light$rounds` times, the adversary picks the instruments with the largest pricing errors and the SDF network learns to price them
 - **Training** `r year(cpz_start)`–`r year(validation_start) - 1`, **validation** `r validation_years` (early stopping and the choice of the setting), test from `r year(test_start)`. PyTorch only: `lecture-slides/factor-zoo/cpz_light.py`, `r n_settings` settings × `r ensemble_size` networks, 2 h 14 min on 64 UCloud cores
 
 ## What the networks earn
@@ -461,34 +679,41 @@ The more data, the more flexibility can pay; with little data, economic structur
 ```{r}
 #| label: scoreboard
 #| echo: false
-tibble(
-  Portfolio = c(
-    "Ridge (prior on Sharpe ratios)",
-    "Forecasts: OLS",
-    "Forecasts: neural network",
-    "Feed-forward SDF",
-    "Chen–Pelger–Zhu light"
+# Every row of lectures 10 to 14
+bind_rows(
+  sdf_rows,
+  tibble(
+    Portfolio = paste(
+      "Forecasts:",
+      c(
+        "OLS",
+        paste("tree of depth", tree_depth),
+        "random forest",
+        "neural network"
+      )
+    ),
+    Inputs = paste(
+      c(
+        length(features),
+        length(attr(tree$terms, "term.labels")),
+        length(features),
+        length(features)
+      ),
+      "predictors"
+    ),
+    estimation = c(
+      ols_row$estimation,
+      tree_row$estimation,
+      forest_row$estimation,
+      network_row$estimation
+    ),
+    test = c(ols_row$test, tree_row$test, forest_row$test, network_row$test)
   ),
-  Inputs = c(
-    paste(ncol(returns), "anomalies"),
-    paste(length(features), "predictors"),
-    paste(length(features), "predictors"),
-    "Features of each anomaly",
-    "Features of each anomaly"
-  ),
-  estimation = c(
-    ridge_sharpe[["estimation"]],
-    ols_row$estimation,
-    network_row$estimation,
-    feed_forward$sr_estimation,
-    cpz_light$sr_estimation
-  ),
-  test = c(
-    ridge_sharpe[["test"]],
-    ols_row$test,
-    network_row$test,
-    feed_forward$sr_test,
-    cpz_light$sr_test
+  tibble(
+    Portfolio = c("Feed-forward SDF", "Chen–Pelger–Zhu light"),
+    Inputs = "Features of each anomaly",
+    estimation = c(feed_forward$sr_estimation, cpz_light$sr_estimation),
+    test = c(feed_forward$sr_test, cpz_light$sr_test)
   )
 ) |>
   mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
@@ -498,5 +723,5 @@ tibble(
   )
 ```
 
-- The SDF networks: setting chosen on the validation sample `r validation_years`, ensembles of `r ensemble_size` networks. The rows of lectures 10 to 13 stay on the scoreboard
+- Penalties and numbers of factors chosen by cross-validation, network settings on `r validation_years`. The forecasts' estimation sample starts in `r format(min(panel$date), "%B %Y")`, after a year of history
 - **Lecture 15:** what all these portfolios trade, and what remains after costs
