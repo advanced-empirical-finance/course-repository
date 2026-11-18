@@ -37,8 +37,14 @@ theme_set(
 )
 
 source("lecture-slides/_live-poll.R")
-size_poll <- "aef27-l11-sdf-size"
-size_choices <- c("Fewer than 5", "5 to 20", "20 to 50", "More than 50")
+components_poll <- "aef27-l11-pc-lasso"
+components_choices <- c(
+  "1 to 5",
+  "6 to 20",
+  "21 to 50",
+  "51 to 100",
+  "More than 100"
+)
 ```
 
 ```{r}
@@ -108,23 +114,82 @@ ridge_path <- map(ridge_lambdas, \(lambda) {
   bind_rows()
 ```
 
-## Today
-
-- Cross-validation: choosing the penalty
-- The SDF of the zoo and a prior on Sharpe ratios
-- Sparse in anomalies or in principal components?
-
 ## Which penalty?
 
 - **Lecture 10:** `r ncol(returns)` anomalies, estimation sample `r estimation_years`, test sample `r test_years`. The plug-in portfolio falls from `r number(plug_in_sharpe[["estimation"]], 0.01)` to `r number(plug_in_sharpe[["test"]], 0.01)`
-- In the test sample, the penalty decides: ridge earns a Sharpe ratio between `r number(min(ridge_path$test), 0.01)` and `r number(max(ridge_path$test), 0.01)`, depending on $\lambda$
+- Ridge earns a Sharpe ratio between `r number(min(ridge_path$test), 0.01)` and `r number(max(ridge_path$test), 0.01)` in the test sample, depending on $\lambda$
 - The best $\lambda$ in the test sample is no option: an investor in `r year(test_start) - 1` does not know the test sample
 
 ::: {.highlight}
-**Today:** choose $\lambda$ with the estimation sample only, and give the penalty an economic meaning
+**Today:** choose $\lambda$ with the estimation sample only (cross-validation), give the penalty an economic meaning (a prior on Sharpe ratios), and ask whether the SDF is sparse in anomalies or in principal components
 :::
 
 # Cross-validation
+
+```{r}
+#| label: split-figures
+#| include: false
+# Consecutive blocks of the estimation sample, as in the code of the
+# cross-validation slide; start and end in years, e.g. 1994.6
+block_id <- ceiling(seq_len(sum(estimation)) / (sum(estimation) / n_folds))
+blocks <- tibble(date = anomalies$date[estimation], block = block_id) |>
+  summarize(
+    start = decimal_date(min(date)),
+    end = decimal_date(max(date) %m+% months(1)),
+    .by = block
+  )
+test_block <- tibble(
+  start = decimal_date(test_start),
+  end = decimal_date(sample_end + 1)
+)
+role_colors <- c(
+  "Estimation" = "#b3b3b3",
+  "Validation" = ku_red,
+  "Test, never used for tuning" = light
+)
+
+# Rows of blocks, one row per split, coloured by their role
+plot_splits <- function(plan, row_labels) {
+  ggplot(
+    plan,
+    aes(
+      xmin = start,
+      xmax = end,
+      ymin = row - 0.4,
+      ymax = row + 0.4,
+      fill = role
+    )
+  ) +
+    geom_rect(color = "white") +
+    scale_x_continuous(breaks = seq(1980, 2020, by = 10)) +
+    scale_y_reverse(breaks = seq_along(row_labels), labels = row_labels) +
+    scale_fill_manual(values = role_colors, breaks = names(role_colors)) +
+    labs(x = NULL, y = NULL, fill = NULL) +
+    theme(legend.position = "bottom", panel.grid = element_blank())
+}
+```
+
+## One split: estimate, validate, test
+
+```{r}
+#| label: plot-one-split
+#| echo: false
+#| fig-width: 11
+#| fig-height: 1.7
+# The last block of the estimation sample validates; the same split as fold 5
+# on the next slide
+blocks |>
+  mutate(role = if_else(block == n_folds, "Validation", "Estimation")) |>
+  summarize(start = min(start), end = max(end), .by = role) |>
+  bind_rows(mutate(test_block, role = "Test, never used for tuning")) |>
+  mutate(row = 1) |>
+  plot_splits("One split")
+```
+
+- **Estimation block:** the weights $\hat b_\lambda$ for every $\lambda$ on the grid of lecture 10
+- **Validation block:** the Sharpe ratio of each $\hat b_\lambda$. Choose the $\lambda$ with the highest
+- **Test sample:** don't touch it; it judges the chosen portfolio once, at the very end
+- $\lambda$ is a **hyperparameter** (or tuning parameter): not estimated with the weights, but chosen on data the weights were not estimated on
 
 ## Cross-validation for time series
 
@@ -132,54 +197,21 @@ ridge_path <- map(ridge_lambdas, \(lambda) {
 #| label: plot-folds
 #| echo: false
 #| fig-width: 11
-#| fig-height: 3.2
-# Consecutive blocks of the estimation sample, as in the code on the next slide
-fold_id <- ceiling(seq_len(sum(estimation)) / (sum(estimation) / n_folds))
-fold_years <- anomalies$date[estimation] |> year() |> split(fold_id)
-fold_plan <- expand_grid(fold = seq_len(n_folds), block = seq_len(n_folds)) |>
-  mutate(
-    start = map_dbl(block, \(b) min(fold_years[[b]])),
-    end = map_dbl(block, \(b) max(fold_years[[b]]) + 1),
-    role = if_else(fold == block, "Validation", "Estimation")
-  ) |>
-  bind_rows(tibble(
-    fold = seq_len(n_folds),
-    block = 0,
-    start = year(test_start),
-    end = year(sample_end) + 1,
-    role = "Test, never used for tuning"
-  ))
-
-ggplot(
-  fold_plan,
-  aes(
-    xmin = start,
-    xmax = end,
-    ymin = fold - 0.4,
-    ymax = fold + 0.4,
-    fill = role
-  )
-) +
-  geom_rect(color = "white") +
-  scale_y_reverse(
-    breaks = seq_len(n_folds),
-    labels = paste("Fold", seq_len(n_folds))
-  ) +
-  scale_fill_manual(
-    values = c(
-      "Estimation" = "#b3b3b3",
-      "Validation" = ku_red,
-      "Test, never used for tuning" = light
-    ),
-    breaks = c("Estimation", "Validation", "Test, never used for tuning")
-  ) +
-  labs(x = NULL, y = NULL, fill = NULL) +
-  theme(legend.position = "bottom", panel.grid = element_blank())
+#| fig-height: 3
+# Each fold validates on another block and estimates on the others
+expand_grid(row = seq_len(n_folds), blocks) |>
+  mutate(role = if_else(row == block, "Validation", "Estimation")) |>
+  bind_rows(cross_join(
+    tibble(row = seq_len(n_folds), role = "Test, never used for tuning"),
+    test_block
+  )) |>
+  plot_splits(paste("Fold", seq_len(n_folds)))
 ```
 
-- Each penalty is judged on data it was not estimated on: `r n_folds` consecutive blocks of the estimation sample, each one the validation block once
+- $k$ = `r n_folds` consecutive blocks of the estimation sample, each one the validation block once. Choose the $\lambda$ with the highest Sharpe ratio, averaged over the $k$ validation blocks
+- **Why $k$ blocks?** The Sharpe ratio of one validation block is a noisy measure (as is the RMSPE of a forecast); the average over $k$ blocks is less noisy
 - Months are not shuffled into the folds: neighbouring months share news and volatility, so shuffling would leak information into the validation block
-- The test sample stays untouched until the very end
+- **Downside for time series:** in folds 1 to `r n_folds - 1`, the weights are estimated partly on later months. Harmless if the return distribution is stable; if not, estimate on the past only and validate on the next block
 
 ## Cross-validation in code
 
@@ -197,7 +229,7 @@ cv_sharpe <- function(fit_weights, lambda) {
     mean(na.rm = TRUE)
 }
 
-# Penalties of lecture 10; five consecutive blocks of the estimation sample
+# Penalties of lecture 10; k = 5 consecutive blocks of the estimation sample
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
 lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 n_folds <- 5
@@ -222,7 +254,7 @@ def cv_sharpe(fit_weights, lam):
     return np.nanmean(sharpes)
 
 
-# Penalties of lecture 10; five consecutive blocks of the estimation sample
+# Penalties of lecture 10; k = 5 consecutive blocks of the estimation sample
 ridge_lambdas = 10 ** np.arange(-7, -0.99, 0.25)
 lasso_lambdas = 10 ** np.arange(-6, -2.49, 0.25)
 n_folds = 5
@@ -244,12 +276,12 @@ lasso_sharpe <- portfolio_sharpe(lasso_chosen_weights)
 
 `x_estimation`, `sharpe_ratio()`, `ridge_weights()` and `lasso_weights()` as in lecture 10. Chosen: $\lambda$ = `r penalty_text(ridge_lambda)` for ridge (test Sharpe ratio `r number(ridge_sharpe[["test"]], 0.01)`), `r penalty_text(lasso_lambda)` for the lasso (`r sum(lasso_chosen_weights != 0)` anomalies, `r number(lasso_sharpe[["test"]], 0.01)`)
 
-# The SDF of the zoo
+# The SDF of the factor zoo
 
 ## An SDF that prices all anomalies
 
 ::: {.box}
-Find the SDF $m = 1 - b'(F - E[F])$ that prices all anomaly returns $F$: $E[m\,F] = 0$
+Find the SDF $m = 1 - b'(F - \mu)$ that prices all anomaly returns $F$, with means $\mu = E[F]$ and covariance matrix $\Sigma = \text{Var}(F)$: $E[m\,F] = 0$
 :::
 
 ::: {.fragment}
@@ -264,17 +296,35 @@ $$
 ## A prior on Sharpe ratios
 
 ::: {.box}
-Kozak, Nagel & Santosh (2020): before seeing the data, $\mu \sim N\big(0, \tfrac{\kappa^2}{\tau}\Sigma^2\big)$ with $\tau = \text{tr}(\Sigma)$. What does this prior say about the squared maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
+Kozak, Nagel & Santosh (2020): before seeing the data, an investor treats the means $\mu$ as random,
+
+$$
+\mu \sim N\Big(0, \frac{\kappa^2}{\tau}\,\Sigma^2\Big)
+$$
+
+with $\Sigma^2 = \Sigma\Sigma$ and $\tau = \text{tr}(\Sigma)$, the sum of the variances. What does this prior say about the squared maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
 :::
 
 ::: {.fragment}
 $$
-E\big[\mu'\Sigma^{-1}\mu\big] = \kappa^2 \qquad \hat b = (\Sigma + \lambda I)^{-1}\hat\mu \quad \text{with} \quad \lambda = \frac{\tau}{\kappa^2 T}
+E\big[\mu'\Sigma^{-1}\mu\big] = \text{tr}\big(\Sigma^{-1}\,\text{Var}(\mu)\big) = \frac{\kappa^2}{\tau}\,\text{tr}(\Sigma) = \kappa^2
 $$
 
-- The posterior mean of $b$ is a ridge estimator: the penalty of lecture 10 is a prior about how large Sharpe ratios can be
-- Prior means are small for principal components with little variance: a large Sharpe ratio from a low-variance combination of anomalies is implausible
+- $\kappa^2$ is the squared maximum Sharpe ratio the investor expects; $\kappa$ itself is in Sharpe ratio units
+- $\Sigma^2$ instead of $\Sigma$: the prior expects large premia only from combinations of anomalies with large variance. A large Sharpe ratio from a low-variance combination is implausible
 :::
+
+## From the prior to the ridge penalty
+
+With $T$ months of data and sample means $\hat\mu$, the posterior mean of the SDF loadings $b$ is
+
+$$
+\hat b = (\Sigma + \lambda I)^{-1}\hat\mu \qquad \text{with} \qquad \lambda = \frac{\tau}{\kappa^2 T}
+$$
+
+- A ridge estimator: the penalty of lecture 10 is a prior about how large Sharpe ratios can be
+- **From $\kappa$ to $\hat b$:** the larger the Sharpe ratios the prior allows, the smaller $\lambda$. For $\kappa \to \infty$, $\hat b$ is the plug-in $\Sigma^{-1}\hat\mu$; for small $\kappa$, $\hat b$ shrinks towards zero, proportional to $\hat\mu$
+- More months $T$ also lower $\lambda$: the more data, the less the prior matters
 
 ## The prior behind cross-validation
 
@@ -290,16 +340,15 @@ kappa_path <- ridge_path |>
   mutate(kappa = implied_kappa(lambda), cv = ridge_cv) |>
   filter(lambda > 0)
 
-# Ridge on second moments and the posterior mean point in the same direction
+# Ridge on second moments and the posterior mean differ only by a scale
+# factor (Sherman-Morrison), so they are the same portfolio
 covariance <- cov(x_estimation) * (nrow(x_estimation) - 1) / nrow(x_estimation)
 posterior_weights <- solve(
   covariance + ridge_lambda * diag(ncol(returns)),
   colMeans(x_estimation)
 )
-same_direction <- cor(
-  posterior_weights,
-  as.vector(ridge_weights(x_estimation, ridge_lambda))
-)
+weight_ratio <- ridge_weights(x_estimation, ridge_lambda) / posterior_weights
+stopifnot(sd(weight_ratio) / mean(weight_ratio) < 1e-6)
 ```
 
 ```{r}
@@ -309,7 +358,7 @@ same_direction <- cor(
 #| fig-height: 4.2
 sample_labels <- c(
   estimation = paste("Estimation", estimation_years),
-  cv = "Cross-validation (estimation sample)",
+  cv = paste("Cross-validation: average of the", n_folds, "validation blocks"),
   test = paste("Test", test_years)
 )
 chosen_kappa <- implied_kappa(ridge_lambda)
@@ -332,26 +381,126 @@ kappa_path |>
   scale_x_log10() +
   scale_color_manual(values = c("#b3b3b3", jet, ku_red)) +
   labs(
-    x = "Maximum Sharpe ratio the prior expects (κ, annualized)",
+    x = "κ, the root of the squared maximum Sharpe ratio the prior expects (annualized)",
     y = "Sharpe ratio (annualized)",
     color = NULL
   ) +
   theme(legend.position = "bottom")
 ```
 
-- The cross-validated $\lambda$ = `r penalty_text(ridge_lambda)` means a prior that expects a maximum Sharpe ratio of about **`r number(implied_kappa(ridge_lambda), 0.1)`** a year: still optimistic, but far below the plug-in's `r number(plug_in_sharpe[["estimation"]], 0.1)`
-- Same portfolio as ridge on the regression of lecture 10 (correlation of the weights `r number(same_direction, 0.01)`): the prior is the reason for the penalty, not a new method
+- The cross-validated $\lambda$ = `r penalty_text(ridge_lambda)` means $\kappa \approx$ **`r number(implied_kappa(ridge_lambda), 0.1)`** a year: a prior that expects maximum Sharpe ratios of about this size. Still optimistic, but far below the plug-in's `r number(plug_in_sharpe[["estimation"]], 0.1)`
+- Same portfolio as ridge on the regression of lecture 10; the weights differ only by a scale factor. The prior is the reason for the penalty, not a new method
 
-## How many anomalies does the SDF need?
+# Is the SDF sparse?
+
+## Principal components
+
+::: {.box}
+Find the portfolio $v_1$ of the anomalies with the largest variance, $\max_v v'\Sigma v$ subject to $v'v = 1$. Then $v_2$, the portfolio with the largest variance that is uncorrelated with $v_1$, and so on
+:::
+
+::: {.fragment}
+$$
+\Sigma v_j = \delta_j v_j \qquad P_{j,t} = v_j'F_t \qquad \text{Var}(P_{j,t}) = \delta_j
+$$
+
+- The weights $v_j$ are the eigenvectors of $\Sigma$, the variances $\delta_j$ its eigenvalues (lecture 4). `r ncol(returns)` anomalies give `r ncol(returns)` principal components, uncorrelated with each other
+- Nothing is lost: with $V = (v_1, \dots, v_N)$ and $V'V = I$, the components are $P_t = V'F_t$ and the anomalies $F_t = V P_t$
+- An SDF in components is an SDF in anomalies: $b_P'P_t = (V b_P)'F_t$, so the anomalies get the weights $b = V b_P$
+:::
+
+## Two anomalies, two components
 
 ```{r}
-#| label: size-poll-setup
+#| label: momentum-components
+#| include: false
+# Two momentum anomalies: the returns of the past 12 and 6 months
+momentum_names <- c(Mom12m = "12-month momentum", Mom6m = "6-month momentum")
+momentum <- as.matrix(select(anomalies, all_of(names(momentum_names)))) / 100
+momentum_eigen <- eigen(cov(momentum[estimation, ]), symmetric = TRUE)
+# Eigenvectors have no sign: both buy 12-month momentum
+momentum_vectors <- sweep(
+  momentum_eigen$vectors,
+  2,
+  sign(momentum_eigen$vectors[1, ]),
+  `*`
+)
+momentum_variance_share <- momentum_eigen$values / sum(momentum_eigen$values)
+momentum_sharpe <- map(1:2, \(j) {
+  c(
+    estimation = sharpe_ratio(momentum[estimation, ] %*% momentum_vectors[, j]),
+    test = sharpe_ratio(momentum[!estimation, ] %*% momentum_vectors[, j])
+  )
+})
+momentum_correlation <- cor(momentum[estimation, ])[1, 2]
+```
+
+:::: {.columns}
+::: {.column width="45%"}
+```{r}
+#| label: plot-momentum-components
+#| echo: false
+#| fig-width: 5
+#| fig-height: 5
+# Each component as a line through the mean; both lines have the same length,
+# so the cloud of points shows the difference in variance
+line_length <- 15
+momentum_points <- as_tibble(momentum[estimation, ] * 100)
+momentum_lines <- tibble(
+  component = c("First component", "Second component"),
+  x = mean(momentum_points$Mom6m) - line_length * momentum_vectors[2, ],
+  y = mean(momentum_points$Mom12m) - line_length * momentum_vectors[1, ],
+  xend = mean(momentum_points$Mom6m) + line_length * momentum_vectors[2, ],
+  yend = mean(momentum_points$Mom12m) + line_length * momentum_vectors[1, ]
+)
+
+ggplot(momentum_points, aes(x = Mom6m, y = Mom12m)) +
+  geom_point(color = "#b3b3b3", alpha = 0.7) +
+  geom_segment(
+    data = momentum_lines,
+    aes(x = x, y = y, xend = xend, yend = yend),
+    color = ku_red,
+    linewidth = 1.2
+  ) +
+  # First component: label at its lower end; second: at its upper end
+  geom_text(
+    data = momentum_lines,
+    aes(
+      x = c(x[1], xend[2]),
+      y = c(y[1], yend[2]),
+      label = component
+    ),
+    color = ku_red,
+    size = 4.5,
+    hjust = c(-0.08, 0.5),
+    vjust = c(0.5, -0.6)
+  ) +
+  coord_equal() +
+  labs(
+    x = paste(momentum_names[["Mom6m"]], "(% per month)"),
+    y = paste(momentum_names[["Mom12m"]], "(% per month)")
+  )
+```
+:::
+
+::: {.column width="55%"}
+- Monthly returns `r estimation_years`, correlation `r number(momentum_correlation, 0.01)`
+- **First component:** both anomalies, weights `r number(momentum_vectors[1, 1], 0.01)` and `r number(momentum_vectors[2, 1], 0.01)`. `r percent(momentum_variance_share[1])` of the variance, Sharpe ratio `r number(momentum_sharpe[[1]][["estimation"]], 0.01)`
+- **Second component:** 12-month minus 6-month momentum, weights `r number(momentum_vectors[1, 2], 0.01)` and `r number(momentum_vectors[2, 2], 0.01, style_negative = "minus")`. Only `r percent(momentum_variance_share[2])` of the variance, but Sharpe ratio `r number(momentum_sharpe[[2]][["estimation"]], 0.01)`
+- The prior of Kozak, Nagel & Santosh doubts the second: in `r test_years` its Sharpe ratio is `r number(momentum_sharpe[[2]][["test"]], 0.01, style_negative = "minus")`
+:::
+::::
+
+## Your guess: how many components?
+
+```{r}
+#| label: components-poll-setup
 #| include: false
 if (live) {
   ojs_define(
     poll_base = poll_base,
-    size_poll = size_poll,
-    size_choices = size_choices
+    components_poll = components_poll,
+    components_choices = components_choices
   )
 }
 ```
@@ -362,39 +511,37 @@ if (live) {
 :::: {.columns}
 ::: {.column width="40%"}
 ```{ojs}
-//| label: size-poll-qr
+//| label: components-poll-qr
 //| echo: false
-pollQR(size_poll, size_choices)
+pollQR(components_poll, components_choices)
 ```
 :::
 ::: {.column width="60%"}
 ```{ojs}
-//| label: size-poll-live
+//| label: components-poll-live
 //| echo: false
-size_answers = pollAnswers(size_poll)
-pollBars(size_answers, size_choices)
+components_answers = pollAnswers(components_poll)
+pollBars(components_answers, components_choices)
 ```
 :::
 ::::
 :::
 
 ::: {.content-visible unless-profile="live"}
-How many of the `r ncol(returns)` anomalies does a good SDF of the zoo need?
+How many of the `r ncol(returns)` principal components does the cross-validated lasso keep?
 
 ```{r}
-#| label: size-poll-choices
+#| label: components-poll-choices
 #| echo: false
 #| results: asis
-cat(paste0("- ", size_choices, collapse = "\n"), "\n")
+cat(paste0("- ", components_choices, collapse = "\n"), "\n")
 ```
 :::
 
-# Anomalies or components?
+## The lasso on principal components
 
-## Principal components as portfolios
-
-- Kozak, Nagel & Santosh: an SDF with a few anomalies prices badly; an SDF with a few **principal components** of the anomalies prices well
-- A principal component is a portfolio of all anomalies: rotate the returns, run the lasso on the components, rotate the weights back
+- Kozak, Nagel & Santosh (2020): an SDF with a few anomalies prices badly; an SDF with a few **principal components** of the anomalies prices well
+- `pc_lasso_weights()`: the components $P_t = V'F_t$, the lasso of lecture 10 on them, and their weights on the anomalies, $b = V b_P$
 
 ::: {.panel-tabset group="language"}
 ## R
@@ -427,14 +574,22 @@ pc_lasso_lambda = lasso_lambdas[np.argmax(pc_lasso_cv)]
 ```
 :::
 
-The principal components come from the estimation folds only, also inside the cross-validation
+```{r}
+#| label: pc-chosen
+#| include: false
+components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
+pc_kept <- sum(
+  lasso_weights(x_estimation %*% components_estimation, pc_lasso_lambda) != 0
+)
+```
+
+`pc_lasso_weights()` computes $V$ from the months it estimates on. Inside the cross-validation, these are the estimation blocks, so the validation block cannot shape the components. Chosen: $\lambda$ = `r penalty_text(pc_lasso_lambda)`, which keeps **`r pc_kept`** of the `r ncol(returns)` components
 
 ## Sparse in what?
 
 ```{r}
 #| label: sparsity-paths
 #| include: false
-components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
 sparsity <- bind_rows(
   map(lasso_lambdas, \(lambda) {
     weights <- lasso_weights(x_estimation, lambda)
@@ -465,7 +620,7 @@ anomaly_chosen <- sparsity |>
 #| label: plot-sparsity
 #| echo: false
 #| fig-width: 10
-#| fig-height: 4.2
+#| fig-height: 3.9
 chosen <- bind_rows(anomaly_chosen, pc_chosen)
 ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
   geom_line(linewidth = 1) +
@@ -480,7 +635,7 @@ ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
   ) +
   scale_color_manual(values = c(jet, ku_red)) +
   labs(
-    x = "Number of anomalies or principal components with a weight",
+    x = "Number of anomalies or principal components with a non-zero weight",
     y = paste0("Sharpe ratio ", test_years, "\n(annualized)"),
     color = "Lasso on",
     caption = "Circles: penalty chosen by cross-validation"
@@ -488,21 +643,23 @@ ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
   theme(legend.position = "bottom")
 ```
 
-- On our zoo, the components are **not** sparser: `r pc_chosen$kept` components give `r number(pc_chosen$test, 0.01)` in the test sample, `r anomaly_chosen$kept` anomalies give `r number(anomaly_chosen$test, 0.01)`
+- On our zoo, the principal components are **not** sparser: `r pc_chosen$kept` principal components give `r number(pc_chosen$test, 0.01)` in the test sample, `r anomaly_chosen$kept` anomalies give `r number(anomaly_chosen$test, 0.01)`
 - Neither is sparse: a good SDF of the zoo needs dozens of anomalies or components, not a handful
+- Different from Kozak, Nagel & Santosh, who find a few principal components enough: they combine the lasso with their ridge prior and judge the SDF by how well it prices the anomalies, not by its Sharpe ratio
 
 ## Beyond one SDF: averaging over models
 
-- Every penalty, every sparse set of anomalies is one model of the SDF. Which one is right is uncertain, too
-- **Bayesian model averaging** (Bryzgalova, Huang & Julliard, 2023): weight every combination of factors by its posterior probability and average the SDFs
-- Their finding: no small set of factors dominates; the averaged SDF is dense, in line with the scoreboard
+- Every penalty, every set of anomalies is one model of the SDF. Which one is right is uncertain, too
+- **Bayesian model averaging** (Bryzgalova, Huang & Julliard, 2023; Avramov, Cheng, Metzker & Voigt, 2023): weight every combination of factors by its posterior probability and average the SDFs
+- Bryzgalova, Huang & Julliard: no small set of factors dominates; the averaged SDF is dense
 
 ## Scoreboard
 
 ```{r}
 #| label: scoreboard
 #| echo: false
-tibble(
+#| results: asis
+scoreboard <- tibble(
   Portfolio = c(
     "Market",
     "1/N over all anomalies",
@@ -536,11 +693,27 @@ tibble(
     pc_chosen$test
   )
 ) |>
-  mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
-  rename(
-    !!paste("Sharpe ratio", estimation_years) := estimation,
-    !!paste("Sharpe ratio", test_years) := test
-  )
+  mutate(across(c(estimation, test), \(x) number(x, 0.01)))
+
+# One header "Sharpe ratio" over the columns of both samples
+spanner <- paste0(
+  "<thead>\n<tr><th colspan=\"2\" style=\"border-bottom: none;\"></th>",
+  "<th colspan=\"2\" style=\"text-align: center;\">Sharpe ratio</th></tr>"
+)
+scoreboard |>
+  knitr::kable(
+    format = "html",
+    align = "l",
+    col.names = c("Portfolio", "Inputs", estimation_years, test_years),
+    table.attr = "data-quarto-disable-processing=\"true\""
+  ) |>
+  sub(pattern = "<thead>", replacement = spanner, fixed = TRUE) |>
+  gsub(
+    pattern = "text-align:left;",
+    replacement = "text-align:left; padding-right: 1.2em;",
+    fixed = TRUE
+  ) |>
+  cat()
 ```
 
 - Every penalty chosen by cross-validation in the estimation sample
