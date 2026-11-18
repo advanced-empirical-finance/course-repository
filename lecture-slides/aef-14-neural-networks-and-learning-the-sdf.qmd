@@ -10,7 +10,6 @@ library(tidyverse)
 library(nanoparquet)
 library(glmnet)
 library(rpart)
-library(nnet)
 library(tidymodels)
 library(scales)
 
@@ -35,7 +34,7 @@ forest_grid <- expand_grid(mtry = c(1, 3, 7), min_n = c(500, 2000))
 
 # The inputs and hidden units of the network for the forecasts. The slide
 # "A feed-forward network" counts its parameters and draws the network; the
-# hidden code of the network defines them again
+# code of the network defines the inputs again and uses the same 5 units
 features <- c("ret_lag_1", "momentum_12", macro_names)
 hidden_units <- 5
 # Weights and constants: into the hidden layer, then into the output
@@ -60,6 +59,8 @@ from datetime import date
 
 import numpy as np
 import polars as pl
+from sklearn.base import clone
+from sklearn.model_selection import GridSearchCV, PredefinedSplit
 from sklearn.neural_network import MLPRegressor
 ```
 
@@ -393,13 +394,13 @@ ggplot() +
 
 ## Training a network
 
-- **Loss:** the mean squared forecast error, as for OLS, but without a closed form. **Gradient descent** moves all weights $\theta$ of the network (every $W$, $c$ and $w$) a small step $\eta$ against the gradient of the loss, step $k$ after step:
+- **Loss:** the mean squared forecast error, as for OLS, but without a closed form. **Gradient descent** moves the vector $\theta$ of all weights and constants (every $W$, $c$ and $w$) a small step $\eta$ against the gradient of the loss, step $s$ after step:
 
 $$
-\theta_{k+1} = \theta_k - \eta\, \nabla_\theta \, \frac{1}{|B_k|} \sum_{(i,t) \in B_k} \big(r_{i,t+1} - g(z_{i,t}; \theta_k)\big)^2
+\theta^{(s+1)} = \theta^{(s)} - \eta\, \nabla_\theta \, \frac{1}{|B_s|} \sum_{(i,t) \in B_s} \big(r_{i,t+1} - g(z_{i,t}; \theta^{(s)})\big)^2
 $$
 
-- **Mini-batches:** $B_k$ holds all anomaly-months $(i, t)$ of the estimation sample, or, with many observations, a small random subset of them, new in every step. Each step is cheaper but noisier: **stochastic** gradient descent
+- **Mini-batches:** $B_s$ holds all anomaly-months $(i, t)$ of the estimation sample, or, with many observations, a small random subset of them, new in every step. Each step is cheaper but noisier: **stochastic** gradient descent
 - **Backpropagation:** the chain rule gives the gradient for all layers in one backward pass, from the output to the first layer
 
 ## Regularization
@@ -411,82 +412,119 @@ $$
 - Gu, Kelly & Xiu (2020) use all of them; their best networks have three or four layers
 
 ```{r}
-#| label: network-function-r
+#| label: network-data-r
 #| include: false
-# The predictors of lecture 13, scaled with the estimation sample
+# The predictors of lecture 13, standardized with the estimation sample, and
+# the return in units of its standard deviation there, which gives the weight
+# decay a scale
 features <- c("ret_lag_1", "momentum_12", "dp", "tbl", "tms", "dfy", "svar")
-scale_inputs <- function(data) {
-  scale(data[features], colMeans(train[features]), map_dbl(train[features], sd))
-}
-ret_sd <- sd(train$ret) # returns in units of volatility give the decay a scale
-
-hidden_units <- 5
-fit_network <- function(data, decay, seed) {
-  set.seed(seed)
-  nnet(
-    scale_inputs(data),
-    data$ret / ret_sd,
-    size = hidden_units,
-    decay = decay,
-    linout = TRUE,
-    maxit = 500,
-    trace = FALSE
+ret_sd <- sd(train$ret)
+scaled_panel <- panel |>
+  mutate(
+    across(all_of(features), \(x) {
+      (x - mean(x[date < test_start])) / sd(x[date < test_start])
+    }),
+    ret_scaled = ret / ret_sd
   )
-}
+scaled_train <- filter(scaled_panel, date < test_start)
 ```
 
 ```{python}
-#| label: network-function-py
+#| label: network-data-py
 #| include: false
 #| eval: false
-# The predictors of lecture 13, scaled with the estimation sample
+# The predictors of lecture 13, standardized with the estimation sample, and
+# the return in units of its standard deviation there, which gives the weight
+# decay a scale
 features = ["ret_lag_1", "momentum_12", "dp", "tbl", "tms", "dfy", "svar"]
-centers = train.select(features).mean().to_numpy()
-input_sd = train.select(features).std().to_numpy()
-scale_inputs = lambda data: (data.select(features).to_numpy() - centers) / input_sd
-ret_sd = train["ret"].std()  # returns in units of volatility give the decay a scale
-
-hidden_units = 5
-
-
-def fit_network(data, decay, seed):
-    network = MLPRegressor(
-        hidden_layer_sizes=(hidden_units,),
-        activation="logistic",
-        solver="lbfgs",
-        alpha=decay,
-        max_iter=500,
-        random_state=seed,
-    )
-    return network.fit(scale_inputs(data), data["ret"].to_numpy() / ret_sd)
+in_estimation = pl.col("date") < test_start
+ret_sd = train["ret"].std()
+scaled_panel = panel.with_columns(
+    [
+        (pl.col(c) - pl.col(c).filter(in_estimation).mean())
+        / pl.col(c).filter(in_estimation).std()
+        for c in features
+    ],
+    ret_scaled=pl.col("ret") / ret_sd,
+)
+scaled_train = scaled_panel.filter(in_estimation)
 ```
 
-## Weight decay and an ensemble
+## Tuning the weight decay
 
 ::: {.panel-tabset group="language"}
 ## R
 
 ```{r}
-#| label: fit-network-r
+#| label: tune-network-r
 #| cache: true
-#| cache.extra: !expr list(deparse(fit_network), deparse(scale_inputs), features, hidden_units, ret_sd, nrow(panel))
-# Fit until validation_start, choose the weight decay on the years after
+#| cache.extra: !expr list(rlang::hash(scaled_train), features)
 validation_start <- ymd("1995-01-01")
-decays <- c(1, 3, 10, 30, 100, 300, 1000)
-fitting <- filter(train, date < validation_start)
-validation <- filter(train, date >= validation_start)
-validation_mse <- map_dbl(decays, \(decay) {
-  network <- fit_network(fitting, decay, seed = 1)
-  forecast <- predict(network, scale_inputs(validation)) * ret_sd
-  mean((validation$ret - forecast)^2)
-})
-decay <- decays[which.min(validation_mse)]
+decay_grid <- tibble(penalty = c(1, 3, 10, 30, 100, 300, 1000))
 
-# An ensemble: the average forecast of networks from different random starts
+# Estimate until validation_start, choose the weight decay on the years after
+validation_split <- make_splits(
+  filter(scaled_train, date < validation_start),
+  assessment = filter(scaled_train, date >= validation_start)
+)
+validation <- manual_rset(list(validation_split), ids = "validation")
+network_model <- mlp(hidden_units = 5, penalty = tune(), epochs = 500) |>
+  set_engine("nnet") |>
+  set_mode("regression")
+network_workflow <- workflow() |>
+  add_variables(outcomes = ret_scaled, predictors = all_of(features)) |>
+  add_model(network_model)
+set.seed(1) # tune_grid() draws the random starts of the networks
+network_tuning <- tune_grid(network_workflow, validation, grid = decay_grid)
+best_decay <- select_best(network_tuning, metric = "rmse")
+```
+
+## Python
+
+```{python}
+#| label: tune-network-py
+#| eval: false
+validation_start = date(1995, 1, 1)
+decay_grid = {"alpha": [1, 3, 10, 30, 100, 300, 1000]}
+
+# Estimate until validation_start (-1), choose the weight decay on the years after (0)
+validation_fold = np.where(scaled_train["date"] < validation_start, -1, 0)
+network_model = MLPRegressor(
+    hidden_layer_sizes=(5,),
+    activation="logistic",
+    solver="lbfgs",
+    max_iter=500,  # as in nnet; scikit-learn warns when lbfgs stops here, nnet does not
+    random_state=1,
+)
+network_search = GridSearchCV(
+    network_model,
+    decay_grid,
+    scoring="neg_mean_squared_error",
+    cv=PredefinedSplit(validation_fold),
+)
+network_search.fit(scaled_train.select(features), scaled_train["ret_scaled"])
+```
+:::
+
+## An ensemble of networks
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: ensemble-network-r
+#| cache: true
+#| dependson: "tune-network-r"
+#| cache.extra: !expr list(rlang::hash(scaled_train), rlang::hash(scaled_panel), ret_sd)
 n_networks <- 5
+
+# The average forecast of networks from different random starts
 network_forecasts <- map(seq_len(n_networks), \(seed) {
-  network <- fit_network(train, decay, seed)
-  as.vector(predict(network, scale_inputs(panel))) * ret_sd
+  set.seed(seed)
+  network_fit <- network_workflow |>
+    finalize_workflow(best_decay) |>
+    fit(scaled_train)
+  predict(network_fit, scaled_panel)$.pred * ret_sd
 })
 network_forecast <- reduce(network_forecasts, `+`) / n_networks
 ```
@@ -494,29 +532,22 @@ network_forecast <- reduce(network_forecasts, `+`) / n_networks
 ## Python
 
 ```{python}
-#| label: fit-network-py
+#| label: ensemble-network-py
 #| eval: false
-# Fit until validation_start, choose the weight decay on the years after
-validation_start = date(1995, 1, 1)
-decays = [1, 3, 10, 30, 100, 300, 1000]
-fitting = train.filter(pl.col("date") < validation_start)
-validation = train.filter(pl.col("date") >= validation_start)
-validation_mse = []
-for decay in decays:
-    network = fit_network(fitting, decay, seed=1)
-    forecast = network.predict(scale_inputs(validation)) * ret_sd
-    validation_mse.append(np.mean((validation["ret"].to_numpy() - forecast) ** 2))
-decay = decays[np.argmin(validation_mse)]
-
-# An ensemble: the average forecast of networks from different random starts
 n_networks = 5
-network_forecasts = [
-    fit_network(train, decay, seed).predict(scale_inputs(panel)) * ret_sd
-    for seed in range(1, n_networks + 1)
-]
+
+# The average forecast of networks from different random starts
+network_forecasts = []
+for seed in range(1, n_networks + 1):
+    network = clone(network_search.best_estimator_).set_params(random_state=seed)
+    network.fit(scaled_train.select(features), scaled_train["ret_scaled"])
+    network_forecasts.append(network.predict(scaled_panel.select(features)) * ret_sd)
 network_forecast = np.mean(network_forecasts, axis=0)
 ```
 :::
+
+- `scaled_train`, `scaled_panel`: predictors standardized, returns divided by their standard deviation `ret_sd`, both with the estimation sample. The forecasts come back in returns: times `ret_sd`
+- `manual_rset()` and `PredefinedSplit()` made the one validation split a resample for `tune_grid()` and `GridSearchCV()`; `finalize_workflow()` and `best_estimator_` carry the chosen decay into every network
 
 ```{r}
 #| label: network-row
@@ -529,22 +560,22 @@ ols_row <- forecast_row("OLS", predict(ols_fit, panel))
 ## The network's forecasts
 
 - One hidden layer of `r hidden_units` logistic neurons. Inputs: the `r length(features)` predictors of lecture 13, standardized with the estimation sample; target: the return in units of its standard deviation $\sigma_r$ in the estimation sample
-- **Weight decay** $\lambda$: a ridge penalty on all $K = `r n_parameters`$ weights and constants $\theta_k$, added to the squared forecast errors of the $T$ months of the estimation sample:
+- **Weight decay** $\lambda$: a ridge penalty on the $K = `r n_parameters`$ weights and constants $\theta_k$ in $\theta$, added to the squared forecast errors of the $T$ months of the estimation sample:
 
 $$
 \min_{\theta} \ \sum_{t=1}^{T} \sum_{i=1}^{N} \Big(\frac{r_{i,t+1}}{\sigma_r} - g(z_{i,t}; \theta)\Big)^2 + \lambda \sum_{k=1}^{K} \theta_k^2
 $$
 
-- $\lambda = `r decay`$, chosen on `r year(validation_start)`–`r year(test_start) - 1` from `r min(decays)` to `r comma(max(decays))`; `r n_networks` networks from different random starts averaged
+- $\lambda = `r best_decay$penalty`$, chosen on `r year(validation_start)`–`r year(test_start) - 1` from `r min(decay_grid$penalty)` to `r comma(max(decay_grid$penalty))`; `r n_networks` networks from different random starts averaged
 - Out-of-sample $R^2$ `r percent(network_row$oos_r2, 0.01)` (OLS: `r percent(ols_row$oos_r2, 0.01)`); as a portfolio with the forecasts as expected returns (lecture 13): Sharpe ratio `r number(network_row$test, 0.01)` in the test sample
-- `nnet()` and scikit-learn (same penalty scale) start from different random weights, so their networks differ a little
+- nnet and scikit-learn use the same penalty scale, but scikit-learn leaves the constants unpenalized and starts from other random weights, so their networks differ a little
 
 # Learning the SDF
 
 ## SDF weights that depend on the state
 
 ::: {.box}
-Lecture 11: the same weights $b_i$ in every month. Written without subtracting the means, as from now on: $M_{t+1} = 1 - \sum_{i=1}^{N} b_i F_{i,t+1}$, with $b$ proportional to $\Sigma^{-1}\mu$. Now each anomaly's weight depends on what we know at $t$:
+Lecture 11: the same weights $b_i$ in every month, $M_{t+1} = 1 - \sum_{i=1}^{N} b_i F_{i,t+1}$, with $b$ proportional to $\Sigma^{-1}\mu$. Now each anomaly's weight depends on what we know at $t$:
 
 $$
 M_{t+1} = 1 - \sum_{i=1}^{N} \omega(I_t, z_{i,t})\, F_{i,t+1}
