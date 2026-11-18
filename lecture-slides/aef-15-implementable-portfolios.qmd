@@ -24,7 +24,9 @@ n_folds <- 5
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
 lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 macro_names <- c("dp", "tbl", "tms", "dfy", "svar")
-few_factors <- 5
+# Number of PCA and RP-PCA factors: up to 60, chosen by cross-validation as in
+# lecture 12
+max_factors <- 60
 phi_rp <- 10
 n_trees <- 100
 forest_grid <- expand_grid(mtry = c(1, 3, 7), min_n = c(500, 2000))
@@ -51,14 +53,16 @@ scoreboard_survey <- "aef27-ex08-scoreboard"
 #| label: lectures-10-to-14-code
 #| include: false
 #| cache: true
-#| cache.extra: !expr list(ridge_lambdas, lasso_lambdas, few_factors, phi_rp, n_trees, forest_grid, macro_names, sample_end)
+#| cache.extra: !expr list(ridge_lambdas, lasso_lambdas, max_factors, phi_rp, n_trees, forest_grid, macro_names, sample_end)
 # Every row of the scoreboard, with the code of lectures 10 to 14
 osap_url <- paste0(
   "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
 )
 osap_file <- "data/osap_long_short_returns.parquet"
-if (!file.exists(osap_file)) download.file(osap_url, osap_file, mode = "wb")
+if (!file.exists(osap_file)) {
+  download.file(osap_url, osap_file, mode = "wb")
+}
 anomalies <- read_parquet(osap_file) |>
   mutate(date = floor_date(as.Date(date), "month")) |>
   filter(between(date, sample_start, sample_end)) |>
@@ -79,7 +83,11 @@ ridge_weights <- function(x, lambda) {
 }
 lasso_weights <- function(x, lambda) {
   fit <- glmnet(
-    x, rep(1, nrow(x)), lambda = lambda, intercept = FALSE, standardize = FALSE,
+    x,
+    rep(1, nrow(x)),
+    lambda = lambda,
+    intercept = FALSE,
+    standardize = FALSE,
     control = list(thresh = 1e-12)
   )
   as.vector(coef(fit))[-1]
@@ -90,7 +98,8 @@ pc_lasso_weights <- function(x, lambda) {
 }
 factor_weights <- function(x, k, phi = 0) {
   mu <- colMeans(x)
-  loadings <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors[, seq_len(k), drop = FALSE]
+  vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
+  loadings <- vectors[, seq_len(k), drop = FALSE]
   factors <- x %*% loadings
   loadings %*% solve(cov(factors), colMeans(factors))
 }
@@ -102,34 +111,57 @@ cv_sharpe <- function(fit_weights, lambda) {
   }) |>
     mean(na.rm = TRUE)
 }
-choose <- function(fit_weights, lambdas) lambdas[which.max(map_dbl(lambdas, \(l) cv_sharpe(fit_weights, l)))]
+choose <- function(fit_weights, lambdas) {
+  lambdas[which.max(map_dbl(lambdas, \(l) cv_sharpe(fit_weights, l)))]
+}
 
 market <- read_parquet("data/factors_ff3_monthly.parquet") |>
   filter(between(date, sample_start, sample_end))
 ridge_lambda <- choose(ridge_weights, ridge_lambdas)
 lasso_lambda <- choose(lasso_weights, lasso_lambdas)
 pc_lasso_lambda <- choose(pc_lasso_weights, lasso_lambdas)
+pca_factors <- choose(\(x, k) factor_weights(x, k), seq_len(max_factors))
+rp_pca_factors <- choose(
+  \(x, k) factor_weights(x, k, phi_rp),
+  seq_len(max_factors)
+)
+pca_name <- paste0("PCA, ", pca_factors, " factors")
+rp_pca_name <- paste0("RP-PCA, ", rp_pca_factors, " factors")
 static_weights <- list(
   "1/N over all anomalies" = rep(1 / ncol(returns), ncol(returns)),
   "Plug-in mean-variance" = ridge_weights(x_estimation, 0),
   "Ridge (prior on Sharpe ratios)" = ridge_weights(x_estimation, ridge_lambda),
   "Lasso on anomalies" = lasso_weights(x_estimation, lasso_lambda),
-  "Lasso on principal components" = pc_lasso_weights(x_estimation, pc_lasso_lambda),
-  "PCA, 5 factors" = factor_weights(x_estimation, few_factors),
-  "RP-PCA, 5 factors" = factor_weights(x_estimation, few_factors, phi_rp)
+  "Lasso on principal components" = pc_lasso_weights(
+    x_estimation,
+    pc_lasso_lambda
+  )
+)
+static_weights[[pca_name]] <- factor_weights(x_estimation, pca_factors)
+static_weights[[rp_pca_name]] <- factor_weights(
+  x_estimation,
+  rp_pca_factors,
+  phi_rp
 )
 
 # Forecasts of lectures 13 and 14, used as expected returns each month
 macro <- read_parquet("data/macro_predictors.parquet") |>
   transmute(date = date %m+% months(1), across(all_of(macro_names))) |>
-  mutate(across(all_of(macro_names), \(x) (x - mean(x[date < test_start])) / sd(x[date < test_start])))
+  mutate(across(all_of(macro_names), \(x) {
+    (x - mean(x[date < test_start])) / sd(x[date < test_start])
+  }))
 panel <- anomalies |>
   pivot_longer(-date, names_to = "anomaly", values_to = "ret") |>
   mutate(ret = ret / 100) |>
   arrange(anomaly, date) |>
   mutate(
     ret_lag_1 = lag(ret),
-    momentum_12 = slider::slide_dbl(lag(ret), mean, .before = 11, .complete = TRUE),
+    momentum_12 = slider::slide_dbl(
+      lag(ret),
+      mean,
+      .before = 11,
+      .complete = TRUE
+    ),
     .by = anomaly
   ) |>
   left_join(macro, join_by(date)) |>
@@ -147,29 +179,53 @@ forest_workflow <- workflow() |>
       set_mode("regression")
   )
 forest_tuning <- tune_grid(
-  forest_workflow, resamples = group_vfold_cv(train, group = block, v = n_folds), grid = forest_grid
+  forest_workflow,
+  resamples = group_vfold_cv(train, group = block, v = n_folds),
+  grid = forest_grid
 )
 forest_fit <- forest_workflow |>
   finalize_workflow(select_best(forest_tuning, metric = "rmse")) |>
   fit(train)
 centers <- colMeans(train[features])
 input_sd <- apply(train[features], 2, sd)
-scale_inputs <- function(data) scale(as.matrix(data[features]), centers, input_sd)
+scale_inputs <- function(data) {
+  scale(as.matrix(data[features]), centers, input_sd)
+}
 ret_sd <- sd(train$ret)
 fit_network <- function(data, decay, seed) {
   set.seed(seed)
-  nnet(scale_inputs(data), data$ret / ret_sd, size = 5, decay = decay, linout = TRUE, maxit = 500, trace = FALSE)
+  nnet(
+    scale_inputs(data),
+    data$ret / ret_sd,
+    size = 5,
+    decay = decay,
+    linout = TRUE,
+    maxit = 500,
+    trace = FALSE
+  )
 }
 fitting <- filter(train, date < ymd("1995-01-01"))
 validation <- filter(train, date >= ymd("1995-01-01"))
 decays <- c(1, 3, 10, 30, 100, 300, 1000)
 decay <- decays[which.min(map_dbl(decays, \(d) {
-  mean((validation$ret - predict(fit_network(fitting, d, 1), scale_inputs(validation)) * ret_sd)^2)
+  mean(
+    (validation$ret -
+      predict(fit_network(fitting, d, 1), scale_inputs(validation)) * ret_sd)^2
+  )
 }))]
-network_forecast <- map(1:5, \(seed) as.vector(predict(fit_network(train, decay, seed), scale_inputs(panel))) * ret_sd) |>
-  reduce(`+`) / 5
+network_forecasts <- map(1:5, \(seed) {
+  as.vector(predict(fit_network(train, decay, seed), scale_inputs(panel))) *
+    ret_sd
+})
+network_forecast <- reduce(network_forecasts, `+`) / length(network_forecasts)
 forecasts <- list(
-  "Forecasts: OLS" = predict(lm(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar, data = train), panel),
+  "Forecasts: OLS" = predict(
+    lm(
+      ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar,
+      data = train
+    ),
+    panel
+  ),
   "Forecasts: random forest" = predict(forest_fit, panel)$.pred,
   "Forecasts: neural network" = network_forecast
 )
@@ -179,9 +235,14 @@ forecast_weights <- map(forecasts, \(forecast) {
     mutate(forecast = forecast) |>
     select(date, anomaly, forecast) |>
     nest(data = -date) |>
-    mutate(weights = map(data, \(d) {
-      as.vector(solve(covariance + ridge_lambda * diag(ncol(returns)), d$forecast[match(colnames(returns), d$anomaly)]))
-    })) |>
+    mutate(
+      weights = map(data, \(d) {
+        as.vector(solve(
+          covariance + ridge_lambda * diag(ncol(returns)),
+          d$forecast[match(colnames(returns), d$anomaly)]
+        ))
+      })
+    ) |>
     select(date, weights)
 })
 ```
@@ -330,7 +391,7 @@ In the open question of exercise 6, you tried to beat the best model of the lect
 #| fig-height: 3.6
 turnover_shown <- c(
   "Ridge (prior on Sharpe ratios)",
-  "RP-PCA, 5 factors",
+  rp_pca_name,
   "Lasso on anomalies",
   "Forecasts: OLS",
   "Forecasts: random forest",
