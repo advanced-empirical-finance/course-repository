@@ -126,32 +126,61 @@ macro = (
 )
 ```
 
-## Today
+```{r}
+#| label: load-stock-characteristics-r
+#| include: false
+# The data of exercise 4: the characteristics of Gu, Kelly & Xiu, ranked
+# within each month into [-1, 1], merged with CRSP. Only their coverage and one
+# month for the tree illustration appear on the slides
+stock_characteristics <- read_parquet(
+  "data/stock_characteristics_monthly.parquet",
+  col_select = c(
+    "permno",
+    "date",
+    "ret_excess",
+    "characteristic_mvel1",
+    "characteristic_bm"
+  )
+)
+characteristics_coverage <- stock_characteristics |>
+  summarize(
+    stocks = n_distinct(permno),
+    first = min(date),
+    last = max(date),
+    per_month = n() / n_distinct(date)
+  )
 
-- Two uses of machine learning in asset pricing
-- Gu, Kelly & Xiu (2020): machine learning forecasts of stock returns
-- Regression trees and random forests
-- From forecasts to a portfolio
+# The month of the sort illustration in lecture 7; size and book-to-market as
+# percentiles of the month
+illustration_month <- as.Date("2020-04-01")
+cross_section <- stock_characteristics |>
+  filter(date == illustration_month) |>
+  transmute(
+    ret_excess,
+    size = (characteristic_mvel1 + 1) / 2,
+    bm = (characteristic_bm + 1) / 2
+  )
+rm(stock_characteristics)
+```
 
 ## Two uses of machine learning
 
 - **Lectures 10 to 12:** estimate the SDF, the best portfolio of the zoo, directly. The SDF's weights are constant
-- **Today:** forecast each return, $E_t[r_{i,t+1}] = g(z_{i,t})$, with characteristics and the state of the economy in $z_{i,t}$. The function $g$ may be nonlinear and contain interactions
+- **The other use:** forecast each return, $E_t[r_{i,t+1}] = g(z_{i,t})$, with characteristics and the state of the economy in $z_{i,t}$. The function $g$ may be nonlinear and contain interactions
 - A forecast is not yet a portfolio: we need a second step from forecasts to weights
 
 ::: {.highlight}
-Does a flexible forecast of returns beat a well-shrunk SDF?
+**Today:** machine learning forecasts of stock returns (Gu, Kelly & Xiu, 2020), regression trees and random forests on the zoo, and a portfolio from the forecasts. Does a flexible forecast of returns beat a well-shrunk SDF?
 :::
 
 # Gu, Kelly & Xiu (2020)
 
 ## Empirical asset pricing via machine learning
 
-- **Data:** almost 30,000 US stocks, March 1957 to December 2016, more than 6,200 a month on average
+- **Data:** almost 30,000 US stocks, March 1957 to December 2016, more than 6,200 a month on average. Our version from exercise 4, merged with CRSP: `r comma(characteristics_coverage$stocks)` stocks, `r format(characteristics_coverage$first, "%B %Y")` to `r format(characteristics_coverage$last, "%B %Y")`, about `r comma(characteristics_coverage$per_month, 100)` a month
 - **Predictors:** 94 characteristics, each interacted with 8 macro predictors (Welch & Goyal), plus 74 industry dummies: $94 \times (8 + 1) + 74 = 920$
-- **Samples:** training 1957–1974, validation 1975–1986, test 1987–2016. The models are refitted every year on a growing training sample; the validation sample rolls forward
+- **Samples:** training 1957–1974, validation 1975–1986, test 1987–2016. The models are refitted every year on a growing training sample; the validation sample rolls forward. Our trees and forests on the zoo are fitted once, as in lectures 10 to 12, and tested on `r year(test_start)`–`r year(sample_end)`
 - **Methods:** OLS, partial least squares, principal component regression, elastic net, generalized linear models, random forests, gradient boosted trees, and neural networks with one to five layers
-- Exercise 4 prepares their data with CRSP
 
 ## Their forecasts
 
@@ -200,13 +229,24 @@ gkx_r2 |>
 nonlinear_r2 <- gkx_r2$r2[gkx_r2$group != "Linear"]
 ```
 
-- OLS with all 920 predictors: $R^2_{oos}$ = `r number(gkx_r2$r2[1], 0.01)`%. OLS-3 with size, book-to-market and momentum only: `r number(gkx_r2$r2[2], 0.01)`%
+$$
+R^2_{oos} = 1 - \frac{\sum_{(i,t) \in \text{test}} (r_{i,t+1} - \hat r_{i,t+1})^2}{\sum_{(i,t) \in \text{test}} r_{i,t+1}^2}
+$$
+
+- **Benchmark:** a forecast of zero, not the historical mean, which is too noisy for single stocks. OLS with all 920 predictors: `r number(gkx_r2$r2[1], 0.01)`%. OLS-3 with size, book-to-market and momentum only: `r number(gkx_r2$r2[2], 0.01)`%
 - Trees and networks forecast best, `r number(min(nonlinear_r2), 0.01)` to `r number(max(nonlinear_r2), 0.01)`% a month. Small, but for stock returns a large number
 
 ## What predicts, and what it pays
 
 - **The same few predictors** matter for all methods: price trends (short-term reversal, momentum, industry momentum), liquidity (market value, dollar volume, bid-ask spread) and volatility
-- **Portfolios:** sort stocks each month into deciles of the forecast and buy the top, sell the bottom decile. Value-weighted, the four-layer network earns an out-of-sample Sharpe ratio of **1.35**, OLS-3 0.61; equal-weighted 2.45 and 0.83
+- **Portfolios:** sort stocks each month into deciles of the forecast and buy the top, sell the bottom decile. Annualized out-of-sample Sharpe ratios of this long-short portfolio, with two ways to weight the stocks within a decile:
+
+| Forecast | Value-weighted | Equal-weighted |
+|:---|---:|---:|
+| Four-layer network (NN4) | **1.35** | 2.45 |
+| OLS-3 | 0.61 | 0.83 |
+
+- **Equal weights** give small stocks as much weight as big ones: higher Sharpe ratios, but from stocks that are expensive to trade
 - **Costs:** these portfolios turn over more than 100% of their value a month (their Table 8). Lecture 15 comes back to this
 
 # Trees and forests
@@ -226,13 +266,228 @@ $$
 - **Depth** sets the complexity: deep trees fit the noise of the sample, and a small change in the data changes the whole tree
 :::
 
-## The zoo as a panel
+## From a sort to a tree
 
-::: {.panel-tabset group="language"}
-## R
+```{r}
+#| label: illustrate-tree
+#| include: false
+# One cross-section, as in the sort illustration of lecture 7: a tree of depth
+# 2 on size and book-to-market, with at least 200 stocks in each leaf
+illustration_depth <- 2
+illustration_min_leaf <- 200
+illustration_tree <- rpart(
+  ret_excess ~ size + bm,
+  data = cross_section,
+  control = rpart.control(
+    maxdepth = illustration_depth,
+    minbucket = illustration_min_leaf,
+    cp = 0
+  )
+)
+
+# The 2 x 3 sort of lecture 8, with breakpoints from all stocks
+sort_size_breaks <- c(0, 0.5, 1)
+sort_bm_breaks <- c(0, 0.3, 0.7, 1)
+
+# The rectangle of a node of the tree in the plane of size and book-to-market
+split_rule <- function(node) {
+  rule <- last(path.rpart(illustration_tree, node, print.it = FALSE)[[1]])
+  parts <- regmatches(rule, regexec("^(\\w+)(<|>=)(.+)$", rule))[[1]]
+  list(
+    variable = parts[2],
+    below = parts[3] == "<",
+    value = as.numeric(parts[4])
+  )
+}
+node_region <- function(node) {
+  region <- c(size_low = 0, size_high = 1, bm_low = 0, bm_high = 1)
+  ancestors <- node %/% 2^(seq_len(floor(log2(node))) - 1)
+  for (k in rev(ancestors[ancestors > 1])) {
+    rule <- split_rule(k)
+    bound <- paste0(rule$variable, if (rule$below) "_high" else "_low")
+    region[bound] <- rule$value
+  }
+  frame <- illustration_tree$frame[as.character(node), ]
+  tibble(
+    xmin = region[["bm_low"]],
+    xmax = region[["bm_high"]],
+    ymin = region[["size_low"]],
+    ymax = region[["size_high"]],
+    ret = frame$yval
+  )
+}
+
+# The tree split by split: the regions after each step
+tree_steps <- list(1, c(2, 3), c(4, 5, 3), c(4, 5, 6, 7))
+sort_regions <- expand_grid(i = 1:2, j = 1:3) |>
+  mutate(
+    xmin = sort_bm_breaks[j],
+    xmax = sort_bm_breaks[j + 1],
+    ymin = sort_size_breaks[i],
+    ymax = sort_size_breaks[i + 1]
+  ) |>
+  mutate(
+    ret = map_dbl(seq_len(n()), \(k) {
+      cross_section |>
+        filter(
+          between(bm, xmin[k], xmax[k]),
+          between(size, ymin[k], ymax[k])
+        ) |>
+        pull(ret_excess) |>
+        mean()
+    })
+  )
+
+panel_names <- c(
+  "Sort: breakpoints fixed in advance",
+  "Tree: splits chosen by the returns"
+)
+# The inner edges of the regions: the breakpoints and the splits
+inner_edges <- function(regions) {
+  bind_rows(
+    regions |> transmute(x = xmin, xend = xmin, y = ymin, yend = ymax),
+    regions |> transmute(x = xmin, xend = xmax, y = ymin, yend = ymin)
+  ) |>
+    filter(x + xend > 0, y + yend > 0)
+}
+plot_step <- function(nodes) {
+  tree_regions <- map(nodes, node_region) |> list_rbind()
+  regions <- bind_rows(
+    sort_regions |> mutate(panel = panel_names[1]),
+    tree_regions |> mutate(panel = panel_names[2])
+  ) |>
+    mutate(panel = factor(panel, levels = panel_names))
+  edges <- bind_rows(
+    inner_edges(sort_regions) |> mutate(panel = panel_names[1]),
+    inner_edges(tree_regions) |> mutate(panel = panel_names[2])
+  ) |>
+    mutate(panel = factor(panel, levels = panel_names))
+  points <- expand_grid(
+    cross_section,
+    panel = factor(panel_names, levels = panel_names)
+  )
+
+  ggplot() +
+    geom_point(
+      data = points,
+      aes(x = bm, y = size),
+      color = grey,
+      alpha = 0.2,
+      size = 0.6
+    ) +
+    geom_segment(
+      data = edges,
+      aes(
+        x = x,
+        xend = xend,
+        y = y,
+        yend = yend,
+        color = panel,
+        linetype = panel
+      ),
+      linewidth = 1.1
+    ) +
+    geom_label(
+      data = regions,
+      aes(
+        x = (xmin + xmax) / 2,
+        y = (ymin + ymax) / 2,
+        label = percent(ret, 0.1),
+        color = panel
+      ),
+      size = 4.2,
+      linewidth = 0
+    ) +
+    # Dashed breakpoints as in lecture 7, the splits of the tree in red
+    scale_color_manual(values = set_names(c(jet, ku_red), panel_names)) +
+    scale_linetype_manual(
+      values = set_names(c("dashed", "solid"), panel_names)
+    ) +
+    facet_wrap(vars(panel)) +
+    scale_x_continuous(
+      breaks = sort_bm_breaks,
+      labels = c("0", "30th", "70th", "100th")
+    ) +
+    scale_y_continuous(
+      breaks = sort_size_breaks,
+      labels = c("0", "50th", "100th")
+    ) +
+    coord_cartesian(expand = FALSE) +
+    labs(
+      x = "Book-to-market (percentile in the month)",
+      y = "Size (percentile in the month)"
+    ) +
+    theme(
+      legend.position = "none",
+      panel.grid = element_blank(),
+      panel.border = element_rect(color = light, fill = NA),
+      panel.spacing = unit(3, "lines"),
+      # Room for the last axis label of the right panel
+      plot.margin = margin(5.5, 20, 5.5, 5.5),
+      strip.text = element_text(size = 13, hjust = 0)
+    )
+}
+# The text says that the first split is on size, with the bigger stocks in
+# node 2, and gives the splits as percentiles
+stopifnot(split_rule(2)$variable == "size", !split_rule(2)$below)
+split_percentiles <- map(c(2, 4, 6), \(node) {
+  ordinal(round(100 * split_rule(node)$value))
+})
+```
+
+:::: {.r-stack}
+::: {.fragment .fade-out fragment-index=1}
+```{r}
+#| label: plot-tree-step-1
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4
+plot_step(tree_steps[[1]])
+```
+:::
+::: {.fragment .fade-in-then-out fragment-index=1}
+```{r}
+#| label: plot-tree-step-2
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4
+plot_step(tree_steps[[2]])
+```
+:::
+::: {.fragment .fade-in-then-out fragment-index=2}
+```{r}
+#| label: plot-tree-step-3
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4
+plot_step(tree_steps[[3]])
+```
+:::
+::: {.fragment .fade-in fragment-index=3}
+```{r}
+#| label: plot-tree-step-4
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4
+plot_step(tree_steps[[4]])
+```
+:::
+::::
+
+- `r format(illustration_month, "%B %Y")`, the month of lecture 7: `r comma(nrow(cross_section))` stocks of exercise 4. Labels: the average excess return in each region, equal-weighted
+- **Sort:** the breakpoints of lecture 8, here from all stocks, whatever the returns
+
+::: {.fragment fragment-index=1}
+- **Tree:** the first split, at the `r split_percentiles[[1]]` percentile of size, reduces the squared errors most. Then each half gets its own split on book-to-market: at the `r split_percentiles[[2]]` percentile among the bigger stocks, at the `r split_percentiles[[3]]` among the smaller ones
+:::
+
+## The zoo as a panel
 
 ```{r}
 #| label: build-panel-r
+#| include: false
+# One row per anomaly and month: the return and the predictors known when the
+# month starts. anomalies and macro: the hidden chunks at the top
 momentum_months <- 12
 panel <- anomalies |>
   pivot_longer(-date, names_to = "anomaly", values_to = "ret") |>
@@ -252,11 +507,12 @@ panel <- anomalies |>
   drop_na()
 ```
 
-## Python
-
 ```{python}
 #| label: build-panel-py
+#| include: false
 #| eval: false
+# One row per anomaly and month: the return and the predictors known when the
+# month starts. anomalies and complete (the anomalies without gaps): lecture 10
 momentum_months = 12
 panel = (
     anomalies.select("date", *complete)
@@ -274,9 +530,52 @@ panel = (
     .drop_nulls()
 )
 ```
-:::
 
-One row per anomaly and month: the return $r_{i,t+1}$, last month's return, factor momentum (mean return of the last `r momentum_months` months) and `r length(macro_names)` macro predictors of the month before (`macro`). `anomalies`, `complete`: lecture 10
+- **One row per anomaly and month,** like a panel of stocks: `r comma(nrow(panel))` rows of `r n_distinct(panel$anomaly)` anomalies, `r format(min(panel$date), "%B %Y")` to `r format(max(panel$date), "%B %Y")`
+- **Target:** the return $r_{i,t+1}$ of the month. **Predictors,** known when the month starts: last month's return, factor momentum (the mean return of the last `r momentum_months` months) and `r length(macro_names)` macro predictors of the month before (Welch & Goyal), standardized with the estimation sample
+
+```{r}
+#| label: show-panel
+#| echo: false
+# Two anomalies in the last two months of the estimation sample
+example_anomalies <- c(AssetGrowth = "Asset growth", BM = "Book-to-market")
+panel |>
+  filter(
+    anomaly %in% names(example_anomalies),
+    date >= test_start %m-% months(2),
+    date < test_start
+  ) |>
+  arrange(anomaly, date) |>
+  transmute(
+    # A non-breaking space keeps month and year on one line
+    Month = format(date, "%b\u00a0%Y"),
+    Anomaly = example_anomalies[anomaly],
+    Return = percent(ret, 0.1),
+    last_month = percent(ret_lag_1, 0.1),
+    momentum = percent(momentum_12, 0.1),
+    across(all_of(macro_names), \(x) number(x, 0.01))
+  ) |>
+  # Two-line headers for the predictors. A plain HTML table lets the browser
+  # size the columns to their content
+  set_names(c(
+    "Month",
+    "Anomaly",
+    "Return",
+    "Last<br>month",
+    "Factor<br>momentum",
+    "Dividend-price<br>ratio",
+    "T-bill<br>rate",
+    "Term<br>spread",
+    "Default<br>spread",
+    "Stock<br>variance"
+  )) |>
+  knitr::kable(
+    format = "html",
+    escape = FALSE,
+    align = "llrrrrrrrr",
+    table.attr = 'data-quarto-disable-processing="true" style="width: 100%;"'
+  )
+```
 
 ## A tree on the zoo
 
@@ -533,6 +832,17 @@ forecast_rows |>
 
 - The covariance matrix and the penalty are those of the ridge SDF of lecture 11 (Sharpe ratio `r number(ridge_sharpe[["test"]], 0.01)` in the test sample); only the expected returns change every month
 - The tuned forest uses `r best_forest$mtry` of the `r n_predictors` predictors per split and splits only nodes with at least `r best_forest$min_n` anomaly-months. No forecast portfolio comes near the static ridge SDF
+
+## Trees for the SDF
+
+- **Bryzgalova, Pelger & Zhu (2025)** use trees to build portfolios, not to forecast. Split the stocks at the median of one characteristic, then each half at the median of the same or another one, up to four times: conditional sorts, such as size, then book-to-market, then size again
+- **Every node** of the trees, final or intermediate, is a value-weighted, long-only portfolio. The splits stay at the medians; the data decide which nodes to keep
+- **Pruning:** keep the few nodes that together span the SDF best. Their SDF extends the shrunk SDF of Kozak, Nagel & Santosh (2020) from lecture 11: mean-variance weights with lasso and ridge penalties and shrunk means, tuned on a validation sample
+- **Their result:** compared with combinations of dozens of single and double sorts, and with portfolios sorted on machine learning forecasts, their few portfolios have up to three times higher out-of-sample Sharpe ratios and alphas
+
+::: {.highlight}
+Trees can also serve the SDF of lectures 10 to 12: the trees propose the portfolios, the shrunk SDF picks and weights them
+:::
 
 ## Scoreboard
 
