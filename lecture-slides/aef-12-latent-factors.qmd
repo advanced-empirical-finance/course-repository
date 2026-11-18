@@ -18,11 +18,12 @@ sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")
 n_folds <- 5
 ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 
-# Factors: up to 60, the few-factor models of the scoreboard; the weight on
-# the means of Lettau & Pelger (2020)
+# Factors: up to 60, a few-factor model in the text; the weight on the means
+# of Lettau & Pelger (2020)
 max_factors <- 60
-few_factors <- c(5, 20)
+few_factors <- 5
 phi_rp <- 10
 phis <- c(0, 1, 2, 5, 10, 20, 50, 100)
 
@@ -88,6 +89,17 @@ portfolio_sharpe <- function(weights) {
 ridge_weights <- function(x, lambda) {
   solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
 }
+lasso_weights <- function(x, lambda) {
+  fit <- glmnet(
+    x,
+    rep(1, nrow(x)),
+    lambda = lambda,
+    intercept = FALSE,
+    standardize = FALSE,
+    control = list(thresh = 1e-12)
+  )
+  as.vector(coef(fit))[-1]
+}
 folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
 cv_sharpe <- function(fit_weights, lambda) {
   map_dbl(seq_len(n_folds), \(k) {
@@ -103,10 +115,35 @@ market_sharpe <- c(
   estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
   test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
 )
+equal_sharpe <- portfolio_sharpe(rep(1 / ncol(returns), ncol(returns)))
 plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
 ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
 ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
 ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
+```
+
+```{r}
+#| label: lecture-11-lasso
+#| include: false
+#| cache: true
+#| cache.extra: !expr list(lasso_lambdas, n_folds, sample_end)
+# The lasso on anomalies and on principal components of lecture 11
+pc_lasso_weights <- function(x, lambda) {
+  components <- eigen(cov(x), symmetric = TRUE)$vectors
+  components %*% lasso_weights(x %*% components, lambda)
+}
+lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(lasso_weights, lambda))
+lasso_chosen <- lasso_weights(x_estimation, lasso_lambdas[which.max(lasso_cv)])
+pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) {
+  cv_sharpe(pc_lasso_weights, lambda)
+})
+components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
+pc_lasso_chosen <- lasso_weights(
+  x_estimation %*% components_estimation,
+  lasso_lambdas[which.max(pc_lasso_cv)]
+)
+lasso_sharpe <- portfolio_sharpe(lasso_chosen)
+pc_lasso_sharpe <- portfolio_sharpe(components_estimation %*% pc_lasso_chosen)
 ```
 
 ```{r}
@@ -122,21 +159,14 @@ if (live) {
 }
 ```
 
-## Today
-
-- Your validation schemes
-- Principal components of the factor zoo
-- Variance is not a premium: risk-premium PCA
-- How many factors?
-
 ## From `r ncol(returns)` anomalies to a few factors
 
 - **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. The SDF weights still come from `r ncol(returns)` means and `r comma(ncol(returns) * (ncol(returns) + 1) / 2)` covariances
-- **A factor model:** a few factors drive all `r ncol(returns)` returns, $F_t = \Lambda f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
+- **A factor model:** a few factors drive all `r ncol(returns)` returns, $F_t = B f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
 - **The factors are latent:** we estimate them from the returns themselves
 
 ::: {.highlight}
-**Today:** which few factors? The ones that explain the most variance, or the ones that carry a premium?
+**Today:** your validation schemes from exercise 5. Then which few factors: the ones that explain the most variance (principal components) or the ones that carry a premium (risk-premium PCA)? And how many?
 :::
 
 # Your validation schemes
@@ -178,57 +208,45 @@ In the open question of exercise 5, you chose your own validation scheme for the
 
 # Principal components
 
-## Principal component analysis
+## Why look for the largest variance?
+
+- **Lecture 11:** the principal components $P_{j,t} = v_j'F_t$ are portfolios of all anomalies; the lasso picked `r sum(pc_lasso_chosen != 0)` of them. Today: why they are candidates for factors
+- **A factor structure** (APT, lecture 8): $F_t = B f_t + e_t$ with $k$ factors $f_t$ and errors $e_t$ that are uncorrelated with the factors and across anomalies. Then
+
+$$
+\Sigma = B\,\text{Var}(f)\,B' + \text{Var}(e)
+$$
+
+- The factors move all `r ncol(returns)` anomalies, each error only one. With many anomalies, the $k$ directions with the most variance (approximately) span the factors: we look for them
+
+## Where the eigenvectors come from
 
 ::: {.box}
-Find the portfolio $w$ of the anomalies with the largest variance, $\max_w w'\Sigma w$ subject to $w'w = 1$. Then the next one, uncorrelated with the first
+**Lecture 11:** the first principal component is the portfolio $v$ of the anomalies with the largest variance, $\max_v v'\Sigma v$ subject to $v'v = 1$. The next one has the largest variance among the portfolios uncorrelated with the first
 :::
+
+- **Why $v'v = 1$?** The portfolio $c\,v$ has $c^2$ times the variance of $v$: without a constraint, there is no maximum. The constraint only sets the scale
+- **Still a portfolio:** the anomalies are long-short returns, so any weights $v$ give a long-short portfolio. Its scale changes neither its Sharpe ratio nor its correlations
 
 ::: {.fragment}
 $$
-\Sigma w = \delta\, w \qquad \Longrightarrow \qquad \Sigma = \sum_j \delta_j\, v_j v_j'
+\frac{\partial}{\partial v}\Big[v'\Sigma v - \delta\,(v'v - 1)\Big] = 2\,\Sigma v - 2\,\delta\, v = 0 \qquad \Longrightarrow \qquad \Sigma v = \delta\, v
 $$
 
-- The principal components are the eigenvectors $v_j$ of $\Sigma$, sorted by their eigenvalues $\delta_j$, the variances of the factors $f_{j,t} = v_j' F_t$
+- The first-order condition with the Lagrange multiplier $\delta$: the best $v$ is an eigenvector of $\Sigma$, and its variance $v'\Sigma v = \delta\, v'v = \delta$ is the eigenvalue. So take the eigenvector with the largest eigenvalue
+:::
+
+## Eigenvectors of the covariance matrix
+
+- $\Sigma$ has `r ncol(returns)` orthogonal eigenvectors $v_j$ with $v_j'v_j = 1$ and eigenvalues $\delta_1 \geq \delta_2 \geq \dots \geq 0$. Together they rebuild $\Sigma$:
+
+$$
+\Sigma = \sum_{j=1}^{`r ncol(returns)`} \delta_j\, v_j v_j'
+$$
+
+- The components $P_{j,t} = v_j'F_t$ are uncorrelated, and component $j$ has the variance $\delta_j$, a share $\delta_j / \sum_i \delta_i$ of the total
 - The first $k$ components explain the most variance that any $k$ factors can: the best factor model in the least-squares sense
-:::
-
-## Principal components in code
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: factor-weights-r
-# Mean-variance weights on the first k eigenvectors of the covariance
-# matrix plus phi times the outer product of the means (phi = 0: PCA)
-factor_weights <- function(x, k, phi = 0) {
-  mu <- colMeans(x)
-  vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
-  loadings <- vectors[, seq_len(k), drop = FALSE]
-  factors <- x %*% loadings
-  loadings %*% solve(cov(factors), colMeans(factors))
-}
-```
-
-## Python
-
-```{python}
-#| label: factor-weights-py
-#| eval: false
-# Mean-variance weights on the first k eigenvectors of the covariance
-# matrix plus phi times the outer product of the means (phi = 0: PCA)
-def factor_weights(x, k, phi=0.0):
-    mu = x.mean(axis=0)
-    values, vectors = np.linalg.eigh(np.cov(x, rowvar=False) + phi * np.outer(mu, mu))
-    loadings = vectors[:, np.argsort(values)[::-1][:k]]
-    factors = x @ loadings
-    covariance = np.atleast_2d(np.cov(factors, rowvar=False))
-    return loadings @ np.linalg.solve(covariance, factors.mean(axis=0))
-```
-:::
-
-The factors are portfolios of the anomalies; their mean-variance portfolio is again a portfolio of the anomalies, so `portfolio_sharpe()` of lecture 10 evaluates it
+- The sign of a component is arbitrary: $-v_j$ is an eigenvector, too
 
 ## Variance is not a premium
 
@@ -244,17 +262,28 @@ components <- tibble(
     abs(sharpe_ratio(x_estimation %*% eigen_estimation$vectors[, j]))
   })
 )
-pca_path <- map(seq_len(max_factors), \(k) {
-  tibble(factors = k, !!!portfolio_sharpe(factor_weights(x_estimation, k)))
-}) |>
-  bind_rows()
+
+# Is the first component the market? Correlations in absolute value, since
+# the sign of a component is arbitrary
+component_returns <- tibble(
+  date = anomalies$date[estimation],
+  first = as.vector(x_estimation %*% eigen_estimation$vectors[, 1]),
+  second = as.vector(x_estimation %*% eigen_estimation$vectors[, 2])
+) |>
+  inner_join(market, join_by(date))
+first_market <- abs(cor(component_returns$first, component_returns$mkt_excess))
+first_smb <- abs(cor(component_returns$first, component_returns$smb))
+second_market <- abs(cor(
+  component_returns$second,
+  component_returns$mkt_excess
+))
 ```
 
 ```{r}
 #| label: plot-component-premia
 #| echo: false
 #| fig-width: 11
-#| fig-height: 3.8
+#| fig-height: 3.6
 variance_panel <- ggplot(components, aes(x = component, y = variance_share)) +
   geom_col(fill = "#b3b3b3") +
   scale_y_continuous(labels = percent) +
@@ -263,13 +292,14 @@ sharpe_panel <- ggplot(components, aes(x = component, y = sharpe)) +
   geom_col(fill = ku_red) +
   labs(
     x = "Principal component",
-    y = paste0("Absolute Sharpe ratio\n", estimation_years)
+    y = paste0("Sharpe ratio ", estimation_years, "\n(absolute value)"),
+    caption = "Absolute values, since the sign of a component is arbitrary"
   )
 variance_panel + sharpe_panel
 ```
 
-- The first component explains `r percent(components$variance_share[1])` of the variance, but its Sharpe ratio is only `r number(components$sharpe[1], 0.01)`. Components further down carry the premia
-- Mean-variance portfolio of the first one, `r few_factors[1]` and `r few_factors[2]` components in the test sample: `r sharpe_text(pca_path$test[1])`, `r sharpe_text(pca_path$test[few_factors[1]])` and `r sharpe_text(pca_path$test[few_factors[2]])`. No Sharpe ratio (–) for a negative mean
+- The first component explains `r percent(components$variance_share[1])` of the variance, but its Sharpe ratio is only `r number(components$sharpe[1], 0.01)`
+- The first component is not the market: its correlation with the market is `r number(first_market, 0.01)`, with SMB (size) `r number(first_smb, 0.01)`, both in absolute value. The second component is closer to the market (`r number(second_market, 0.01)`)
 
 # Risk-premium PCA
 
@@ -280,13 +310,51 @@ Lettau & Pelger (2020): choose the factors so that they explain the variances **
 :::
 
 ::: {.fragment}
+If the factors price the anomalies (APT, lecture 8), the same loadings $B$ drive risk and return:
+
 $$
-\text{eigenvectors of} \quad \Sigma + \varphi\, \mu\mu'
+\begin{aligned}
+\Sigma &= B\,\text{Var}(f)\,B' + \text{Var}(e) \qquad \text{and} \qquad \mu = B\lambda \\
+\Longrightarrow \quad \Sigma + \varphi\, \mu\mu' &= B\big(\text{Var}(f) + \varphi\,\lambda\lambda'\big)B' + \text{Var}(e)
+\end{aligned}
 $$
 
-- $\varphi = 0$: PCA. $\varphi > 0$: directions in which the anomalies have large means count more, so factors with a premium move up the ranking
-- The factors still explain the comovement: a compromise between a factor model and the SDF
-- In the code, `factor_weights(x, k, phi)` with $\varphi$ = `r phi_rp`, a weight of the size Lettau & Pelger use
+- Risk-premium PCA takes the eigenvectors of $\Sigma + \varphi\, \mu\mu'$: the same factors, but the means help to find them. $\varphi = 0$: PCA
+- $\varphi > 0$: factors with a premium move up the ranking, even if their variance is small. We use $\varphi$ = `r phi_rp`, a weight of the size Lettau & Pelger use
+:::
+
+## PCA and risk-premium PCA in code
+
+- `factor_weights(x, k, phi)`: the first $k$ eigenvectors of $\Sigma + \varphi\,\mu\mu'$ give the factors, then the mean-variance portfolio of the $k$ factors, $\text{Var}(f)^{-1}E[f]$
+- The factors are portfolios of the anomalies, so their mean-variance portfolio is one, too: `portfolio_sharpe()` of lecture 10 evaluates it
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: factor-weights-r
+factor_weights <- function(x, k, phi = 0) {
+  mu <- colMeans(x)
+  vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
+  loadings <- vectors[, seq_len(k), drop = FALSE]
+  factors <- x %*% loadings
+  loadings %*% solve(cov(factors), colMeans(factors))
+}
+```
+
+## Python
+
+```{python}
+#| label: factor-weights-py
+#| eval: false
+def factor_weights(x, k, phi=0.0):
+    mu = x.mean(axis=0)
+    values, vectors = np.linalg.eigh(np.cov(x, rowvar=False) + phi * np.outer(mu, mu))
+    loadings = vectors[:, np.argsort(values)[::-1][:k]]
+    factors = x @ loadings
+    covariance = np.atleast_2d(np.cov(factors, rowvar=False))
+    return loadings @ np.linalg.solve(covariance, factors.mean(axis=0))
+```
 :::
 
 ## Risk-premium PCA on the zoo
@@ -304,6 +372,7 @@ factor_paths <- expand_grid(phi = phis, factors = seq_len(max_factors)) |>
 ```{r}
 #| label: rp-pca-live-data
 #| include: false
+pca_path <- factor_paths |> filter(phi == 0)
 rp_path <- factor_paths |> filter(phi == phi_rp)
 
 if (live) {
@@ -369,7 +438,7 @@ factor_paths |>
 ```
 :::
 
-- With a weight on the means, one factor reaches `r sharpe_text(rp_path$test[1])` in the test sample (PCA: `r sharpe_text(pca_path$test[1])`, a negative mean), `r few_factors[1]` factors reach `r sharpe_text(rp_path$test[few_factors[1]])` (PCA: `r sharpe_text(pca_path$test[few_factors[1]])`)
+- Sharpe ratio of the mean-variance portfolio of the first $k$ factors. With one factor, risk-premium PCA reaches `r sharpe_text(rp_path$test[1])` in the test sample (PCA: `r sharpe_text(pca_path$test[1])`, a negative mean), with `r few_factors` factors `r sharpe_text(rp_path$test[few_factors])` (PCA: `r sharpe_text(pca_path$test[few_factors])`)
 - With many factors the gap narrows, since both span more and more of the same space: at `r max_factors` factors, `r number(pca_path$test[max_factors], 0.01)` against `r number(rp_path$test[max_factors], 0.01)`
 
 ## How many factors?
@@ -389,26 +458,38 @@ factor_cv <- expand_grid(phi = c(0, phi_rp), factors = seq_len(max_factors)) |>
 #| echo: false
 #| fig-width: 11
 #| fig-height: 3.8
-factor_cv |>
-  mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp))) |>
-  ggplot(aes(x = factors, y = cv, color = method)) +
+factor_cv <- factor_cv |>
+  mutate(method = if_else(phi == 0, "PCA", paste0("RP-PCA, φ = ", phi_rp)))
+chosen_factors <- factor_cv |>
+  group_by(phi) |>
+  slice_max(cv) |>
+  ungroup()
+ggplot(factor_cv, aes(x = factors, y = cv, color = method)) +
   geom_line(linewidth = 1) +
+  geom_point(
+    data = chosen_factors,
+    size = 5,
+    shape = 21,
+    stroke = 1.3,
+    fill = NA,
+    show.legend = FALSE
+  ) +
   scale_color_manual(values = c("#b3b3b3", ku_red)) +
   labs(
     x = "Number of factors",
     y = "Validation Sharpe ratio (annualized)",
-    color = NULL
+    color = NULL,
+    caption = "Circles: number of factors chosen by cross-validation"
   ) +
   theme(legend.position = "right")
 ```
 
 - The number of factors is a tuning parameter, chosen by cross-validation with the `r n_folds` consecutive blocks of lecture 11
-- Cross-validation picks many factors: the validation Sharpe ratio peaks at `r factor_cv |> filter(phi == 0) |> slice_max(cv) |> pull(factors)` factors for PCA and at `r factor_cv |> filter(phi == phi_rp) |> slice_max(cv) |> pull(factors)` for RP-PCA, out of at most `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
-- A few factors are still a useful summary: with a weight on the means, `r few_factors[1]` factors reach `r number(rp_path$test[few_factors[1]], 0.01)` in the test sample; PCA does not get there with up to `r max_factors` factors (`r number(pca_path$test[max_factors], 0.01)` at `r max_factors`)
+- Cross-validation picks many factors: the validation Sharpe ratio peaks at `r chosen_factors$factors[chosen_factors$phi == 0]` factors for PCA and at `r chosen_factors$factors[chosen_factors$phi == phi_rp]` for RP-PCA, out of at most `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
 
 ## Outlook: loadings from characteristics
 
-- PCA treats the loadings $\Lambda$ as constant. But a stock's exposure changes with its size, value or momentum
+- PCA treats the loadings $B$ as constant. But a stock's exposure changes with its size, value or momentum
 - **Instrumented PCA** (Kelly, Pruitt & Su, 2019): loadings are functions of characteristics, $\beta_{i,t} = z_{i,t}'\Gamma$, and the factors stay latent. A handful of such factors prices the cross-section of individual stocks
 - **Lecture 14:** a neural network lets the SDF weights depend on characteristics in any shape
 
@@ -417,36 +498,47 @@ factor_cv |>
 ```{r}
 #| label: scoreboard
 #| echo: false
-few <- bind_rows(
-  pca_path |> filter(factors %in% few_factors) |> mutate(Portfolio = "PCA"),
-  rp_path |>
-    filter(factors %in% few_factors) |>
-    mutate(Portfolio = paste0("RP-PCA, φ = ", phi_rp))
-)
+# Number of factors chosen by cross-validation
+chosen <- factor_paths |>
+  semi_join(chosen_factors, join_by(phi, factors)) |>
+  arrange(phi)
 tibble(
   Portfolio = c(
     "Market",
+    "1/N over all anomalies",
     "Plug-in mean-variance",
     "Ridge (prior on Sharpe ratios)",
-    few$Portfolio
+    "Lasso on anomalies",
+    "Lasso on principal components",
+    "PCA",
+    paste0("RP-PCA, φ = ", phi_rp)
   ),
   Inputs = c(
     "Market",
     paste(ncol(returns), "anomalies"),
     paste(ncol(returns), "anomalies"),
-    paste(few$factors, "factors")
+    paste(ncol(returns), "anomalies"),
+    paste(sum(lasso_chosen != 0), "anomalies"),
+    paste(sum(pc_lasso_chosen != 0), "components"),
+    paste(chosen$factors, "factors")
   ),
   estimation = c(
     market_sharpe[["estimation"]],
+    equal_sharpe[["estimation"]],
     plug_in_sharpe[["estimation"]],
     ridge_sharpe[["estimation"]],
-    few$estimation
+    lasso_sharpe[["estimation"]],
+    pc_lasso_sharpe[["estimation"]],
+    chosen$estimation
   ),
   test = c(
     market_sharpe[["test"]],
+    equal_sharpe[["test"]],
     plug_in_sharpe[["test"]],
     ridge_sharpe[["test"]],
-    few$test
+    lasso_sharpe[["test"]],
+    pc_lasso_sharpe[["test"]],
+    chosen$test
   )
 ) |>
   mutate(across(c(estimation, test), \(x) number(x, 0.01))) |>
@@ -456,7 +548,7 @@ tibble(
   )
 ```
 
-- The few-factor models at `r few_factors[1]` and `r few_factors[2]` factors, since cross-validation picks many more; the rows of lectures 10 and 11 not shown here stay on the scoreboard
+- Every penalty and every number of factors chosen by cross-validation in the estimation sample
 
 ::: {.highlight}
 Assignment 2 on machine learning in asset pricing starts today

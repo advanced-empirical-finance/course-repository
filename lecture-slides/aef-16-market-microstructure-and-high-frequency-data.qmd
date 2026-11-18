@@ -30,6 +30,8 @@ light <- "#e6e3df"
 theme_set(
   theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
 )
+
+source("lecture-slides/_live-poll.R")
 ```
 
 ```{python}
@@ -42,21 +44,148 @@ import polars as pl
 import tidyfinance as tf
 ```
 
-## Today
-
-- How a stock trades: the limit order book
-- High-frequency data: LOBSTER and SPY
-- Liquidity and price impact
-
 ## From monthly returns to every order
 
+:::::{.columns}
+
+::: {.column width="44%"}
+![Peter Tuchman, a broker on the floor of the New York Stock Exchange](figures/tuchmann_broker.jpg){width=100%}
+:::
+::: {.column width="56%"}
+
 - **So far:** monthly returns, one number per stock and month
-- **Today:** every order that reaches the exchange, time-stamped to the nanosecond. Billions of messages a day across US stocks
+- **Below the surface:** NASDAQ has no trading floor. Every order is a message, time-stamped to the nanosecond: billions of messages a day across US stocks
 - **Why:** trading costs (lecture 5 and the trading game), volatility measured within the day (lecture 17), covariances for portfolio choice (lecture 18)
+- Assignment 3 on realized volatility from high-frequency data starts on 6 May
 
 ::: {.highlight}
-Assignment 3 on realized volatility from high-frequency data starts on 6 May
+**Today:** how a stock trades in the limit order book, high-frequency data from LOBSTER for SPY, liquidity and price impact
 :::
+
+:::
+:::::
+
+```{r}
+#| label: hft-survey
+#| include: false
+# One survey with three guesses on the scale of high-frequency trading. The
+# same questions and choices are in surveys/aef27-l16-hft.json on eumel
+hft_survey <- "aef27-l16-hft"
+hft_topics <- c("Speed", "Data", "Exchanges")
+hft_texts <- c(
+  "A round trip from Nasdaq's data centre in Carteret, New Jersey, to the Chicago data centres (e.g. CME's) and back, on the fastest fibre: how many fit into one blink of an eye?",
+  "Which file is bigger: CRSP daily (every US stock on every trading day since 1926) or one day of SPY's order book from LOBSTER (the first 100 levels)?",
+  "Which share of Nasdaq's net revenue in 2025 (revenue less the rebates and fees it pays per trade) came from trading on its exchanges?"
+)
+hft_choices <- list(
+  c("Less than 1", "1 to 4", "5 to 50", "More than 50"),
+  c(
+    "CRSP 100 times bigger",
+    "CRSP 10 times bigger",
+    "About the same size",
+    "SPY day twice as big"
+  ),
+  c("Less than 30%", "30% to 50%", "50% to 70%", "More than 70%")
+)
+
+# The questions as a numbered list, each with its choices on a grey line
+hft_question_list <- function(font_size = "1em") {
+  items <- paste0(
+    seq_along(hft_topics),
+    ". **",
+    hft_topics,
+    ":** ",
+    hft_texts,
+    "<br>[",
+    map_chr(hft_choices, \(choices) paste(choices, collapse = " · ")),
+    "]{style=\"color: ",
+    grey,
+    "\"}"
+  )
+  cat(
+    paste0("::: {style=\"font-size: ", font_size, "\"}"),
+    items,
+    ":::",
+    sep = "\n"
+  )
+}
+
+# Milliseconds: a blink (BioNumbers 100706), a round trip between Nasdaq's
+# data centre in Carteret and the Chicago data centres on the fastest fibre,
+# and the same way by microwave (Nasdaq Chicago Microwave, 2016)
+blink_ms <- c(100, 400)
+round_trip_ms <- c(13, 15)
+microwave_one_way_ms <- 4.09
+round_trips <- c(
+  min(blink_ms) / max(round_trip_ms),
+  max(blink_ms) / min(round_trip_ms)
+)
+
+# MB: all of CRSP daily, and one day of SPY's order book from LOBSTER
+# (16 November 2026, the first 100 levels, about 1 GB)
+crsp_daily_mb <- 511
+spy_day_mb <- 1000
+
+# Nasdaq, full year 2025, USD million: net revenue is revenue less the
+# rebates and fees paid per trade (transaction-based expenses)
+net_revenue <- 5249
+trading_net_revenue <- 1201
+trading_gross_revenue <- 4170
+trading_rebates <- 2528
+data_and_listings <- 804
+
+if (live) {
+  ojs_define(poll_base = poll_base, hft_survey = hft_survey)
+}
+```
+
+## Three guesses
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="26%"}
+```{ojs}
+//| label: hft-survey-qr
+//| echo: false
+surveyQR(hft_survey, 220)
+```
+:::
+::: {.column width="74%"}
+```{r}
+#| label: hft-questions-live
+#| echo: false
+#| results: asis
+hft_question_list("0.8em")
+```
+:::
+::::
+
+::: {style="margin-top: 0.6em"}
+```{ojs}
+//| label: hft-survey-live
+//| echo: false
+hft_results = surveyResults(hft_survey)
+surveyCharts(hft_results)
+```
+:::
+:::
+
+::: {.content-visible unless-profile="live"}
+```{r}
+#| label: hft-questions
+#| echo: false
+#| results: asis
+hft_question_list()
+```
+:::
+
+## The answers
+
+1. **About `r round(round_trips[1])` to `r round(round_trips[2])` round trips.** A blink lasts `r blink_ms[1]` to `r blink_ms[2]` ms, a round trip on the fastest fibre `r round_trip_ms[1]` to `r round_trip_ms[2]` ms; microwave links take only `r microwave_one_way_ms` ms one way. Sources: BioNumbers 100706 (Harvard); Nasdaq Chicago Microwave (2016)
+2. **One day of SPY, about `r round(spy_day_mb / crsp_daily_mb)` times as big.** SPY's order book on 16 November 2026 takes about `r spy_day_mb / 1000` GB, all of CRSP daily `r crsp_daily_mb` MB. Sources: a LOBSTER download (the first 100 levels); CRSP daily from WRDS
+3. **`r percent(trading_net_revenue / net_revenue, 1)` from trading:** USD `r comma(trading_net_revenue)` million of USD `r comma(net_revenue)` million. Nasdaq paid `r percent(trading_rebates / trading_gross_revenue, 1)` of its gross trading revenue (USD `r comma(trading_gross_revenue)` million) back to traders as rebates. Most of its revenue comes from data, listings, indexes and technology: Data and Listing Services alone brought USD `r comma(data_and_listings)` million (`r percent(data_and_listings / net_revenue, 1)`). Source: Nasdaq, fourth quarter and full year 2025 results
 
 # The limit order book
 
@@ -77,10 +206,8 @@ An exchange collects orders to buy and to sell. Which trades happen, and at whic
 ## An order book
 
 ```{r}
-#| label: plot-order-book
-#| echo: false
-#| fig-width: 10
-#| fig-height: 3.6
+#| label: order-book
+#| include: false
 # A stylized order book, for illustration only
 order_book <- bind_rows(
   tibble(
@@ -96,40 +223,138 @@ order_book <- bind_rows(
 )
 
 # A market order to buy takes the cheapest sell orders first
-market_buy <- 1000
+market_buy <- 1300
 asks <- order_book |>
   filter(side == "Ask: sell orders") |>
   mutate(
     taken = pmin(depth, pmax(market_buy - lag(cumsum(depth), default = 0), 0))
   )
+fills <- asks |> filter(taken > 0)
+cleared <- asks |> filter(taken == depth)
+best_bid <- max(order_book$price[order_book$side == "Bid: buy orders"])
 new_best_ask <- min(asks$price[asks$taken < asks$depth])
-ggplot(order_book, aes(x = price, y = depth, fill = side)) +
-  geom_col(width = 0.008) +
-  annotate(
-    "segment",
-    x = 99.99,
-    xend = 100.00,
-    y = 820,
-    yend = 820,
-    arrow = arrow(ends = "both", length = unit(0.15, "cm")),
-    color = jet
-  ) +
-  annotate("text", x = 99.995, y = 880, label = "Spread", color = jet) +
-  scale_fill_manual(
-    values = c("Bid: buy orders" = "#b3b3b3", "Ask: sell orders" = ku_red),
-    breaks = c("Bid: buy orders", "Ask: sell orders")
-  ) +
-  scale_x_continuous(breaks = order_book$price, labels = number_format(0.01)) +
-  labs(
-    x = "Price (USD)",
-    y = "Shares waiting",
-    fill = NULL,
-    caption = "Illustration"
-  ) +
-  theme(legend.position = "bottom")
+average_price <- weighted.mean(fills$price, fills$taken)
+fill_text <- knitr::combine_words(
+  paste(comma(fills$taken), "at", number(fills$price, 0.01)),
+  oxford_comma = FALSE
+)
+
+# The book after the market order has taken the first `levels` ask levels:
+# the shares it bought are drawn as dashed outlines
+plot_book <- function(levels) {
+  book <- order_book |>
+    left_join(
+      asks |> mutate(level = row_number()) |> select(price, taken, level),
+      by = "price"
+    ) |>
+    mutate(
+      bought = if_else(coalesce(level, 0L) %in% seq_len(levels), taken, 0),
+      waiting = depth - bought
+    )
+  bought <- book |> filter(bought > 0)
+  best_ask <- book |>
+    filter(side == "Ask: sell orders", waiting > 0) |>
+    pull(price) |>
+    min()
+  ggplot(book, aes(x = price)) +
+    geom_col(aes(y = waiting, fill = side), width = 0.008) +
+    geom_rect(
+      data = bought,
+      aes(
+        xmin = price - 0.004,
+        xmax = price + 0.004,
+        ymin = waiting,
+        ymax = depth
+      ),
+      fill = NA,
+      color = ku_red,
+      linetype = "dashed"
+    ) +
+    geom_text(
+      data = bought,
+      aes(y = (waiting + depth) / 2, label = paste0(comma(bought), "\nbought")),
+      color = ku_red,
+      size = 3.8,
+      lineheight = 0.9
+    ) +
+    annotate(
+      "segment",
+      x = best_bid,
+      xend = best_ask,
+      y = 820,
+      yend = 820,
+      arrow = arrow(ends = "both", length = unit(0.15, "cm")),
+      color = jet
+    ) +
+    annotate(
+      "text",
+      x = (best_bid + best_ask) / 2,
+      y = 880,
+      label = "Spread",
+      color = jet
+    ) +
+    scale_fill_manual(
+      values = c("Bid: buy orders" = "#b3b3b3", "Ask: sell orders" = ku_red),
+      breaks = c("Bid: buy orders", "Ask: sell orders")
+    ) +
+    scale_x_continuous(
+      breaks = order_book$price,
+      labels = number_format(0.01)
+    ) +
+    labs(
+      x = "Price (USD)",
+      y = "Shares waiting",
+      fill = NULL,
+      caption = "Illustration"
+    ) +
+    theme(legend.position = "bottom")
+}
 ```
 
-- A market order to buy `r comma(market_buy)` shares takes `r asks$taken[1]` at `r number(asks$price[1], 0.01)` and `r asks$taken[2]` at `r number(asks$price[2], 0.01)`: it clears both levels and moves the best ask from `r number(asks$price[1], 0.01)` up to `r number(new_best_ask, 0.01)`
+:::: {.r-stack}
+::: {.fragment .fade-out fragment-index=1}
+```{r}
+#| label: plot-order-book
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+plot_book(0)
+```
+:::
+::: {.fragment .fade-in-then-out fragment-index=1}
+```{r}
+#| label: plot-order-book-level-1
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+plot_book(1)
+```
+:::
+::: {.fragment .fade-in-then-out fragment-index=2}
+```{r}
+#| label: plot-order-book-level-2
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+plot_book(2)
+```
+:::
+::: {.fragment .fade-in fragment-index=3}
+```{r}
+#| label: plot-order-book-level-3
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.6
+plot_book(3)
+```
+:::
+::::
+
+- A market order to buy `r comma(market_buy)` shares walks up the book: it takes `r fill_text`
+
+::: {.fragment fragment-index=3}
+- The order clears the levels at `r knitr::combine_words(number(cleared$price, 0.01), oxford_comma = FALSE)` and moves the best ask up to `r number(new_best_ask, 0.01)`. The buyer pays `r number(average_price, 0.01)` per share on average, more than the best ask of `r number(asks$price[1], 0.01)` before the order: its **price impact**
+:::
 
 ## A NASDAQ trading day
 
@@ -152,13 +377,20 @@ ggplot(order_book, aes(x = price, y = depth, fill = side)) +
 
 # High-frequency data
 
-## LOBSTER: the terms of the data
+## The order book when the Fed speaks
+
+![](figures/lobster-spy-2024-03-20.png){width=80%}
+
+- SPY on NASDAQ, 20 March 2024 (LOBSTER), every 0.2 seconds: the 20 best prices on each side. Red: sell orders, grey: buy orders, dot size: shares waiting, black: last trade price, dashed: the Fed's statement at 14:00
+- Seconds after the statement, the book thins out, the price levels spread apart and the price jumps
+
+## LOBSTER data
 
 - [LOBSTER](https://lobsterdata.com) rebuilds the NASDAQ order book of any stock from the exchange's messages; KU has access
 - **Message file:** one row per event: time (seconds after midnight, with nanoseconds), event type, order ID, size, price, direction (buy or sell)
 - **Event types:** submission of a new limit order, partial cancellation, deletion, execution of a visible order, execution of a hidden order, auction trade, trading halt
 - **Order book file:** after every event, the best prices and the depth on each side, for as many levels as requested
-- One stock and one day easily have millions of messages: the data are aggregated before we use them
+- One stock and one day easily have millions of messages
 
 ## The SPY data
 
@@ -225,8 +457,9 @@ month_label <- \(year) paste(month.name[sample_month], year)
 #| echo: false
 #| fig-width: 11
 #| fig-height: 3.6
-# Averages over intervals of the trading day in one year, without the
-# snapshots of the opening and closing auctions
+# Medians over intervals of the trading day in one year, without the
+# snapshots of the opening and closing auctions. Medians, because a mean
+# follows the few days with news in an interval
 intraday <- spy |>
   filter(year == recent_year) |>
   mutate(clock_exact = hour(ts) + minute(ts) / 60 + second(ts) / 3600) |>
@@ -236,9 +469,9 @@ intraday <- spy |>
     clock = hour(time) + minute(time) / 60
   ) |>
   summarize(
-    spread = mean(spread),
-    depth = mean((depth0_ask + depth0_bid) / 2 * midquote),
-    volume = mean(trading_volume),
+    spread = median(spread),
+    depth = median((depth0_ask + depth0_bid) / 2 * midquote),
+    volume = median(trading_volume),
     .by = clock
   )
 intraday_panel <- function(column, label, formatter) {
@@ -264,7 +497,8 @@ intraday_panel("spread", "Spread (bps)", number_format(0.01)) +
   )
 ```
 
-- `r month_label(recent_year)`, averages per `r bucket_minutes` minutes of continuous trading (without the opening and closing auctions): trading is heaviest at the open and at the close (the U-shape); the spread is widest right after the open, when uncertainty is largest, and depth builds up during the day
+- `r month_label(recent_year)`, medians of the snapshots in each `r bucket_minutes`-minute interval of continuous trading (without the opening and closing auctions). Medians, not means: a single day with news, such as a Fed announcement, does not drive the curve
+- Trading is heaviest at the open and at the close (the U-shape); the spread is widest right after the open, when uncertainty is largest, and depth builds up during the day
 
 ## Liquidity over the years
 
@@ -312,7 +546,7 @@ spread_years + depth_years
 ## Kyle's lambda
 
 ::: {.box}
-Kyle (1985): a market maker sees only the total order flow $x$, from informed and uninformed traders. Which price does she set?
+Kyle (1985): an informed trader knows the asset's value $v$; everyone else expects $p_0 = E[v]$ before trading. A market maker sees only the total order flow $x$, from the informed and from uninformed traders. Which price does she set?
 :::
 
 ::: {.fragment}
@@ -416,3 +650,72 @@ $$
 - Trade prices bounce between bid and ask: their changes are negatively autocorrelated, and the spread follows as $s = 2\sqrt{-\text{Cov}(\Delta p_t, \Delta p_{t-1})}$
 - The bounce adds variance that is not in the true price. The more often we sample, the more of it we measure: **microstructure noise**, the topic of lecture 17
 :::
+
+## The bid-ask bounce in a simulation
+
+```{r}
+#| label: plot-roll-simulation
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.6
+# Roll (1984) in a simulation: the true price is a random walk, and each trade
+# happens at the bid or at the ask with equal probability
+n_trades <- 10000
+true_spread <- 0.02
+price_volatility <- 0.005
+n_shown <- 40
+set.seed(1984)
+roll <- tibble(
+  trade = 1:n_trades,
+  true_price = 100 + cumsum(rnorm(n_trades, sd = price_volatility)),
+  side = sample(c(-1, 1), n_trades, replace = TRUE),
+  trade_price = true_price + true_spread / 2 * side
+) |>
+  mutate(
+    change = 100 * (trade_price - lag(trade_price)),
+    previous_change = lag(change)
+  )
+autocovariance <- cov(roll$change, roll$previous_change, use = "complete.obs")
+roll_spread <- 2 * sqrt(-autocovariance)
+
+shown <- roll |> filter(trade <= n_shown)
+path <- ggplot(shown, aes(x = trade)) +
+  geom_ribbon(
+    aes(
+      ymin = true_price - true_spread / 2,
+      ymax = true_price + true_spread / 2
+    ),
+    fill = light
+  ) +
+  geom_line(aes(y = true_price), color = jet) +
+  geom_line(aes(y = trade_price), color = ku_red, linewidth = 0.3) +
+  geom_point(aes(y = trade_price), color = ku_red, size = 1.8) +
+  annotate(
+    "text",
+    x = max(shown$trade),
+    y = last(shown$true_price),
+    label = "True price",
+    hjust = -0.1,
+    color = jet
+  ) +
+  annotate(
+    "text",
+    x = min(shown$trade),
+    y = max(shown$trade_price),
+    label = "Trades at the bid or the ask",
+    hjust = 0,
+    color = ku_red
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.25))) +
+  scale_y_continuous(labels = number_format(0.01)) +
+  labs(x = "Trade", y = "Price (USD)")
+bounce <- ggplot(drop_na(roll), aes(x = previous_change, y = change)) +
+  geom_point(color = ku_red, alpha = 0.05, size = 0.8) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = jet) +
+  coord_equal() +
+  labs(x = "Previous price change (cents)", y = "Price change (cents)")
+path + bounce + plot_layout(widths = c(1.6, 1))
+```
+
+- `r comma(n_trades)` simulated trades with a spread of `r 100 * true_spread` cents (grey band from bid to ask). After a trade at the ask the next trade price tends to fall, after a trade at the bid it tends to rise
+- The autocovariance of trade price changes is `r number(autocovariance, 0.01, style_negative = "minus")` cents² (theory: $-s^2/4 =$ `r number(-(100 * true_spread)^2 / 4, 0.01, style_negative = "minus")`), so Roll's formula gives a spread of `r number(roll_spread, 0.01)` cents
