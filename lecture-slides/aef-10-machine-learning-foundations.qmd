@@ -635,7 +635,7 @@ $$
 ::: {.fragment}
 :::: {.columns}
 ::: {.column width="58%"}
-- No closed form. If $F'F = TI$ (uncorrelated anomalies with mean square one), each weight is **soft-thresholded**:
+- No closed form. If $F'F = TI$ (orthogonal anomalies with mean square one), each weight is **soft-thresholded**:
 
 $$
 \hat b^{\text{lasso}}_{\lambda, i} = \text{sign}\big(\hat b_i^{\text{OLS}}\big)\max\big(|\hat b_i^{\text{OLS}}| - \lambda, 0\big)

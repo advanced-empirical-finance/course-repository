@@ -322,7 +322,7 @@ $$
 \Sigma = \sum_{j=1}^{`r length(anomaly_names)`} \delta_j\, v_j v_j'
 $$
 
-- The components $P_{j,t} = v_j'F_t$ are uncorrelated, and component $j$ has the variance $\delta_j$, a share $\delta_j / \sum_i \delta_i$ of the total
+- The components $P_{j,t} = v_j'F_t$ are uncorrelated, and component $j$ has the variance $\delta_j$, a share $\delta_j / \sum_k \delta_k$ of the total
 - The first $k$ components explain the most variance that any $k$ factors can: the best factor model in the least-squares sense
 - The sign of a component is arbitrary: $-v_j$ is an eigenvector, too
 
