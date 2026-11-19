@@ -1051,14 +1051,14 @@ $$
 ::: {.box}
 Suppose the SDF loads on stock $i$ with $b'\hat x_{i,t}/N_t$: characteristics as covariances (Kelly, Pruitt & Su, 2019). Then the SDF is linear in the characteristic-managed portfolios $F_{t+1} = \frac{1}{N_t}\sum_i \hat x_{i,t}\, r_{i,t+1}$ (Kozak, Nagel & Santosh, 2020):
 $$
-m_{t+1} = 1 - b'\big(F_{t+1} - E[F]\big), \qquad E[m_{t+1}F_{t+1}] = 0 \ \Rightarrow \ b = \Sigma_F^{-1}\mu_F
+M_{t+1} = 1 - b'F_{t+1}, \qquad E[M_{t+1}F_{t+1}] = 0 \ \Rightarrow \ b = E[FF']^{-1}\mu_F \ \propto \ \Sigma_F^{-1}\mu_F
 $$
 :::
 
 - The SDF loadings are the tangency weights: the tangency portfolio puts $b'\hat x_{i,t}/N_t$ on stock $i$, linear in the characteristics, like the policy
-- The policy earns $r_p = r_b + \theta'F$, with $r_b$ the benchmark. Maximizing $E[r_p] - \frac{\gamma}{2}\text{Var}(r_p)$ gives $b$ up to scale, minus a hedge of the benchmark:
+- The policy earns $r_p = r_b + \theta'F$, with $r_b$ the benchmark. Maximizing $E[r_p] - \frac{\gamma}{2}\text{Var}(r_p)$ gives the SDF loadings up to scale, minus a hedge of the benchmark:
   $$
-  \theta = \frac{b}{\gamma} - \Sigma_F^{-1}\text{Cov}(F, r_b)
+  \theta = \frac{1}{\gamma}\Sigma_F^{-1}\mu_F - \Sigma_F^{-1}\text{Cov}(F, r_b)
   $$
 - Exact with sample moments, too; the average of $r_p - \frac{\gamma}{2}r_p^2$ would use $E[FF']$, not $\Sigma_F$
 
@@ -1204,7 +1204,7 @@ theta = fit.x
 ```{r}
 #| label: decompose-policy
 #| include: false
-# The closed form: b / gamma minus the regression slopes of the benchmark
+# The closed form: Sigma^-1 mu / gamma minus the regression slopes of the benchmark
 # on the characteristic-managed portfolios
 managed <- in_sample |>
   summarize(
@@ -1220,7 +1220,7 @@ hedge <- solve(cov(managed_returns), cov(managed_returns, managed$benchmark))
 pair <- function(x) paste0("(", paste(number(x, 0.01), collapse = ", "), ")")
 ```
 
-Mean-variance utility with $\gamma$ = `r gamma_policy`, estimated on `r format(policy_start, "%Y")`–`r year(policy_split) - 1`: $\hat\theta_\text{momentum}$ = `r number(theta[1], 0.01)`, $\hat\theta_\text{size}$ = `r number(theta[2], 0.01)`, exactly $\hat b/\gamma$ = `r pair(b_scaled)` minus the hedge `r pair(hedge)`. The policy tilts toward past winners and toward small stocks
+Mean-variance utility with $\gamma$ = `r gamma_policy`, estimated on `r format(policy_start, "%Y")`–`r year(policy_split) - 1`: $\hat\theta_\text{momentum}$ = `r number(theta[1], 0.01)`, $\hat\theta_\text{size}$ = `r number(theta[2], 0.01)`, exactly $\hat\Sigma_F^{-1}\hat\mu_F/\gamma$ = `r pair(b_scaled)` minus the hedge `r pair(hedge)`. The policy tilts toward past winners and toward small stocks
 
 ## In sample and out of sample
 
