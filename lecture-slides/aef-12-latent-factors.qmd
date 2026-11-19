@@ -8,7 +8,7 @@ date: 2027-04-12
 #| include: false
 library(tidyverse)
 library(nanoparquet)
-library(glmnet)
+library(tidymodels)
 library(scales)
 library(patchwork)
 
@@ -62,7 +62,7 @@ import numpy as np
 ```{r}
 #| label: lectures-10-and-11-code
 #| include: false
-# The data and functions of lectures 10 and 11
+# The data, the metric, the workflows and the folds of lectures 10 and 11
 osap_url <- paste0(
   "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
@@ -72,78 +72,156 @@ if (!file.exists(osap_file)) {
   download.file(osap_url, osap_file, mode = "wb")
 }
 anomalies <- read_parquet(osap_file) |>
-  mutate(date = floor_date(as.Date(date), "month")) |>
   filter(between(date, sample_start, sample_end)) |>
-  select(date, where(\(x) !anyNA(x)))
-returns <- as.matrix(select(anomalies, -date)) / 100
-estimation <- anomalies$date < test_start
-x_estimation <- returns[estimation, ]
+  select(date, where(\(x) !anyNA(x))) |>
+  mutate(across(-date, \(x) x / 100), y = 1)
+anomaly_names <- setdiff(names(anomalies), c("date", "y"))
+sample_split <- make_splits(
+  filter(anomalies, date < test_start),
+  assessment = filter(anomalies, date >= test_start)
+)
+estimation_months <- training(sample_split)
+test_months <- testing(sample_split)
+x_estimation <- as.matrix(estimation_months[anomaly_names])
+x_test <- as.matrix(test_months[anomaly_names])
 
-sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
-portfolio_sharpe <- function(weights) {
-  c(
-    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
-    test = sharpe_ratio(returns[!estimation, ] %*% weights)
+sharpe_ratio_vec <- function(truth, estimate, ...) {
+  mean(estimate) / sd(estimate) * sqrt(months_per_year)
+}
+sharpe_ratio <- function(data, truth, estimate, ...) {
+  numeric_metric_summarizer(
+    "sharpe_ratio",
+    sharpe_ratio_vec,
+    data,
+    !!enquo(truth),
+    !!enquo(estimate)
   )
 }
-ridge_weights <- function(x, lambda) {
-  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
+sharpe_ratio <- new_numeric_metric(sharpe_ratio, direction = "maximize")
+sharpe_in <- function(fit, months) {
+  augment(fit, months) |> sharpe_ratio(y, .pred) |> pull(.estimate)
 }
-lasso_weights <- function(x, lambda) {
-  fit <- glmnet(
-    x,
-    rep(1, nrow(x)),
-    lambda = lambda,
+# Sharpe ratios of a fitted workflow in both samples, for figures and tables
+sample_sharpe <- function(fit) {
+  c(
+    estimation = sharpe_in(fit, estimation_months),
+    test = sharpe_in(fit, test_months)
+  )
+}
+# The same for weights from a function of our own, as in lecture 11
+weights_sharpe <- function(weights) {
+  c(
+    estimation = sharpe_ratio_vec(estimate = drop(x_estimation %*% weights)),
+    test = sharpe_ratio_vec(estimate = drop(x_test %*% weights))
+  )
+}
+
+plug_in_workflow <- workflow() |>
+  add_variables(outcomes = y, predictors = all_of(anomaly_names)) |>
+  add_model(linear_reg(), formula = y ~ 0 + .)
+ridge_model <- linear_reg(penalty = tune(), mixture = 0) |>
+  set_engine(
+    "glmnet",
     intercept = FALSE,
     standardize = FALSE,
+    path_values = ridge_lambdas,
     control = list(thresh = 1e-12)
   )
-  as.vector(coef(fit))[-1]
-}
-folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
-cv_sharpe <- function(fit_weights, lambda) {
-  map_dbl(seq_len(n_folds), \(k) {
-    weights <- fit_weights(x_estimation[folds != k, ], lambda)
-    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
-  }) |>
-    mean(na.rm = TRUE)
-}
+ridge_workflow <- update_model(plug_in_workflow, ridge_model)
+lasso_model <- linear_reg(penalty = tune(), mixture = 1) |>
+  set_engine(
+    "glmnet",
+    intercept = FALSE,
+    standardize = FALSE,
+    path_values = lasso_lambdas,
+    control = list(thresh = 1e-12)
+  )
+lasso_workflow <- update_model(plug_in_workflow, lasso_model)
 
 market <- read_parquet("data/factors_ff3_monthly.parquet") |>
   filter(between(date, sample_start, sample_end))
 market_sharpe <- c(
-  estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
-  test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+  estimation = sharpe_ratio_vec(
+    estimate = market$mkt_excess[market$date < test_start]
+  ),
+  test = sharpe_ratio_vec(
+    estimate = market$mkt_excess[market$date >= test_start]
+  )
 )
-equal_sharpe <- portfolio_sharpe(rep(1 / ncol(returns), ncol(returns)))
-plug_in_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, 0))
-ridge_cv <- map_dbl(ridge_lambdas, \(lambda) cv_sharpe(ridge_weights, lambda))
-ridge_lambda <- ridge_lambdas[which.max(ridge_cv)]
-ridge_sharpe <- portfolio_sharpe(ridge_weights(x_estimation, ridge_lambda))
+equal_sharpe <- c(
+  estimation = sharpe_ratio_vec(
+    estimate = rowMeans(estimation_months[anomaly_names])
+  ),
+  test = sharpe_ratio_vec(estimate = rowMeans(test_months[anomaly_names]))
+)
+plug_in_sharpe <- sample_sharpe(fit(plug_in_workflow, estimation_months))
+
+# k = 5 consecutive blocks of the estimation months as folds
+block_folds <- estimation_months |>
+  mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds))) |>
+  group_vfold_cv(group = block, v = n_folds)
 ```
 
 ```{r}
-#| label: lecture-11-lasso
+#| label: lecture-11-tuning
 #| include: false
 #| cache: true
-#| cache.extra: !expr list(lasso_lambdas, n_folds, sample_end)
-# The lasso on anomalies and on principal components of lecture 11
-pc_lasso_weights <- function(x, lambda) {
-  components <- eigen(cov(x), symmetric = TRUE)$vectors
-  components %*% lasso_weights(x %*% components, lambda)
-}
-lasso_cv <- map_dbl(lasso_lambdas, \(lambda) cv_sharpe(lasso_weights, lambda))
-lasso_chosen <- lasso_weights(x_estimation, lasso_lambdas[which.max(lasso_cv)])
-pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) {
-  cv_sharpe(pc_lasso_weights, lambda)
-})
-components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
-pc_lasso_chosen <- lasso_weights(
-  x_estimation %*% components_estimation,
-  lasso_lambdas[which.max(pc_lasso_cv)]
+#| cache.extra: !expr list(ridge_lambdas, lasso_lambdas, n_folds, sample_start, sample_end, test_start)
+# Ridge, the lasso on anomalies and the lasso on principal components, each
+# with the penalty chosen by cross-validation as in lecture 11
+ridge_tuning <- tune_grid(
+  ridge_workflow,
+  block_folds,
+  grid = tibble(penalty = ridge_lambdas),
+  metrics = metric_set(sharpe_ratio)
 )
-lasso_sharpe <- portfolio_sharpe(lasso_chosen)
-pc_lasso_sharpe <- portfolio_sharpe(components_estimation %*% pc_lasso_chosen)
+ridge_fit <- ridge_workflow |>
+  finalize_workflow(select_best(ridge_tuning, metric = "sharpe_ratio")) |>
+  fit(estimation_months)
+lasso_tuning <- tune_grid(
+  lasso_workflow,
+  block_folds,
+  grid = tibble(penalty = lasso_lambdas),
+  metrics = metric_set(sharpe_ratio)
+)
+lasso_fit <- lasso_workflow |>
+  finalize_workflow(select_best(lasso_tuning, metric = "sharpe_ratio")) |>
+  fit(estimation_months)
+ridge_sharpe <- sample_sharpe(ridge_fit)
+lasso_sharpe <- sample_sharpe(lasso_fit)
+lasso_kept <- sum(tidy(lasso_fit)$estimate != 0)
+
+pc_lasso_weights <- function(months, lambda) {
+  x <- as.matrix(months[anomaly_names])
+  components <- eigen(cov(x), symmetric = TRUE)$vectors
+  lasso_fit <- lasso_model |>
+    finalize_model(tibble(penalty = lambda)) |>
+    fit_xy(as.data.frame(x %*% components), months$y)
+  components %*% tidy(lasso_fit)$estimate[-1]
+}
+pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) {
+  map_dbl(block_folds$splits, \(split) {
+    weights <- pc_lasso_weights(analysis(split), lambda)
+    validation <- assessment(split)
+    portfolio_returns <- as.matrix(validation[anomaly_names]) %*% weights
+    sharpe_ratio_vec(validation$y, portfolio_returns[, 1])
+  }) |>
+    mean()
+})
+pc_lasso_lambda <- lasso_lambdas[which.max(pc_lasso_cv)]
+# The lasso on the components of the whole estimation sample
+components_estimation <- eigen(cov(x_estimation), symmetric = TRUE)$vectors
+pc_lasso_fit <- function(lambda) {
+  lasso_model |>
+    finalize_model(tibble(penalty = lambda)) |>
+    fit_xy(
+      as.data.frame(x_estimation %*% components_estimation),
+      estimation_months$y
+    )
+}
+pc_weights <- tidy(pc_lasso_fit(pc_lasso_lambda))$estimate[-1]
+pc_kept <- sum(pc_weights != 0)
+pc_lasso_sharpe <- weights_sharpe(components_estimation %*% pc_weights)
 ```
 
 ```{r}
@@ -159,10 +237,10 @@ if (live) {
 }
 ```
 
-## From `r ncol(returns)` anomalies to a few factors
+## From `r length(anomaly_names)` anomalies to a few factors
 
-- **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. The SDF weights still come from `r ncol(returns)` means and `r comma(ncol(returns) * (ncol(returns) + 1) / 2)` covariances
-- **A factor model:** a few factors drive all `r ncol(returns)` returns, $F_t = B f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
+- **Lecture 11:** the best SDF of the zoo needs dozens of anomalies or principal components. The SDF weights still come from `r length(anomaly_names)` means and `r comma(length(anomaly_names) * (length(anomaly_names) + 1) / 2)` covariances
+- **A factor model:** a few factors drive all `r length(anomaly_names)` returns, $F_t = B f_t + e_t$. If the SDF is spanned by $f$, a handful of means and covariances suffice
 - **The factors are latent:** we estimate them from the returns themselves
 
 ::: {.highlight}
@@ -210,14 +288,14 @@ In the open question of exercise 5, you chose your own validation scheme for the
 
 ## Why look for the largest variance?
 
-- **Lecture 11:** the principal components $P_{j,t} = v_j'F_t$ are portfolios of all anomalies; the lasso picked `r sum(pc_lasso_chosen != 0)` of them. Today: why they are candidates for factors
+- **Lecture 11:** the principal components $P_{j,t} = v_j'F_t$ are portfolios of all anomalies; the lasso picked `r pc_kept` of them. Today: why they are candidates for factors
 - **A factor structure** (APT, lecture 8): $F_t = B f_t + e_t$ with $k$ factors $f_t$ and errors $e_t$ that are uncorrelated with the factors and across anomalies. Then
 
 $$
 \Sigma = B\,\text{Var}(f)\,B' + \text{Var}(e)
 $$
 
-- The factors move all `r ncol(returns)` anomalies, each error only one. With many anomalies, the $k$ directions with the most variance (approximately) span the factors: we look for them
+- The factors move all `r length(anomaly_names)` anomalies, each error only one. With many anomalies, the $k$ directions with the most variance (approximately) span the factors: we look for them
 
 ## Where the eigenvectors come from
 
@@ -238,10 +316,10 @@ $$
 
 ## Eigenvectors of the covariance matrix
 
-- $\Sigma$ has `r ncol(returns)` orthogonal eigenvectors $v_j$ with $v_j'v_j = 1$ and eigenvalues $\delta_1 \geq \delta_2 \geq \dots \geq 0$. Together they rebuild $\Sigma$:
+- $\Sigma$ has `r length(anomaly_names)` orthogonal eigenvectors $v_j$ with $v_j'v_j = 1$ and eigenvalues $\delta_1 \geq \delta_2 \geq \dots \geq 0$. Together they rebuild $\Sigma$:
 
 $$
-\Sigma = \sum_{j=1}^{`r ncol(returns)`} \delta_j\, v_j v_j'
+\Sigma = \sum_{j=1}^{`r length(anomaly_names)`} \delta_j\, v_j v_j'
 $$
 
 - The components $P_{j,t} = v_j'F_t$ are uncorrelated, and component $j$ has the variance $\delta_j$, a share $\delta_j / \sum_i \delta_i$ of the total
@@ -259,14 +337,17 @@ components <- tibble(
   variance_share = eigen_estimation$values[component] /
     sum(eigen_estimation$values),
   sharpe = map_dbl(component, \(j) {
-    abs(sharpe_ratio(x_estimation %*% eigen_estimation$vectors[, j]))
+    abs(sharpe_ratio_vec(
+      estimate = x_estimation %*% eigen_estimation$vectors[, j]
+    ))
   })
 )
 
 # Is the first component the market? Correlations in absolute value, since
-# the sign of a component is arbitrary
+# the sign of a component is arbitrary. The factor file dates each month by
+# its first day
 component_returns <- tibble(
-  date = anomalies$date[estimation],
+  date = floor_date(estimation_months$date, "month"),
   first = as.vector(x_estimation %*% eigen_estimation$vectors[, 1]),
   second = as.vector(x_estimation %*% eigen_estimation$vectors[, 2])
 ) |>
@@ -325,15 +406,16 @@ $$
 
 ## PCA and risk-premium PCA in code
 
-- `factor_weights(x, k, phi)`: the first $k$ eigenvectors of $\Sigma + \varphi\,\mu\mu'$ give the factors, then the mean-variance portfolio of the $k$ factors, $\text{Var}(f)^{-1}E[f]$
-- The factors are portfolios of the anomalies, so their mean-variance portfolio is one, too: `portfolio_sharpe()` of lecture 10 evaluates it
+- `factor_weights()`: the first $k$ eigenvectors of $\Sigma + \varphi\,\mu\mu'$ in the months it is fitted on give the factors, then the mean-variance portfolio of the $k$ factors, $\text{Var}(f)^{-1}E[f]$
+- The factors are portfolios of the anomalies, so their mean-variance portfolio is one, too. As for `pc_lasso_weights()` of lecture 11, the Sharpe ratio metric of lecture 10 evaluates its returns
 
 ::: {.panel-tabset group="language"}
 ## R
 
 ```{r}
 #| label: factor-weights-r
-factor_weights <- function(x, k, phi = 0) {
+factor_weights <- function(months, k, phi = 0) {
+  x <- as.matrix(months[anomaly_names])
   mu <- colMeans(x)
   vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
   loadings <- vectors[, seq_len(k), drop = FALSE]
@@ -363,9 +445,13 @@ def factor_weights(x, k, phi=0.0):
 #| label: rp-pca-paths
 #| include: false
 #| cache: true
-#| cache.extra: !expr list(phis, max_factors, sample_end)
+#| cache.extra: !expr list(phis, max_factors, sample_start, sample_end, test_start)
 factor_paths <- expand_grid(phi = phis, factors = seq_len(max_factors)) |>
-  mutate(sharpe = map2(phi, factors, \(phi, k) portfolio_sharpe(factor_weights(x_estimation, k, phi)))) |>
+  mutate(
+    sharpe = map2(phi, factors, \(phi, k) {
+      weights_sharpe(factor_weights(estimation_months, k, phi))
+    })
+  ) |>
   unnest_wider(sharpe)
 ```
 
@@ -447,10 +533,21 @@ factor_paths |>
 #| label: choose-factors-r
 #| include: false
 #| cache: true
-#| cache.extra: !expr list(phi_rp, max_factors, n_folds, sample_end)
-# The number of factors is a tuning parameter: cross-validation as in lecture 11
+#| cache.extra: !expr list(phi_rp, max_factors, n_folds, sample_start, sample_end, test_start)
+# The number of factors is a tuning parameter: the folds and the metric of
+# lecture 11, with a map over k as for the lasso on principal components
 factor_cv <- expand_grid(phi = c(0, phi_rp), factors = seq_len(max_factors)) |>
-  mutate(cv = map2_dbl(phi, factors, \(phi, k) cv_sharpe(\(x, k) factor_weights(x, k, phi), k)))
+  mutate(
+    cv = map2_dbl(phi, factors, \(phi, k) {
+      map_dbl(block_folds$splits, \(split) {
+        weights <- factor_weights(analysis(split), k, phi)
+        validation <- assessment(split)
+        portfolio_returns <- as.matrix(validation[anomaly_names]) %*% weights
+        sharpe_ratio_vec(validation$y, portfolio_returns[, 1])
+      }) |>
+        mean()
+    })
+  )
 ```
 
 ```{r}
@@ -484,7 +581,7 @@ ggplot(factor_cv, aes(x = factors, y = cv, color = method)) +
   theme(legend.position = "right")
 ```
 
-- The number of factors is a tuning parameter, chosen by cross-validation with the `r n_folds` consecutive blocks of lecture 11
+- The number of factors is a tuning parameter, chosen by cross-validation with the `r n_folds` consecutive blocks and the Sharpe ratio metric of lecture 11, by hand as for the lasso on principal components
 - Cross-validation picks many factors: the validation Sharpe ratio peaks at `r chosen_factors$factors[chosen_factors$phi == 0]` factors for PCA and at `r chosen_factors$factors[chosen_factors$phi == phi_rp]` for RP-PCA, out of at most `r max_factors`. As in lecture 11, the zoo has no small set of factors that does the job
 
 ## Outlook: loadings from characteristics
@@ -515,11 +612,11 @@ tibble(
   ),
   Inputs = c(
     "Market",
-    paste(ncol(returns), "anomalies"),
-    paste(ncol(returns), "anomalies"),
-    paste(ncol(returns), "anomalies"),
-    paste(sum(lasso_chosen != 0), "anomalies"),
-    paste(sum(pc_lasso_chosen != 0), "components"),
+    paste(length(anomaly_names), "anomalies"),
+    paste(length(anomaly_names), "anomalies"),
+    paste(length(anomaly_names), "anomalies"),
+    paste(lasso_kept, "anomalies"),
+    paste(pc_kept, "components"),
     paste(chosen$factors, "factors")
   ),
   estimation = c(

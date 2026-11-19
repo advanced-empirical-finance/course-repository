@@ -342,16 +342,20 @@ Inside, `tune_grid()` and `GridSearchCV()` loop over penalties and folds: fit on
 ## An SDF that prices all anomalies
 
 ::: {.box}
-Find the SDF $m = 1 - b'(F - \mu)$ that prices all anomaly returns $F$, with means $\mu = E[F]$ and covariance matrix $\Sigma = \text{Var}(F)$: $E[m\,F] = 0$
+Find the SDF $M_{t+1} = 1 - \sum_{i=1}^{N} b_i F_{i,t+1} = 1 - b'F_{t+1}$ that prices all $N$ anomalies. A long-short return costs nothing, so its price is zero: $E[M_{t+1} F_{i,t+1}] = 0$ for $i = 1, \dots, N$. Means $\mu = E[F_{t+1}]$, covariance matrix $\Sigma = \text{Var}(F_{t+1})$
 :::
 
 ::: {.fragment}
 $$
-E[m\,F] = \mu - E\big[F(F - \mu)'\big]\,b = \mu - \Sigma b = 0 \qquad \Longrightarrow \qquad b = \Sigma^{-1}\mu
+\begin{aligned}
+E[M_{t+1} F_{t+1}] &= \mu - E[F_{t+1} F_{t+1}']\, b = 0 \\
+\Longrightarrow \qquad b &= E[F_{t+1} F_{t+1}']^{-1}\mu = (\Sigma + \mu\mu')^{-1}\mu = \frac{\Sigma^{-1}\mu}{1 + \mu'\Sigma^{-1}\mu}
+\end{aligned}
 $$
 
-- The SDF's loadings are the weights of the mean-variance efficient portfolio (lecture 6): estimating the SDF and choosing the best portfolio of the zoo are the same problem
-- Each anomaly is a characteristic-managed portfolio, a long-short sort (lectures 7 and 8). $b$ says how much each characteristic matters for prices
+- The SDF's loadings are proportional to $\Sigma^{-1}\mu$, the weights of the mean-variance efficient portfolio (lecture 6), whose squared Sharpe ratio is $\mu'\Sigma^{-1}\mu$: estimating the SDF and choosing the best portfolio of the zoo are the same problem
+- **Why $1 - b'F$:** from now on, as in Chen, Pelger & Zhu (lecture 14), the SDF does not subtract the means. With sample moments, $\hat b = (F'F)^{-1}F'y$ is the regression of lecture 10. Kozak, Nagel & Santosh write $1 - b'(F_{t+1} - \mu)$ and get $b = \Sigma^{-1}\mu$: the same portfolio
+- Each anomaly is a characteristic-managed portfolio, a long-short sort (lectures 7 and 8): $b_i$ says how much characteristic $i$ matters for prices
 :::
 
 ## A prior on Sharpe ratios
@@ -360,7 +364,7 @@ $$
 Kozak, Nagel & Santosh (2020): before seeing the data, an investor treats the means $\mu$ as random,
 
 $$
-\mu \sim N\Big(0, \frac{\kappa^2}{\tau}\,\Sigma^2\Big)
+\mu \sim \mathcal{N}\Big(0, \frac{\kappa^2}{\tau}\,\Sigma^2\Big)
 $$
 
 with $\Sigma^2 = \Sigma\Sigma$ and $\tau = \text{tr}(\Sigma)$, the sum of the variances. What does this prior say about the squared maximum Sharpe ratio $\mu'\Sigma^{-1}\mu$?
@@ -377,14 +381,14 @@ $$
 
 ## From the prior to the ridge penalty
 
-With $T$ months of data and sample means $\hat\mu$, the posterior mean of the SDF loadings $b$ is
+With $T$ months of data and sample means $\hat\mu$, the posterior mean of the efficient weights $\Sigma^{-1}\mu$ is
 
 $$
-\hat b = (\Sigma + \lambda I)^{-1}\hat\mu \qquad \text{with} \qquad \lambda = \frac{\tau}{\kappa^2 T}
+(\Sigma + \lambda I)^{-1}\hat\mu \qquad \text{with} \qquad \lambda = \frac{\tau}{\kappa^2 T}
 $$
 
-- A ridge estimator: the penalty of lecture 10 is a prior about how large Sharpe ratios can be
-- **From $\kappa$ to $\hat b$:** the larger the Sharpe ratios the prior allows, the smaller $\lambda$. For $\kappa \to \infty$, $\hat b$ is the plug-in $\Sigma^{-1}\hat\mu$; for small $\kappa$, $\hat b$ shrinks towards zero, proportional to $\hat\mu$
+- **A ridge estimator:** with the sample covariance matrix $\hat\Sigma$ for $\Sigma$, the ridge regression of lecture 10, $(F'F + T\lambda I)^{-1}F'y = (\hat\Sigma + \hat\mu\hat\mu' + \lambda I)^{-1}\hat\mu$, is a multiple of $(\hat\Sigma + \lambda I)^{-1}\hat\mu$, as in the last step on the SDF slide: the same portfolio. The penalty is a prior about how large Sharpe ratios can be
+- **From $\kappa$ to the weights:** the larger the Sharpe ratios the prior allows, the smaller $\lambda$. For $\kappa \to \infty$, the plug-in $\Sigma^{-1}\hat\mu$; for small $\kappa$, the weights shrink towards zero, proportional to $\hat\mu$
 - More months $T$ also lower $\lambda$: the more data, the less the prior matters
 
 ## The prior behind cross-validation
@@ -478,7 +482,7 @@ $$
 
 - The weights $v_j$ are the eigenvectors of $\Sigma$, the variances $\delta_j$ its eigenvalues (lecture 4). `r length(anomaly_names)` anomalies give `r length(anomaly_names)` principal components, uncorrelated with each other
 - Nothing is lost: with $V = (v_1, \dots, v_N)$ and $V'V = I$, the components are $P_t = V'F_t$ and the anomalies $F_t = V P_t$
-- An SDF in components is an SDF in anomalies: $b_P'P_t = (V b_P)'F_t$, so the anomalies get the weights $b = V b_P$
+- An SDF in components is an SDF in anomalies: $M_{t+1} = 1 - b_P'P_{t+1} = 1 - (V b_P)'F_{t+1}$, so the anomalies get the weights $b = V b_P$
 :::
 
 ## Two anomalies, two components
