@@ -387,7 +387,7 @@ plot_book(3)
 ## LOBSTER data
 
 - [LOBSTER](https://lobsterdata.com) rebuilds the NASDAQ order book of any stock from the exchange's messages; KU has access
-- **Message file:** one row per event: time (seconds after midnight, with nanoseconds), event type, order ID, size, price, direction (buy or sell)
+- **Message file:** one row per event: time (seconds after midnight, with nanoseconds), event type, order ID, size, price, direction (buy or sell limit order)
 - **Event types:** submission of a new limit order, partial cancellation, deletion, execution of a visible order, execution of a hidden order, auction trade, trading halt
 - **Order book file:** after every event, the best prices and the depth on each side, for as many levels as requested
 - One stock and one day easily have millions of messages
@@ -435,8 +435,8 @@ lobster_messages |>
   )
 ```
 
-- SPY, 20 March 2024, one second after the statement. Left: the message file; right: the best ask and bid of the order book file after each message. The file stores the time in seconds after midnight and prices in 1/10,000 dollar (`r sprintf("%.0f", sweep$price[1])` for `r dollar(sweep$price[1] / 1e4, 0.01)`), shown here as clock time and in dollars. Direction: 1 for a buy order, −1 for a sell order
-- Type 1 adds a limit order, 3 deletes one, 4 executes one. The last `r nrow(sweep)` rows are one buy order of `r comma(sum(sweep$size))` shares: it clears the sell orders at `r knitr::combine_words(dollar(unique(sweep$price) / 1e4, 0.01), oxford_comma = FALSE)` and moves the best ask to `r dollar(last(sweep$ask_price_1) / 1e4, 0.01)`
+- SPY, 20 March 2024, one second after the statement. Left: the message file; right: the best ask and bid of the order book file after each message. The file stores the time in seconds after midnight and prices in 1/10,000 dollar (`r sprintf("%.0f", sweep$price[1])` for `r dollar(sweep$price[1] / 1e4, 0.01)`), shown here as clock time and in dollars. Direction is the side of the limit order in the book: 1 buy, −1 sell
+- Type 1 adds a limit order, 3 deletes one, 4 executes one. An executed sell order (−1) is a trade started by a buyer. The last `r nrow(sweep)` rows are one buy order of `r comma(sum(sweep$size))` shares that clears the sell orders at `r knitr::combine_words(dollar(unique(sweep$price) / 1e4, 0.01), oxford_comma = FALSE)` and moves the best ask to `r dollar(last(sweep$ask_price_1) / 1e4, 0.01)`
 
 ## The SPY data
 
