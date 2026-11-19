@@ -389,7 +389,7 @@ $$
 $$
 
 - **Persistence** $\alpha + \beta < 1$: forecasts return to the long-run variance $\bar\sigma^2 = \omega / (1 - \alpha - \beta)$, and a shock to the variance halves after $\ln 0.5 / \ln(\alpha + \beta)$ days
-- Estimated by maximum likelihood with normal shocks, on the close-to-close returns of ES until `r year(estimation_end)`: $\alpha =$ `r number(es_garch$alpha, 0.01)`, $\beta =$ `r number(es_garch$beta, 0.01)`, a persistence of `r number(es_persistence, 0.01)`, a half-life of `r round(es_half_life)` days and a long-run volatility of `r percent(es_long_run_volatility, 0.1)` a year. The 30 Dow Jones stocks (median): $\alpha =$ `r number(stocks_garch$alpha, 0.01)`, $\beta =$ `r number(stocks_garch$beta, 0.01)`
+- Estimated by maximum likelihood with normal shocks, on the close-to-close returns of ES until `r year(estimation_end)`: $\alpha =$ `r number(es_garch$alpha, 0.001)`, $\beta =$ `r number(es_garch$beta, 0.001)`, a persistence $\alpha + \beta$ of about `r number(es_persistence, 0.01)`, a half-life of about `r round(es_half_life)` days and a long-run volatility of `r percent(es_long_run_volatility, 0.1)` a year. The 30 Dow Jones stocks (median): $\alpha =$ `r number(stocks_garch$alpha, 0.01)`, $\beta =$ `r number(stocks_garch$beta, 0.01)`
 - GARCH needs only daily returns: the benchmark for the forecasts from intraday data. R: `tsgarch`, Python: `arch`
 
 # Realized variance
@@ -937,7 +937,7 @@ $$
 RV_{t+1} = b_0 + b_d\, RV_t + b_w\, RV^{w}_t + b_m\, RV^{m}_t + e_{t+1}
 $$
 
-- $RV^{w}_t$ and $RV^{m}_t$: the averages of the last 5 and 22 days' RV, today included. Every past day gets a weight that falls in three steps: a simple approximation of long memory, estimated by OLS
+- $RV^{w}_t$ and $RV^{m}_t$: the averages of the last 5 and 22 days' RV, today included. Each of the last 22 days gets one of three weights (today, the rest of the week, the rest of the month); with positive slopes they fall in steps: a simple approximation of long memory, estimated by OLS
 - **log-HAR:** the same regression in $\log RV$. Robust to the few extreme days, and the forecasts stay positive: $\exp\big(\widehat{\log RV}_{t+1} + \hat\sigma_e^2 / 2\big)$, where $\hat\sigma_e^2$ is the residual variance (the mean of a lognormal)
 - HARQ (Bollerslev, Patton & Quaedvlieg, 2016) lowers $b_d$ on days when $RV_t$ is imprecise, i.e. when $RQ_t$ is high
 :::
