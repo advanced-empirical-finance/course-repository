@@ -97,7 +97,7 @@ The efficient portfolio and its estimation error; shrinkage and transaction cost
 ::: {.box style="box-sizing: border-box;"}
 **Machine learning**
 
-*Mid-March to April*
+*April*
 
 Overfitting and out-of-sample evaluation; shrinking the SDF; latent factors; trees, forests and neural networks
 :::
