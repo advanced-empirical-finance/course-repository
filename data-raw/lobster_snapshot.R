@@ -1,6 +1,9 @@
 # lecture-slides/figures/lobster-spy-2024-03-20.png: the SPY order book on
 # NASDAQ around the Fed statement at 14:00 on 20 March 2024, from LOBSTER
-# (lobsterdata.com), 20 levels on each side.
+# (lobsterdata.com), 20 levels on each side. Also
+# lecture-slides/figures/lobster-spy-2024-03-20-messages.csv: eight rows of
+# the message file a second after the statement, with the best ask and bid of
+# the order book file after each message.
 #
 # The LOBSTER files are licensed and stay on eumel in LOBSTER_DIR (default
 # ~/data/lobster); only the figure is committed. The download is one 7z archive
@@ -119,3 +122,26 @@ ggsave(
   dpi = 200,
   bg = "white"
 )
+
+# Eight messages a second after the statement, as stored in the files: time in
+# seconds after midnight, prices in units of 1/10,000 dollar
+example_from <- 50401.0229
+example_to <- 50401.0298
+
+events |>
+  filter(between(time, example_from, example_to)) |>
+  select(
+    time,
+    type,
+    order_id,
+    size,
+    price,
+    direction,
+    ask_price_1,
+    ask_size_1,
+    bid_price_1,
+    bid_size_1
+  ) |>
+  write_csv(
+    "lecture-slides/figures/lobster-spy-2024-03-20-messages.csv"
+  )
