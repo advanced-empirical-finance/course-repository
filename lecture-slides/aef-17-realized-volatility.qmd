@@ -1,28 +1,1141 @@
 ---
 subtitle: Realized volatility
 date: 2027-05-10
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here (removed from the repository on
-# 16 November 2026; restore with git show 62dcd3a:lecture-slides/<deck>.qmd):
-# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Why do we care about volatility?" to "Small example: Value-at-risk"
-# - aef-6-high-frequency-econometrics.qmd: "Realized volatility" to "TSRV example with second-level data"
-# (the order book and LOBSTER are in lecture 16)
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(tidyfinance)
+library(nanoparquet)
+library(slider)
+library(tsgarch)
+library(scales)
+library(patchwork)
 
-- Why volatility matters and how it moves
-- Realized variance
-- Market microstructure noise
+# Daily variances times 252 are annual variances
+days_per_year <- 252
 
-## Why volatility matters and how it moves
+# The SPY data of lecture 16: March of every year
+years <- 2008:2025
+sample_month <- 3
+recent_year <- 2024
+crash_day <- ymd("2020-03-12")
 
-TBD
+# Continuous trading as in lecture 16, without the snapshots of the opening
+# auction (9:30:05) and the closing auction (16:00:00)
+first_snapshot <- hms::parse_hms("09:30:10")
+last_snapshot <- hms::parse_hms("15:59:55")
+snapshot_seconds <- 5
+trading_day_seconds <- 6.5 * 3600
 
-## Realized variance
+# The forecasts: estimated until the end of 2020, evaluated from 2021 on. The
+# code on the slides defines these constants again
+estimation_end <- ymd("2020-12-31")
+days_week <- 5
+days_month <- 22
 
-TBD
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
 
-## Market microstructure noise
+# Daily variances (decimals) as annualized volatilities, and dates for the text
+annualized <- \(variance) sqrt(days_per_year * variance)
+day_label <- \(day) paste(mday(day), month.name[month(day)], year(day))
+month_label <- \(year) paste(month.name[sample_month], year)
 
-TBD
+source("lecture-slides/_live-poll.R")
+forecast_poll <- "aef27-l17-forecast-volatility"
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+from calendar import monthrange
+from datetime import date, time
+
+import numpy as np
+import polars as pl
+import statsmodels.formula.api as smf
+import tidyfinance as tf
+```
+
+```{r}
+#| label: download-spy-r
+#| include: false
+#| cache: true
+# The SPY data of lecture 16: five-second snapshots of the order book during
+# regular trading hours, for one month in every year
+spy <- map(years, \(year) {
+  start <- make_date(year, sample_month, 1)
+  download_data(
+    domain = "Tidy Finance",
+    dataset = "high_frequency_sp500",
+    start_date = start,
+    end_date = ceiling_date(start, "month") - days(1)
+  ) |>
+    mutate(year = year)
+}) |>
+  bind_rows()
+```
+
+```{python}
+#| label: download-spy-py
+#| include: false
+#| eval: false
+# The SPY data of lecture 16: five-second snapshots of the order book during
+# regular trading hours, for one month in every year
+years = range(2008, 2026)
+sample_month = 3
+
+spy = pl.concat(
+    tf.download_data(
+        domain="Tidy Finance",
+        dataset="high_frequency_sp500",
+        start_date=date(year, sample_month, 1),
+        end_date=date(year, sample_month, monthrange(year, sample_month)[1]),
+    ).with_columns(year=pl.lit(year))
+    for year in years
+)
+```
+
+```{r}
+#| label: volatility-forecasts
+#| include: false
+#| cache: true
+# VOLARE: the E-mini S&P 500 futures (ES) and the 30 Dow Jones stocks. Daily
+# close-to-close returns in percent and realized variances (5-minute returns)
+# in squared percent. VOLARE's prices are not adjusted for splits: an
+# overnight fall below 60% of the price is a split (8 in the Dow Jones stocks,
+# 2:1 to 20:1), with the rounded price ratio as the split ratio
+split_threshold <- log(0.6)
+volare <- bind_rows(
+  read_parquet("data/volare_futures_realized_measures_daily.parquet") |>
+    filter(symbol == "ES"),
+  read_parquet("data/volare_stocks_realized_measures_daily.parquet") |>
+    filter(dow30)
+) |>
+  select(symbol, date, open_price, close_price, rv5) |>
+  arrange(symbol, date) |>
+  mutate(
+    overnight = log(open_price / lag(close_price)),
+    split_ratio = if_else(
+      overnight < split_threshold,
+      round(exp(-overnight)),
+      1,
+      missing = 1
+    ),
+    ret = 100 * (overnight + log(split_ratio) + log(close_price / open_price)),
+    rv = 1e4 * rv5,
+    rv_week = slide_dbl(rv, mean, .before = days_week - 1, .complete = TRUE),
+    rv_month = slide_dbl(rv, mean, .before = days_month - 1, .complete = TRUE),
+    rv_next = lead(rv),
+    ret_next = lead(ret),
+    .by = symbol
+  ) |>
+  filter(!is.na(overnight))
+
+# GARCH(1,1) with a constant mean, by maximum likelihood until the end of
+# 2020; then the forecast of the next day's variance at every day
+garch_forecast <- function(data) {
+  estimation <- data |> filter(date <= estimation_end)
+  fit <- garch_modelspec(
+    xts::xts(estimation$ret, estimation$date),
+    model = "garch",
+    order = c(1, 1),
+    constant = TRUE
+  ) |>
+    estimate()
+  p <- coef(fit)
+  shock <- data$ret - p[["mu"]]
+  variance <- numeric(length(shock))
+  variance[1] <- var(shock[data$date <= estimation_end])
+  for (t in seq_along(shock)[-1]) {
+    variance[t] <- p[["omega"]] +
+      p[["alpha1"]] * shock[t - 1]^2 +
+      p[["beta1"]] * variance[t - 1]
+  }
+  list(
+    parameters = p,
+    forecast = p[["omega"]] + p[["alpha1"]] * shock^2 + p[["beta1"]] * variance
+  )
+}
+
+# Five forecasts of the next day's realized variance. GARCH forecasts the
+# close-to-close variance, but RV covers only the trading hours of the stocks:
+# the GARCH forecast is scaled by the estimation sample's ratio of mean RV to
+# mean forecast
+forecast_models <- c(
+  "Today's RV",
+  "Last 22 days",
+  "GARCH(1,1)",
+  "HAR",
+  "log-HAR"
+)
+forecast_symbol <- function(data) {
+  estimation <- data |>
+    filter(date <= estimation_end) |>
+    drop_na(rv_month, rv_next)
+  har <- lm(rv_next ~ rv + rv_week + rv_month, data = estimation)
+  log_har <- lm(
+    log(rv_next) ~ log(rv) + log(rv_week) + log(rv_month),
+    data = estimation
+  )
+  garch <- garch_forecast(data)
+  in_estimation <- data$date %in% estimation$date
+  garch_scale <- mean(data$rv_next[in_estimation]) /
+    mean(garch$forecast[in_estimation])
+  forecasts <- data |>
+    mutate(
+      garch_unscaled = garch$forecast,
+      "Today's RV" = rv,
+      "Last 22 days" = rv_month,
+      "GARCH(1,1)" = garch_scale * garch_unscaled,
+      HAR = predict(har, newdata = data),
+      "log-HAR" = exp(predict(log_har, newdata = data) + sigma(log_har)^2 / 2)
+    )
+  tibble(
+    forecasts = list(forecasts),
+    alpha = garch$parameters[["alpha1"]],
+    beta = garch$parameters[["beta1"]],
+    omega = garch$parameters[["omega"]],
+    garch_scale = garch_scale
+  )
+}
+volatility_forecasts <- volare |>
+  nest(data = -symbol) |>
+  mutate(result = map(data, forecast_symbol)) |>
+  select(symbol, result) |>
+  unnest(result)
+
+# Out of sample: every day from 2021 on with a next-day RV
+test_forecasts <- volatility_forecasts |>
+  select(symbol, forecasts) |>
+  unnest(forecasts) |>
+  filter(date > estimation_end, !is.na(rv_next))
+forecast_losses <- test_forecasts |>
+  pivot_longer(
+    all_of(forecast_models),
+    names_to = "model",
+    values_to = "forecast"
+  ) |>
+  summarize(
+    mse = mean((rv_next - forecast)^2),
+    qlike = mean(rv_next / forecast - log(rv_next / forecast) - 1),
+    mz_r2 = cor(rv_next, forecast)^2,
+    lowest_forecast = min(forecast),
+    .by = c(symbol, model)
+  )
+stopifnot(all(forecast_losses$lowest_forecast > 0))
+```
+
+```{r}
+#| label: garch-numbers
+#| include: false
+es_garch <- volatility_forecasts |> filter(symbol == "ES")
+es_persistence <- es_garch$alpha + es_garch$beta
+es_half_life <- log(0.5) / log(es_persistence)
+es_long_run_volatility <- sqrt(
+  days_per_year * es_garch$omega / (1 - es_persistence)
+) /
+  100
+stocks_garch <- volatility_forecasts |>
+  filter(symbol != "ES") |>
+  summarize(
+    alpha = median(alpha),
+    beta = median(beta),
+    garch_scale = median(garch_scale)
+  )
+es_start <- min(volare$date[volare$symbol == "ES"])
+```
+
+## From the bid-ask bounce to volatility
+
+- **Lecture 16:** trade prices bounce between the bid and the ask, so their changes are negatively autocorrelated, $\text{Cov}(\Delta p_t, \Delta p_{t-1}) = -s^2/4$. The more often we sample, the more of this noise we measure
+- **Lectures 2 to 5:** portfolio choice needs the covariance matrix, estimated from monthly returns (60 months in lecture 3). Volatility changes much faster than that
+- **Assignment 3 (6 to 13 May):** realized volatility from the SPY snapshots of lecture 16 and from VOLARE, and forecasts of it
+
+::: {.highlight}
+**Today:** measure a day's volatility from intraday returns, keep microstructure noise out of the measure, and forecast tomorrow's volatility with GARCH and HAR
+:::
+
+# Volatility moves
+
+## Volatility clusters
+
+```{r}
+#| label: plot-volatility-clusters
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.6
+# ES: every day's realized volatility, annualized, and the most volatile day
+# of five turbulent months
+es_daily <- volare |>
+  filter(symbol == "ES") |>
+  mutate(volatility = annualized(rv5))
+episodes <- tibble(
+  month = ymd(c(
+    "2011-08-01",
+    "2015-08-01",
+    "2018-02-01",
+    "2020-03-01",
+    "2025-04-01"
+  )),
+  event = c("US downgrade", "China", "VIX spike", "COVID-19", "US tariffs")
+)
+peaks <- es_daily |>
+  mutate(month = floor_date(date, "month")) |>
+  inner_join(episodes, by = "month") |>
+  slice_max(volatility, n = 1, by = month)
+calmest_year <- es_daily |>
+  mutate(year = year(date)) |>
+  filter(year > year(es_start), year < year(max(date))) |>
+  summarize(volatility = median(volatility), .by = year) |>
+  slice_min(volatility, n = 1)
+
+ggplot(es_daily, aes(x = date, y = volatility)) +
+  geom_line(color = jet, linewidth = 0.2) +
+  geom_point(data = peaks, color = ku_red, size = 2.5) +
+  geom_text(
+    data = peaks,
+    aes(
+      label = paste0(
+        event,
+        "\n",
+        day_label(date),
+        ": ",
+        percent(volatility, 0.1)
+      )
+    ),
+    color = ku_red,
+    size = 3.6,
+    vjust = -0.3,
+    lineheight = 0.9
+  ) +
+  scale_y_log10(
+    labels = label_percent(accuracy = 0.1, drop0trailing = TRUE),
+    breaks = c(0.025, 0.05, 0.1, 0.2, 0.4, 0.8),
+    expand = expansion(mult = c(0.02, 0.25))
+  ) +
+  labs(x = NULL, y = "Volatility (log scale)")
+```
+
+- The E-mini S&P 500 futures (ES) in VOLARE (Cipollini et al., 2026): every trading day's realized volatility from five-minute returns, annualized, `r month.name[month(es_start)]` `r year(es_start)` to `r month.name[month(max(es_daily$date))]` `r year(max(es_daily$date))`
+- The median day has `r percent(median(es_daily$volatility), 0.1)`, the median day of `r calmest_year$year` only `r percent(calmest_year$volatility, 0.1)`. Calm and turbulent days come in clusters: the most volatile days all fall in a few weeks
+
+## How would you forecast tomorrow's volatility?
+
+```{r}
+#| label: poll-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, forecast_poll = forecast_poll)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="35%"}
+```{ojs}
+//| label: forecast-poll-qr
+//| echo: false
+qrCode(`${poll_base}/?poll=${forecast_poll}&type=text`, `${poll_base}/?poll=${forecast_poll}`, 300)
+```
+
+How would you forecast tomorrow's volatility? Up to 30 characters each
+:::
+::: {.column width="65%"}
+```{ojs}
+//| label: forecast-wordcloud-live
+//| echo: false
+wordcloud_refresh = Generators.observe(notify => {
+  let i = 0;
+  notify(i);
+  const timer = setInterval(() => notify(++i), 3000);
+  return () => clearInterval(timer);
+})
+html`<img src="${poll_base}/wordcloud?poll=${forecast_poll}&refresh=${wordcloud_refresh}" style="width: 100%">`
+```
+
+<p style="font-size: 0.5em; color: #666">An AI groups the answers into themes</p>
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+In the lecture, you answer on your phone: how would you forecast tomorrow's volatility? An AI groups the answers of the class into a word cloud of themes
+:::
+
+::: {.fragment}
+Next: two answers. GARCH forecasts from daily returns, HAR from realized variances
+:::
+
+## GARCH(1,1)
+
+::: {.box}
+Engle (1982) and Bollerslev (1986): the daily return is $r_{t+1} = \mu + \varepsilon_{t+1}$, and the variance of tomorrow's shock depends on today's shock and today's variance
+:::
+
+$$
+\sigma^2_{t+1} = \omega + \alpha\, \varepsilon_t^2 + \beta\, \sigma^2_t \qquad \Longrightarrow \qquad E_t\big[\sigma^2_{t+h}\big] - \bar\sigma^2 = (\alpha + \beta)^{h-1} \big(\sigma^2_{t+1} - \bar\sigma^2\big)
+$$
+
+- **Persistence** $\alpha + \beta < 1$: forecasts return to the long-run variance $\bar\sigma^2 = \omega / (1 - \alpha - \beta)$, and a shock to the variance halves after $\ln 0.5 / \ln(\alpha + \beta)$ days
+- Estimated by maximum likelihood with normal shocks, on the close-to-close returns of ES until `r year(estimation_end)`: $\alpha =$ `r number(es_garch$alpha, 0.01)`, $\beta =$ `r number(es_garch$beta, 0.01)`, a persistence of `r number(es_persistence, 0.01)`, a half-life of `r round(es_half_life)` days and a long-run volatility of `r percent(es_long_run_volatility, 0.1)` a year. The 30 Dow Jones stocks (median): $\alpha =$ `r number(stocks_garch$alpha, 0.01)`, $\beta =$ `r number(stocks_garch$beta, 0.01)`
+- GARCH needs only daily returns: the benchmark for the forecasts from intraday data. R: `tsgarch`, Python: `arch`
+
+# Realized variance
+
+## Quadratic variation
+
+::: {.box}
+Within a day, the log price moves as $dp_t = \mu_t\, dt + \sigma_t\, dW_t$, and its variance $\sigma_t^2$ changes during the day. The day's variance is the **integrated variance** $IV = \int_0^1 \sigma_t^2\, dt$. Can we measure it from $n$ intraday returns $r_i = p_{i/n} - p_{(i-1)/n}$?
+:::
+
+::: {.fragment}
+$$
+RV_n = \sum_{i=1}^{n} r_i^2 \;\longrightarrow\; IV \quad (n \to \infty), \qquad RV_n - IV \approx N\Big(0, \frac{2\, IQ}{n}\Big), \qquad IQ = \int_0^1 \sigma_t^4\, dt
+$$
+
+- **Realized variance** measures the day's variance without a model: the sum of squared returns converges to the quadratic variation of the price (Barndorff-Nielsen & Shephard, 2002; Andersen, Bollerslev, Diebold & Labys, 2003)
+- The drift does not matter: its share in $RV_n$ vanishes as $n$ grows. Jumps do: with jumps, $RV_n$ converges to $IV$ plus the squared jumps
+- More returns make the measure more precise. The **realized quarticity** $RQ_n = \frac{n}{3} \sum_{i} r_i^4$ estimates the integrated quarticity $IQ$
+:::
+
+## Realized variance in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: realized-variance-r
+# Continuous trading as in lecture 16: without the snapshots of the opening
+# auction (9:30:05) and the closing auction (16:00:00)
+first_snapshot <- hms::parse_hms("09:30:10")
+last_snapshot <- hms::parse_hms("15:59:55")
+sampling_interval <- "5 minutes"
+
+# Each day: the last midquote of every interval, the log returns between
+# them, and the sum of their squares
+spy_rv <- spy |>
+  filter(between(hms::as_hms(ts), first_snapshot, last_snapshot)) |>
+  mutate(day = as_date(ts), interval = floor_date(ts, sampling_interval)) |>
+  summarize(log_price = log(last(midquote)), .by = c(day, interval)) |>
+  mutate(ret = log_price - lag(log_price), .by = day) |>
+  summarize(
+    rv = sum(ret^2, na.rm = TRUE),
+    n_returns = sum(!is.na(ret)),
+    .by = day
+  )
+```
+
+## Python
+
+```{python}
+#| label: realized-variance-py
+#| eval: false
+# Continuous trading as in lecture 16: without the snapshots of the opening
+# auction (9:30:05) and the closing auction (16:00:00)
+first_snapshot = time(9, 30, 10)
+last_snapshot = time(15, 59, 55)
+sampling_interval = "5m"
+
+# Each day: the last midquote of every interval, the log returns between
+# them, and the sum of their squares
+spy_rv = (
+    spy.filter(pl.col("ts").dt.time().is_between(first_snapshot, last_snapshot))
+    .with_columns(
+        day=pl.col("ts").dt.date(),
+        interval=pl.col("ts").dt.truncate(sampling_interval),
+    )
+    .group_by("day", "interval", maintain_order=True)
+    .agg(log_price=pl.col("midquote").last().log())
+    .with_columns(ret=pl.col("log_price").diff().over("day"))
+    .group_by("day", maintain_order=True)
+    .agg(rv=(pl.col("ret") ** 2).sum(), n_returns=pl.col("ret").count())
+)
+```
+:::
+
+```{r}
+#| label: realized-variance-numbers
+#| include: false
+# The median day of the recent March: of an even number of days, the lower
+# of the two middle ones
+recent_rv <- spy_rv |> filter(year(day) == recent_year)
+calm_day <- recent_rv |>
+  filter(rv == quantile(rv, 0.5, type = 1)) |>
+  pull(day)
+snapshots_per_day <- (as.numeric(last_snapshot - first_snapshot)) /
+  snapshot_seconds +
+  1
+```
+
+## Realized variance builds up during the day
+
+```{r}
+#| label: plot-build-up
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+# The five-minute returns of two days, as in the code: squared returns in
+# squared percent and their running sum, at the end of each interval
+build_up <- spy |>
+  filter(
+    between(hms::as_hms(ts), first_snapshot, last_snapshot),
+    as_date(ts) %in% c(calm_day, crash_day)
+  ) |>
+  mutate(day = as_date(ts), interval = floor_date(ts, "5 minutes")) |>
+  summarize(log_price = log(last(midquote)), .by = c(day, interval)) |>
+  mutate(ret = log_price - lag(log_price), .by = day) |>
+  drop_na() |>
+  mutate(
+    squared = 1e4 * ret^2,
+    running_sum = cumsum(squared),
+    clock = hour(interval) + minute(interval) / 60 + 5 / 60,
+    .by = day
+  ) |>
+  left_join(spy_rv, by = "day") |>
+  mutate(
+    panel = paste0(
+      day_label(day),
+      ": annualized volatility ",
+      percent(annualized(rv), 0.1)
+    ),
+    panel = fct_reorder(panel, as.numeric(day))
+  )
+# The share of the five largest squared returns in the day's variance
+n_largest <- 5
+day_summary <- build_up |>
+  summarize(
+    rv = sum(squared),
+    share = sum(sort(squared, decreasing = TRUE)[1:n_largest]) / sum(squared),
+    .by = day
+  )
+calm_summary <- day_summary |> filter(day == calm_day)
+crash_summary <- day_summary |> filter(day == crash_day)
+
+ggplot(build_up, aes(x = clock)) +
+  geom_col(aes(y = squared), fill = "#b3b3b3", width = 4 / 60) +
+  geom_step(aes(y = running_sum), color = ku_red, linewidth = 0.9) +
+  facet_wrap(~panel, scales = "free_y") +
+  scale_x_continuous(
+    breaks = c(10, 12, 14, 16),
+    labels = c("10:00", "12:00", "14:00", "16:00")
+  ) +
+  labs(x = NULL, y = "Squared returns and their sum (%²)") +
+  theme(strip.text = element_text(size = 13, hjust = 0))
+```
+
+- `spy_rv` has `r comma(nrow(spy_rv))` days with `r unique(spy_rv$n_returns)` five-minute returns each (every snapshot: `r comma(snapshots_per_day - 1)`). Grey: the squared returns of two days, in %²; red: their running sum, which ends at the day's RV. Annualized: $\sqrt{252 \cdot RV}$
+- `r day_label(crash_day)`: `r number(crash_summary$rv, 0.1)` %², `r round(crash_summary$rv / calm_summary$rv)` times as much as on `r day_label(calm_day)`, the median day of `r month_label(recent_year)` (`r number(calm_summary$rv, 0.01)` %²). On both days, the `r n_largest` largest returns carry about half of the variance (`r percent(crash_summary$share)` and `r percent(calm_summary$share)`)
+
+## A better yardstick than squared returns
+
+```{r}
+#| label: plot-standardized-returns
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.3
+# ES: daily returns divided by their standard deviation, and by the day's
+# realized volatility
+kurtosis <- \(x) mean((x - mean(x))^4) / mean((x - mean(x))^2)^2
+standardized <- es_daily |>
+  transmute(
+    by_sd = ret / sd(ret),
+    by_rv = ret / sqrt(rv)
+  )
+es_kurtosis <- map_dbl(standardized, kurtosis)
+histogram_panel <- function(column, label) {
+  ggplot(standardized, aes(x = .data[[column]])) +
+    geom_histogram(
+      aes(y = after_stat(density)),
+      binwidth = 0.25,
+      fill = "#b3b3b3",
+      color = "white"
+    ) +
+    stat_function(fun = dnorm, color = ku_red, linewidth = 0.9) +
+    annotate(
+      "text",
+      x = -5,
+      y = 0.7,
+      hjust = 0,
+      label = paste("Kurtosis", number(es_kurtosis[[column]], 0.1)),
+      color = jet
+    ) +
+    coord_cartesian(xlim = c(-5, 5), ylim = c(0, 0.8)) +
+    labs(x = label, y = "Density")
+}
+histogram_panel("by_sd", "Daily return / its standard deviation") +
+  histogram_panel("by_rv", "Daily return / the day's realized volatility")
+
+# The GARCH forecasts of ES out of sample against the next day's squared
+# return and the next day's RV: R² of the regressions
+es_test <- test_forecasts |> filter(symbol == "ES", !is.na(ret_next))
+garch_r2 <- c(
+  squared_return = cor(es_test$ret_next^2, es_test$garch_unscaled)^2,
+  rv = cor(es_test$rv_next, es_test$garch_unscaled)^2
+)
+```
+
+- ES's daily close-to-close returns have fat tails, a kurtosis of `r number(es_kurtosis[["by_sd"]], 0.1)`. Divided by the day's realized volatility, they are close to normal (red), with a kurtosis of `r number(es_kurtosis[["by_rv"]], 0.1)` (Andersen, Bollerslev, Diebold & Ebens, 2001, for stocks)
+- So $r_t^2 \approx RV_t \cdot z_t^2$ with $z_t \sim N(0, 1)$: a squared return is the day's variance times noise. From 2021 on, the GARCH forecasts explain `r percent(garch_r2[["squared_return"]])` of the next day's $r^2$ ($R^2$ of a regression), but `r percent(garch_r2[["rv"]])` of the next day's RV (Andersen & Bollerslev, 1998)
+
+# Microstructure noise
+
+## What noise does to realized variance
+
+::: {.box}
+We observe $y_i = p_i + u_i$: the efficient log price plus noise $u_i$ from the bid-ask bounce and the tick size, independent over time, with variance $\omega^2$. What happens to realized variance?
+:::
+
+::: {.fragment}
+$$
+r^y_i = r_i + u_i - u_{i-1} \qquad \Longrightarrow \qquad E\big[RV^y_n\big] = IV + 2n\,\omega^2, \qquad \text{Cov}\big(r^y_i, r^y_{i-1}\big) = -\omega^2
+$$
+
+- The bias grows with $n$: at the highest frequencies, realized variance measures mostly noise. Roll's model of lecture 16 is the case $\omega^2 = s^2/4$
+- Precision against bias: the variance $2\, IQ/n$ falls with $n$, the squared bias $4n^2\omega^4$ rises. Their sum is smallest at $n^* \approx (IQ / 4\omega^4)^{1/3}$ (Bandi & Russell, 2008)
+- In practice, five-minute returns are hard to beat for liquid stocks (Liu, Patton & Sheppard, 2015)
+:::
+
+```{r}
+#| label: signature
+#| include: false
+# Trade prices from the snapshots: at the ask when buyers initiated more
+# shares in the five seconds before the snapshot, at the bid when sellers
+# did, and the last trade price when nobody traded
+spy_continuous <- spy |>
+  filter(between(hms::as_hms(ts), first_snapshot, last_snapshot)) |>
+  mutate(
+    day = as_date(ts),
+    midquote_log = log(midquote),
+    trade_log = if_else(
+      signed_volume != 0,
+      midquote_log + sign(signed_volume) * spread / 2 / 1e4,
+      NA_real_
+    )
+  ) |>
+  group_by(day) |>
+  fill(trade_log, .direction = "downup") |>
+  ungroup()
+
+# Realized variance with one price per interval of `seconds`: the last
+# snapshot of each interval, as in the code
+rv_by_interval <- function(seconds, price) {
+  interval <- as.numeric(spy_continuous$ts) %/% seconds
+  last_in_interval <- interval != lead(interval, default = Inf)
+  spy_continuous[last_in_interval, ] |>
+    summarize(rv = sum(diff(.data[[price]])^2), .by = c(year, day))
+}
+intervals <- c(5, 10, 15, 30, 60, 120, 300, 600, 900, 1800)
+prices <- c("Midquotes" = "midquote_log", "Trade prices" = "trade_log")
+signature <- expand_grid(seconds = intervals, price = names(prices)) |>
+  mutate(rv = map2(seconds, price, \(s, p) rv_by_interval(s, prices[[p]]))) |>
+  unnest(rv)
+stopifnot(all.equal(
+  signature |>
+    filter(seconds == 300, price == "Midquotes") |>
+    pull(rv),
+  spy_rv$rv
+))
+signature_years <- signature |>
+  summarize(volatility = annualized(mean(rv)), .by = c(price, seconds, year))
+
+# 5-second against 5-minute RV in every March; the March with the most noise
+# in trade prices
+noise_by_year <- signature |>
+  filter(seconds %in% c(snapshot_seconds, 300)) |>
+  summarize(rv = mean(rv), .by = c(price, seconds, year)) |>
+  pivot_wider(names_from = seconds, values_from = rv, names_prefix = "rv_") |>
+  mutate(ratio = rv_5 / rv_300)
+noisiest_year <- noise_by_year |>
+  filter(price == "Trade prices") |>
+  slice_max(ratio, n = 1) |>
+  pull(year)
+
+# Five-second trade price returns: their autocorrelation in every March, and
+# Roll's half spread from their autocovariance (bps)
+trade_returns <- spy_continuous |>
+  mutate(
+    trade_return = trade_log - lag(trade_log),
+    previous = lag(trade_return),
+    .by = day
+  ) |>
+  drop_na(trade_return, previous)
+bounce_by_year <- trade_returns |>
+  summarize(
+    autocorrelation = cor(trade_return, previous),
+    roll_half_spread = 1e4 * sqrt(-cov(trade_return, previous)),
+    median_half_spread = median(spread) / 2,
+    .by = year
+  )
+bounce_noisiest <- bounce_by_year |> filter(year == noisiest_year)
+bounce_split <- 2018
+bounce_ranges <- bounce_by_year |>
+  mutate(period = year <= bounce_split) |>
+  summarize(
+    lowest = min(autocorrelation),
+    highest = max(autocorrelation),
+    .by = period
+  )
+
+# Bandi & Russell: the optimal number of returns from the realized quarticity
+# of 5-minute midquote returns and the noise variance of trade prices
+day_quarticity <- spy_continuous |>
+  filter(year == noisiest_year) |>
+  mutate(interval = floor_date(ts, "5 minutes")) |>
+  summarize(log_price = last(midquote_log), .by = c(day, interval)) |>
+  mutate(ret = log_price - lag(log_price), .by = day) |>
+  summarize(rq = sum(!is.na(ret)) / 3 * sum(ret^4, na.rm = TRUE), .by = day)
+optimal_sampling <- trade_returns |>
+  filter(year == noisiest_year) |>
+  summarize(noise_variance = -cov(trade_return, previous), .by = day) |>
+  left_join(day_quarticity, by = "day") |>
+  mutate(
+    n_optimal = (rq / (4 * noise_variance^2))^(1 / 3),
+    seconds = trading_day_seconds / n_optimal
+  )
+optimal_seconds <- median(optimal_sampling$seconds)
+
+# Two-scale realized variance (Zhang, Mykland & Aït-Sahalia, 2005): the average
+# of K sparse grids minus the bias, estimated from all returns
+tsrv <- function(log_price, K) {
+  n <- length(log_price) - 1
+  rv_all <- sum(diff(log_price)^2)
+  rv_sparse <- map_dbl(seq_len(K), \(k) {
+    sum(diff(log_price[seq(k, length(log_price), by = K)])^2)
+  })
+  n_bar <- (n - K + 1) / K
+  (mean(rv_sparse) - n_bar / n * rv_all) / (1 - n_bar / n)
+}
+tsrv_grids <- 300 / snapshot_seconds
+spy_tsrv <- spy_continuous |>
+  summarize(
+    Midquotes = tsrv(midquote_log, tsrv_grids),
+    "Trade prices" = tsrv(trade_log, tsrv_grids),
+    .by = c(year, day)
+  ) |>
+  pivot_longer(c(Midquotes, "Trade prices"), names_to = "price") |>
+  summarize(tsrv = annualized(mean(value)), .by = c(price, year))
+tsrv_table <- signature_years |>
+  filter(year == noisiest_year, seconds %in% c(snapshot_seconds, 300)) |>
+  pivot_wider(names_from = seconds, values_from = volatility) |>
+  left_join(spy_tsrv, by = c("price", "year"))
+tsrv_against_midquotes <- spy_tsrv |>
+  filter(price == "Trade prices") |>
+  left_join(
+    signature_years |> filter(price == "Midquotes", seconds == 300),
+    by = "year"
+  ) |>
+  mutate(ratio = tsrv / volatility)
+```
+
+## The signature plot of SPY
+
+```{r}
+#| label: plot-signature
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+interval_breaks <- c(5, 15, 60, 300, 1800)
+interval_labels <- c("5 s", "15 s", "1 min", "5 min", "30 min")
+price_colors <- c("Midquotes" = "#b3b3b3", "Trade prices" = ku_red)
+noisiest <- signature_years |> filter(year == noisiest_year)
+signature_plot <- ggplot(
+  noisiest,
+  aes(x = seconds, y = volatility, color = price)
+) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2) +
+  scale_x_log10(breaks = interval_breaks, labels = interval_labels) +
+  scale_y_continuous(labels = percent_format(1)) +
+  scale_color_manual(values = price_colors) +
+  labs(
+    x = paste("Sampling interval,", month_label(noisiest_year)),
+    y = "Volatility (annualized)",
+    color = NULL
+  )
+ratio_plot <- ggplot(noise_by_year, aes(x = year, y = ratio, color = price)) +
+  geom_hline(yintercept = 1, color = grey, linewidth = 0.3) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 2) +
+  scale_color_manual(values = price_colors) +
+  labs(x = "March of each year", y = "RV 5 s / RV 5 min", color = NULL)
+signature_plot +
+  ratio_plot +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+```
+
+- Trade prices from the snapshots of lecture 16: at the ask when buyers initiated more shares in the five seconds, at the bid when sellers did, otherwise the last trade price. Midquotes do not bounce
+- `r month_label(noisiest_year)`: trade prices give `r percent(tsrv_table[["5"]][tsrv_table$price == "Trade prices"], 0.1)` at five seconds and `r percent(tsrv_table[["300"]][tsrv_table$price == "Trade prices"], 0.1)` at five minutes. Their five-second returns have an autocorrelation of `r number(bounce_noisiest$autocorrelation, 0.01, style_negative = "minus")`; Roll's formula gives a half spread of `r number(bounce_noisiest$roll_half_spread, 0.01)` bps (median: `r number(bounce_noisiest$median_half_spread, 0.01)` bps), and Bandi & Russell's $n^*$ one price every `r round(optimal_seconds)` seconds
+- The bounce shrank with the spread: the autocorrelation of five-second trade price returns lay between `r number(bounce_ranges$lowest[bounce_ranges$period], 0.01, style_negative = "minus")` and `r number(bounce_ranges$highest[bounce_ranges$period], 0.01, style_negative = "minus")` until `r bounce_split`, and between `r number(bounce_ranges$lowest[!bounce_ranges$period], 0.01, style_negative = "minus")` and `r number(bounce_ranges$highest[!bounce_ranges$period], 0.01, style_negative = "minus")` since. Midquotes barely bounce
+
+## Two-scale realized variance
+
+::: {.box}
+Zhang, Mykland & Aït-Sahalia (2005): use every price, but remove the noise. Returns over $K$ snapshots carry little noise, returns between neighbouring snapshots mostly noise. Combine both
+:::
+
+::: {.fragment}
+$$
+TSRV = \Big(1 - \frac{\bar n}{n}\Big)^{-1} \Big( \frac{1}{K} \sum_{k=1}^{K} RV^{(k)} - \frac{\bar n}{n}\, RV^{\text{all}} \Big), \qquad \bar n = \frac{n - K + 1}{K}
+$$
+
+- $RV^{(k)}$ uses every $K$-th price from price $k$ on; the average over $k = 1, \dots, K$ uses all data and has the bias $2\bar n\, \omega^2$. $RV^{\text{all}} / 2n$ estimates $\omega^2$, so the second term removes the bias
+- SPY, `r month_label(noisiest_year)`, $K =$ `r tsrv_grids`: five minutes on the five-second grid. In every March, TSRV on trade prices lies within `r percent(max(abs(tsrv_against_midquotes$ratio - 1)))` of five-minute RV on midquotes
+
+```{r}
+#| label: tsrv-table
+#| echo: false
+tsrv_table |>
+  transmute(
+    Price = price,
+    "Every 5 seconds" = percent(`5`, 0.1),
+    "Every 5 minutes" = percent(`300`, 0.1),
+    TSRV = percent(tsrv, 0.1)
+  ) |>
+  knitr::kable(align = "lrrr")
+```
+:::
+
+## Realized kernels
+
+::: {.box}
+Noise makes neighbouring returns negatively correlated. Instead of sampling less often, add the autocovariances of the returns to the realized variance
+:::
+
+::: {.fragment}
+$$
+RK = \sum_{h=-H}^{H} k\Big(\frac{h}{H+1}\Big)\, \gamma_h, \qquad \gamma_h = \sum_{i} r_i\, r_{i-|h|}
+$$
+
+- $\gamma_0$ is the realized variance. With independent noise, $\gamma_{1}$ and $\gamma_{-1}$ are about $-n\omega^2$ each: added with full weight, they cancel the bias $2n\omega^2$
+- The weights $k(\cdot)$ fall smoothly from 1 to 0 over $H$ lags, which grows with the noise: the estimator is consistent, and with the Parzen weights never negative (Barndorff-Nielsen, Hansen, Lunde & Shephard, 2008, 2011)
+- No noise model beyond the autocovariances and no sparse grid: VOLARE reports a realized kernel for every day
+:::
+
+# Forecasting volatility
+
+```{r}
+#| label: volare-measures
+#| include: false
+# The measures of the 30 Dow Jones stocks relative to rv5: ratios of means
+dow_measures <- read_parquet(
+  "data/volare_stocks_realized_measures_daily.parquet"
+) |>
+  filter(dow30)
+relative_to_rv5 <- map_dbl(
+  set_names(c("rv1", "rk", "bv5", "rsp5", "rsn5")),
+  \(measure) mean(dow_measures[[measure]]) / mean(dow_measures$rv5)
+)
+noise_by_stock <- dow_measures |>
+  summarize(
+    ratio = mean(rv1) / mean(rv5),
+    trades = median(trades),
+    .by = symbol
+  )
+noise_trades_correlation <- cor(
+  noise_by_stock$ratio,
+  log(noise_by_stock$trades)
+)
+n_dow_days <- n_distinct(dow_measures$date)
+dow_start <- min(dow_measures$date)
+rm(dow_measures)
+```
+
+## Realized measures in VOLARE
+
+- VOLARE (Cipollini et al., 2026) on Absalon: realized measures of 40 US stocks (the 30 Dow Jones stocks have `dow30`) on `r comma(n_dow_days)` days from `r day_label(dow_start)`, and of five futures, ES among them, from `r month.name[month(es_start)]` `r year(es_start)`, all until October 2026
+- One row per asset and day. Variances are daily, in squared decimal returns: $\sqrt{252 \cdot \text{rv5}}$ is the annualized volatility, $10^4 \cdot \text{rv5}$ the variance in squared percent
+
+| Column | Measure | Dow Jones stocks, mean relative to rv5 |
+|:--|:--|--:|
+| `rv5`, `rv1` | Realized variance from 5- and 1-minute returns | 1 and `r number(relative_to_rv5[["rv1"]], 0.01)` |
+| `rk` | Realized kernel | `r number(relative_to_rv5[["rk"]], 0.01)` |
+| `bv5` | Bipower variation $\frac{\pi}{2} \sum_i \lvert r_i \rvert \lvert r_{i-1} \rvert$: robust to jumps | `r number(relative_to_rv5[["bv5"]], 0.01)` |
+| `rsp5`, `rsn5` | Semivariances: $\sum_i r_i^2$ over the positive and the negative returns | `r number(relative_to_rv5[["rsp5"]], 0.01)` and `r number(relative_to_rv5[["rsn5"]], 0.01)` |
+| `rq5` | Realized quarticity $\frac{n}{3} \sum_i r_i^4$ | |
+
+- One-minute returns add noise: `rv1` exceeds `rv5` by `r percent(relative_to_rv5[["rv1"]] - 1)`, most for the stocks with the fewest trades (correlation `r number(noise_trades_correlation, 0.01, style_negative = "minus")` with log trades). Jumps make up about `r percent(1 - relative_to_rv5[["bv5"]])` of the variance (Barndorff-Nielsen & Shephard, 2004)
+
+## Volatility has long memory
+
+```{r}
+#| label: plot-long-memory
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+# Autocorrelations of log RV up to a year: ES, and the median of the 30
+# stocks at each lag
+max_lag <- days_per_year
+autocorrelations <- volare |>
+  reframe(
+    lag = seq_len(max_lag),
+    autocorrelation = acf(log(rv), lag.max = max_lag, plot = FALSE)$acf[-1],
+    .by = symbol
+  )
+memory <- bind_rows(
+  autocorrelations |>
+    filter(symbol == "ES") |>
+    mutate(series = "ES"),
+  autocorrelations |>
+    filter(symbol != "ES") |>
+    summarize(autocorrelation = median(autocorrelation), .by = lag) |>
+    mutate(series = "Dow Jones stocks (median)")
+)
+es_first <- memory$autocorrelation[memory$series == "ES" & memory$lag == 1]
+ar1 <- tibble(lag = seq_len(max_lag), autocorrelation = es_first^lag)
+memory_at <- \(series, at) {
+  memory$autocorrelation[memory$series == series & memory$lag == at]
+}
+
+ggplot(memory, aes(x = lag, y = autocorrelation)) +
+  geom_hline(yintercept = 0, color = grey, linewidth = 0.3) +
+  geom_line(data = ar1, color = grey, linetype = "dashed") +
+  geom_line(aes(color = series), linewidth = 0.9) +
+  annotate(
+    "text",
+    x = 26,
+    y = -0.08,
+    hjust = 0,
+    label = "Dashed: an AR(1) with the first autocorrelation of ES",
+    color = grey
+  ) +
+  scale_color_manual(
+    values = c("ES" = ku_red, "Dow Jones stocks (median)" = jet)
+  ) +
+  scale_x_continuous(breaks = c(1, days_month, 66, 125, 250)) +
+  labs(
+    x = "Lag (trading days)",
+    y = "Autocorrelation of log RV",
+    color = NULL
+  ) +
+  theme(legend.position = "inside", legend.position.inside = c(0.85, 0.85))
+```
+
+- The autocorrelation of log realized variance: `r number(memory_at("ES", 1), 0.01)` at lag 1 and `r number(memory_at("ES", days_month), 0.01)` after a month (`r days_month` trading days) for ES; `r number(memory_at("Dow Jones stocks (median)", 1), 0.01)` and `r number(memory_at("Dow Jones stocks (median)", days_month), 0.01)` for the median Dow Jones stock
+- An AR(1) with the same first autocorrelation would be at `r number(es_first^days_month, 0.01)` after a month. Shocks to volatility die out far more slowly than geometrically: **long memory**
+
+## The HAR model
+
+::: {.box}
+Corsi (2009): traders with daily, weekly and monthly horizons react to the volatility of their own horizon. Forecast tomorrow's realized variance from today's, the last week's and the last month's
+:::
+
+::: {.fragment}
+$$
+RV_{t+1} = b_0 + b_d\, RV_t + b_w\, RV^{w}_t + b_m\, RV^{m}_t + e_{t+1}
+$$
+
+- $RV^{w}_t$ and $RV^{m}_t$: the averages of the last 5 and 22 days' RV, today included. Every past day gets a weight that falls in three steps: a simple approximation of long memory, estimated by OLS
+- **log-HAR:** the same regression in $\log RV$. Robust to the few extreme days, and the forecasts stay positive: $\exp\big(\widehat{\log RV}_{t+1} + \hat\sigma_e^2 / 2\big)$, where $\hat\sigma_e^2$ is the residual variance (the mean of a lognormal)
+- HARQ (Bollerslev, Patton & Quaedvlieg, 2016) lowers $b_d$ on days when $RV_t$ is imprecise, i.e. when $RQ_t$ is high
+:::
+
+## VOLARE in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: volare-r
+# ES: realized variance from 5-minute returns in squared percent, its
+# averages over the last week and the last month, and the next day's RV
+days_week <- 5
+days_month <- 22
+
+har_data <- read_parquet(
+  "data/volare_futures_realized_measures_daily.parquet"
+) |>
+  filter(symbol == "ES") |>
+  arrange(date) |>
+  transmute(
+    date,
+    rv = 1e4 * rv5,
+    rv_week = slide_dbl(rv, mean, .before = days_week - 1, .complete = TRUE),
+    rv_month = slide_dbl(rv, mean, .before = days_month - 1, .complete = TRUE),
+    rv_next = lead(rv)
+  ) |>
+  drop_na()
+```
+
+## Python
+
+```{python}
+#| label: volare-py
+#| eval: false
+# ES: realized variance from 5-minute returns in squared percent, its
+# averages over the last week and the last month, and the next day's RV
+days_week = 5
+days_month = 22
+
+har_data = (
+    pl.read_parquet("data/volare_futures_realized_measures_daily.parquet")
+    .filter(pl.col("symbol") == "ES")
+    .sort("date")
+    .select("date", rv=1e4 * pl.col("rv5"))
+    .with_columns(
+        rv_week=pl.col("rv").rolling_mean(days_week),
+        rv_month=pl.col("rv").rolling_mean(days_month),
+        rv_next=pl.col("rv").shift(-1),
+    )
+    .drop_nulls()
+)
+```
+:::
+
+## HAR in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: har-r
+# Estimate until the end of 2020, then forecast every day
+estimation_end <- ymd("2020-12-31")
+
+estimation <- har_data |> filter(date <= estimation_end)
+har <- lm(rv_next ~ rv + rv_week + rv_month, data = estimation)
+log_har <- lm(
+  log(rv_next) ~ log(rv) + log(rv_week) + log(rv_month),
+  data = estimation
+)
+
+# Next-day forecasts; a log forecast needs the mean of the lognormal
+har_forecasts <- har_data |>
+  mutate(
+    har = predict(har, newdata = har_data),
+    log_har = exp(predict(log_har, newdata = har_data) + sigma(log_har)^2 / 2)
+  )
+```
+
+## Python
+
+```{python}
+#| label: har-py
+#| eval: false
+# Estimate until the end of 2020, then forecast every day
+estimation_end = date(2020, 12, 31)
+
+estimation = har_data.filter(pl.col("date") <= estimation_end).to_pandas()
+har = smf.ols("rv_next ~ rv + rv_week + rv_month", data=estimation).fit()
+log_har = smf.ols(
+    "np.log(rv_next) ~ np.log(rv) + np.log(rv_week) + np.log(rv_month)",
+    data=estimation,
+).fit()
+
+# Next-day forecasts; a log forecast needs the mean of the lognormal
+har_forecasts = har_data.with_columns(
+    har=pl.Series(har.predict(har_data.to_pandas())),
+    log_har=pl.Series(
+        np.exp(log_har.predict(har_data.to_pandas()) + log_har.scale / 2)
+    ),
+)
+```
+:::
+
+```{r}
+#| label: har-numbers
+#| include: false
+# The same regressions until the end of 2019, before the COVID-19 crash
+before_covid_end <- ymd("2019-12-31")
+before_covid <- har_data |> filter(date <= before_covid_end)
+har_2019 <- lm(rv_next ~ rv + rv_week + rv_month, data = before_covid)
+log_har_2019 <- lm(
+  log(rv_next) ~ log(rv) + log(rv_week) + log(rv_month),
+  data = before_covid
+)
+slopes <- \(fit) {
+  paste(number(coef(fit)[-1], 0.01, style_negative = "minus"), collapse = ", ")
+}
+```
+
+- Slopes $b_d, b_w, b_m$ of ES until `r year(estimation_end)`: HAR `r slopes(har)`, log-HAR `r slopes(log_har)`. Until `r year(before_covid_end)`: HAR `r slopes(har_2019)`, log-HAR `r slopes(log_har_2019)`. The COVID-19 crash moves the HAR slopes, hardly the log-HAR slopes
+
+## Judging volatility forecasts
+
+::: {.box}
+The true variance is never observed. How do we compare forecasts $h_t$ of tomorrow's variance?
+:::
+
+::: {.fragment}
+- **The proxy:** tomorrow's $RV_{t+1}$, which is far less noisy than $r_{t+1}^2$
+- **Losses** that rank forecasts correctly even with a noisy proxy (Patton, 2011):
+$$
+\text{MSE} = (RV_{t+1} - h_t)^2, \qquad \text{QLIKE} = \frac{RV_{t+1}}{h_t} - \log \frac{RV_{t+1}}{h_t} - 1
+$$
+- QLIKE depends only on the ratio, so the few extreme days do not dominate it. A forecast that is too low costs more than one that is too high
+- **Mincer–Zarnowitz:** in the regression $RV_{t+1} = a + b\, h_t + e_{t+1}$, an unbiased forecast has $a = 0$ and $b = 1$; the $R^2$ measures the fit
+- **Out of sample:** estimate until `r year(estimation_end)`, then forecast every day from `r year(estimation_end) + 1` to October 2026 with these coefficients
+:::
+
+## HAR against GARCH out of sample
+
+```{r}
+#| label: plot-forecast-comparison
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.4
+# Losses relative to HAR for each asset; the median of the 30 stocks
+relative_losses <- forecast_losses |>
+  mutate(
+    QLIKE = qlike / qlike[model == "HAR"],
+    MSE = mse / mse[model == "HAR"],
+    .by = symbol
+  ) |>
+  pivot_longer(c(QLIKE, MSE), names_to = "loss", values_to = "relative") |>
+  mutate(
+    model = factor(model, levels = rev(forecast_models)),
+    loss = paste(factor(loss, levels = c("QLIKE", "MSE")), "relative to HAR"),
+    loss = fct_inorder(loss)
+  )
+stock_losses <- relative_losses |> filter(symbol != "ES")
+median_losses <- stock_losses |>
+  summarize(relative = median(relative), .by = c(model, loss)) |>
+  mutate(series = "Dow Jones stocks (median)")
+es_losses <- relative_losses |>
+  filter(symbol == "ES") |>
+  mutate(series = "ES")
+
+ggplot(stock_losses, aes(x = relative, y = model)) +
+  geom_vline(xintercept = 1, color = grey, linewidth = 0.3) +
+  geom_point(color = "#b3b3b3", alpha = 0.6, size = 1.5) +
+  geom_point(
+    data = bind_rows(median_losses, es_losses),
+    aes(color = series),
+    size = 3.5
+  ) +
+  facet_wrap(~loss, scales = "free_x") +
+  scale_x_log10() +
+  scale_color_manual(
+    values = c("Dow Jones stocks (median)" = jet, "ES" = ku_red)
+  ) +
+  labs(x = "Loss relative to HAR (log scale)", y = NULL, color = NULL) +
+  theme(legend.position = "bottom")
+
+beats <- \(winner, loser, measure) {
+  forecast_losses |>
+    filter(symbol != "ES") |>
+    summarize(
+      better = .data[[measure]][model == winner] <
+        .data[[measure]][model == loser],
+      .by = symbol
+    ) |>
+    pull(better) |>
+    sum()
+}
+es_qlike <- forecast_losses |> filter(symbol == "ES")
+```
+
+- Forecasts of the next day's RV from `r year(estimation_end) + 1` to October 2026; grey: each of the 30 Dow Jones stocks; below 1: better than HAR. GARCH forecasts the close-to-close variance and is scaled to the hours of RV; for the stocks, the night carries about `r percent(1 - stocks_garch$garch_scale)` of it
+- HAR beats GARCH on QLIKE for `r beats("HAR", "GARCH(1,1)", "qlike")` of 30 stocks and for ES (`r number(es_qlike$qlike[es_qlike$model == "HAR"], 0.001)` against `r number(es_qlike$qlike[es_qlike$model == "GARCH(1,1)"], 0.001)`), on MSE for `r beats("HAR", "GARCH(1,1)", "mse")`. [The log-HAR]{style="white-space: nowrap"} beats HAR on QLIKE for `r beats("log-HAR", "HAR", "qlike")` of 30 stocks
