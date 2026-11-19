@@ -1,27 +1,1079 @@
 ---
 subtitle: Realized covariances for portfolio choice
 date: 2027-05-13
-# Template for 2027: every TBD slide still needs its content.
-# Material from the 2026 decks that belongs here (removed from the repository on
-# 16 November 2026; restore with git show 62dcd3a:lecture-slides/<deck>.qmd):
-# - aef-6-high-frequency-econometrics.qmd: "Realized Covariances" to "Blocked Realized Kernels"
-# - aef-5-volatility-estimation-and-advanced-portfolio-choice.qmd: "Dynamic multivariate models" to "Obvious extension: DCC"
 ---
 
-## Today
+```{r}
+#| label: load-packages-r
+#| include: false
+library(tidyverse)
+library(nanoparquet)
+library(patchwork)
+library(scales)
 
-- Realized covariances and their challenges
-- Multivariate realized kernels
-- Realized covariances for portfolio choice
+# VOLARE: daily realized measures and realized covariances of 40 US stocks,
+# January 2015 to October 2026 (licensed, see data-raw/volare.R)
+volare_measures <- "data/volare_stocks_realized_measures_daily.parquet"
+volare_covariances <- "data/volare_stocks_realized_covariances_daily.parquet"
 
-## Realized covariances and their challenges
+# Backtest: daily from the first trading day of 2016, a year of daily returns
+# for the sample covariance and Ledoit-Wolf, two halves for the subperiods
+backtest_start <- as.Date("2016-01-01")
+period_split <- as.Date("2021-01-01")
+window_length <- 250
 
-TBD
+# Covariance forecasts: HAR weights chosen by hand, the week and month of the
+# HAR, the weight of exponential smoothing (RiskMetrics)
+har_weights <- c(day = 0.4, week = 0.3, month = 0.2)
+days_week <- 5
+days_month <- 22
+smoothing <- 0.94
 
-## Multivariate realized kernels
+# Costs: 10 bps of every trade's value, as in the trading game; monthly
+# rebalancing every 21 trading days
+cost <- 0.001
+rebalance_monthly <- 21
+days_per_year <- 252
 
-TBD
+# VOLARE's prices are not split-adjusted: an overnight price ratio within 5%
+# of 1/k for these k is a k-for-1 split
+split_factors <- c(2, 3, 4, 5, 10, 20)
 
-## Realized covariances for portfolio choice
+# Re-estimated HAR weights: every 21 trading days
+reestimate_every <- 21
 
-TBD
+# Colours of the slides, used by the figures
+ku_red <- "#901A1E"
+jet <- "#3d3d3d"
+grey <- "#666666"
+light <- "#e6e3df"
+theme_set(
+  theme_minimal(base_size = 14) + theme(panel.grid.minor = element_blank())
+)
+
+source("lecture-slides/_live-poll.R")
+rebalancing_poll <- "aef27-l18-daily-rebalancing"
+```
+
+```{python}
+#| label: load-packages-py
+#| include: false
+from datetime import date
+
+import numpy as np
+import polars as pl
+```
+
+```{r}
+#| label: prepare-returns-r
+#| include: false
+# The 30 Dow Jones stocks (today's members, as in lectures 2 to 5)
+measures <- read_parquet(volare_measures) |>
+  filter(dow30) |>
+  select(date, symbol, open_price, close_price, trades) |>
+  arrange(symbol, date)
+
+# Daily returns from close to close: the night (previous close to open) and
+# the day (open to close). A split shows up as an overnight price ratio near
+# 1/k: undo it
+split_of <- function(ratio) {
+  distance <- abs(ratio * split_factors - 1)
+  if_else(min(distance) < 0.05, split_factors[which.min(distance)], 1)
+}
+returns_long <- measures |>
+  mutate(
+    overnight = open_price / lag(close_price),
+    intraday = close_price / open_price,
+    .by = symbol
+  ) |>
+  mutate(
+    split = map_dbl(overnight, \(x) if (is.na(x)) 1 else split_of(x)),
+    overnight = coalesce(overnight * split, 1),
+    ret = overnight * intraday - 1,
+    ret_open_close = intraday - 1,
+    ret_overnight = overnight - 1
+  )
+n_splits <- sum(returns_long$split > 1)
+
+returns_wide <- function(column) {
+  returns_long |>
+    pivot_wider(
+      id_cols = date,
+      names_from = symbol,
+      values_from = all_of(column)
+    ) |>
+    arrange(date) |>
+    select(-date) |>
+    as.matrix()
+}
+returns <- returns_wide("ret")
+returns_open_close <- returns_wide("ret_open_close")
+returns_overnight <- returns_wide("ret_overnight")
+
+# Trades per second from the open (9:30) to the close (16:00), median stock
+seconds_per_day <- 6.5 * 60 * 60
+trades_per_second <- measures |>
+  summarize(trades = mean(trades) / seconds_per_day, .by = symbol) |>
+  pull(trades) |>
+  median()
+
+# The night's share of the close-to-close variance, median stock
+night_share <- median(
+  apply(returns_overnight, 2, var) / apply(returns, 2, var)
+)
+```
+
+## Back to the minimum-variance portfolio
+
+- **Lectures 2 to 4:** the minimum-variance portfolio $\omega_\text{mvp} = \Sigma^{-1}\iota / \iota'\Sigma^{-1}\iota$ needs only $\Sigma$, no expected returns
+- **Lecture 3:** $\hat\Sigma$ from 60 months of returns is noisy. **Lecture 4:** Ledoit-Wolf shrinks it. **Lecture 5:** every trade costs
+- **Lecture 17:** intraday returns measure a day's variance precisely, and the HAR model forecasts it
+
+::: {.highlight}
+**Today:** covariance matrices from intraday returns: how to measure and forecast them, and whether they give better minimum-variance portfolios, also after trading costs
+:::
+
+# Realized covariance
+
+## From realized variance to realized covariance
+
+::: {.box}
+On day $t$, we observe $n$ intraday returns $r_{t,j}$ of $N$ stocks, $j = 1, \dots, n$, each an $N$-vector. Lecture 17: $RV_t = \sum_j r_{t,j}^2$ for one stock. What is the counterpart for the covariance matrix, and when can we invert it?
+:::
+
+::: {.fragment}
+$$
+RCov_t = \sum_{j=1}^{n} r_{t,j}\, r_{t,j}' \qquad \longrightarrow \qquad \int_{t-1}^{t} \Sigma_s\, ds \quad \text{as } n \to \infty
+$$
+
+- The diagonal holds the realized variances of lecture 17, the rest the realized covariances: the quadratic covariation of the prices (Barndorff-Nielsen & Shephard, 2004). From them follow realized correlations and realized betas, $RCov_{im,t} / RV_{m,t}$ for stock $i$ and the market $m$
+- $RCov_t$ is a sum of $n$ matrices of rank one, so its rank is at most $n$. Invertible only if $n \geq N$: 1-minute returns give 390 a day for 30 stocks, but 5-minute returns give only 78, too few for the 100 stocks of the S&P 100
+:::
+
+## Asynchronous trading
+
+::: {.box}
+The efficient prices of stocks A and B have correlation $\rho$. A trades all the time; when we sample, B's last trade is on average $s$ seconds old. Each return over $\Delta$ seconds uses the last price in the interval. What happens to the realized correlation?
+:::
+
+::: {.fragment}
+- B's price reacts late: part of a common move shows up in A's return now and in B's return in the next interval. Each interval loses the share $s/\Delta$ of the co-movement:
+
+$$
+\text{realized correlation} \approx \rho\left(1 - \frac{s}{\Delta}\right)
+$$
+
+- The variances stay right, as every move of B shows up eventually; only the covariance shrinks. The more often we sample, the closer $\Delta$ comes to $s$ and the correlation to zero: the **Epps effect** (Epps, 1979)
+- If B's last trade is 30 seconds old: 1-minute returns keep half of the correlation, 5-minute returns 90%
+- Remedies: sample less often and lose precision; synchronize the prices (refresh time, below); or add up the products of all overlapping returns (Hayashi & Yoshida, 2005)
+:::
+
+## VOLARE's covariance matrices in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: read-covariances-r
+symbols <- read_parquet("data/volare_stocks_realized_measures_daily.parquet") |>
+  filter(dow30) |>
+  distinct(symbol) |>
+  pull(symbol) |>
+  sort()
+# One row per pair of stocks and day: realized covariances from 1-minute returns
+covariances <- read_parquet(
+  "data/volare_stocks_realized_covariances_daily.parquet"
+) |>
+  filter(asset1 %in% symbols, asset2 %in% symbols)
+dates <- sort(unique(covariances$date))
+n_stocks <- length(symbols)
+
+# One N x N matrix per day; each pair is stored once, so fill both triangles
+rcov <- array(NA_real_, c(n_stocks, n_stocks, length(dates)))
+i <- match(covariances$asset1, symbols)
+j <- match(covariances$asset2, symbols)
+t <- match(covariances$date, dates)
+rcov[cbind(i, j, t)] <- covariances$rcov
+rcov[cbind(j, i, t)] <- covariances$rcov
+```
+
+## Python
+
+```{python}
+#| label: read-covariances-py
+#| eval: false
+symbols = sorted(
+    pl.read_parquet("data/volare_stocks_realized_measures_daily.parquet")
+    .filter(pl.col("dow30"))["symbol"]
+    .unique()
+)
+# One row per pair of stocks and day: realized covariances from 1-minute returns
+covariances = pl.read_parquet(
+    "data/volare_stocks_realized_covariances_daily.parquet"
+).filter(pl.col("asset1").is_in(symbols) & pl.col("asset2").is_in(symbols))
+dates = covariances["date"].unique().sort()
+n_stocks = len(symbols)
+
+# One N x N matrix per day; each pair is stored once, so fill both triangles
+rcov = np.full((len(dates), n_stocks, n_stocks), np.nan)
+i = covariances["asset1"].replace_strict(symbols, range(n_stocks))
+j = covariances["asset2"].replace_strict(symbols, range(n_stocks))
+t = dates.search_sorted(covariances["date"])
+rcov[t, i, j] = covariances["rcov"]
+rcov[t, j, i] = covariances["rcov"]
+```
+:::
+
+```{r}
+#| label: describe-covariances
+#| include: false
+n_rows <- nrow(covariances)
+n_days <- length(dates)
+n_pairs <- n_stocks * (n_stocks + 1) / 2
+rm(covariances)
+
+# Eigenvalues of every daily matrix, and of its correlation matrix
+eigen_daily <- map(seq_len(n_days), \(t) {
+  values <- eigen(rcov[,, t], symmetric = TRUE, only.values = TRUE)$values
+  correlations <- eigen(
+    cov2cor(rcov[,, t]),
+    symmetric = TRUE,
+    only.values = TRUE
+  )$values
+  tibble(
+    date = dates[t],
+    smallest = min(values),
+    condition = max(values) / min(values),
+    first_share = correlations[1] / n_stocks
+  )
+}) |>
+  bind_rows()
+```
+
+
+## The Epps effect in the Dow
+
+```{r}
+#| label: compute-epps
+#| include: false
+# The daily returns have the same stocks and days as the matrices
+stopifnot(
+  identical(colnames(returns), symbols),
+  nrow(returns) == n_days
+)
+
+# Each pair once: the upper triangle without the diagonal
+pairs <- which(upper.tri(diag(n_stocks)), arr.ind = TRUE)
+
+# Realized covariances added up over all days against the covariances of
+# daily open-to-close returns, which span the same hours. Annualized
+rcov_mean <- rowMeans(rcov, dims = 2) * days_per_year
+daily_cov_open_close <- cov(returns_open_close) * days_per_year
+epps <- tibble(
+  realized_correlation = cov2cor(rcov_mean)[pairs],
+  daily_correlation = cor(returns_open_close)[pairs],
+  realized_covariance = rcov_mean[pairs],
+  daily_covariance = daily_cov_open_close[pairs]
+)
+epps_variances <- tibble(
+  realized_variance = diag(rcov_mean),
+  daily_variance = diag(daily_cov_open_close)
+)
+correlation_close_close <- mean(cor(returns)[pairs])
+covariance_ratio <- median(epps$realized_covariance / epps$daily_covariance)
+variance_ratio <- median(
+  epps_variances$realized_variance / epps_variances$daily_variance
+)
+```
+
+```{r}
+#| label: plot-epps
+#| echo: false
+#| fig-width: 11
+#| fig-height: 4.1
+correlation_panel <- ggplot(
+  epps,
+  aes(x = daily_correlation, y = realized_correlation)
+) +
+  geom_abline(color = "#b3b3b3", linewidth = 0.8) +
+  geom_point(color = ku_red, alpha = 0.5, size = 1.8) +
+  coord_equal(xlim = c(0, 0.8), ylim = c(0, 0.8)) +
+  labs(
+    x = "Correlation of daily open-to-close returns",
+    y = "1-minute realized correlation"
+  )
+covariance_limits <- c(0, max(epps_variances) * 1.05)
+covariance_panel <- ggplot(mapping = aes(x = daily_covariance)) +
+  geom_abline(color = "#b3b3b3", linewidth = 0.8) +
+  geom_point(
+    data = epps,
+    aes(y = realized_covariance),
+    color = ku_red,
+    alpha = 0.5,
+    size = 1.8
+  ) +
+  geom_point(
+    data = epps_variances,
+    aes(x = daily_variance, y = realized_variance),
+    color = jet,
+    shape = 17,
+    size = 2.4
+  ) +
+  annotate(
+    "text",
+    x = covariance_limits[2] * 0.5,
+    y = covariance_limits[2] * 0.95,
+    label = "Variances",
+    color = jet,
+    hjust = 1
+  ) +
+  annotate(
+    "text",
+    x = covariance_limits[2] * 0.62,
+    y = covariance_limits[2] * 0.12,
+    label = "Covariances",
+    color = ku_red,
+    hjust = 0
+  ) +
+  coord_equal(xlim = covariance_limits, ylim = covariance_limits) +
+  labs(
+    x = "Variance and covariance of daily\nopen-to-close returns (annualized)",
+    y = "Average 1-minute realized\nvariance and covariance (annualized)"
+  )
+correlation_panel + covariance_panel
+```
+
+- `r nrow(epps)` pairs of the `r n_stocks` stocks, `r format(min(dates), "%Y")`–`r format(max(dates), "%Y")`. The 1-minute realized correlation, from the sums over all days, is lower for `r percent(mean(epps$realized_correlation < epps$daily_correlation))` of the pairs: `r number(mean(epps$realized_correlation), 0.01)` against `r number(mean(epps$daily_correlation), 0.01)` on average
+- **Not the covariances:** they match the daily ones (median ratio `r number(covariance_ratio, 0.01)`); a Dow stock trades about `r number(trades_per_second, 1)` times a second (median). **The variances:** 1-minute RV is `r percent(variance_ratio - 1)` above the variance of daily returns, the noise of lecture 17
+- Close-to-close returns correlate even more, `r number(correlation_close_close, 0.01)` on average: the night brings news that moves all stocks
+
+## Noise and asynchronous trading together
+
+```{r}
+#| label: plot-refresh-time
+#| echo: false
+#| dev: svglite
+#| fig-width: 11
+#| fig-height: 2.3
+# Schematic: trade times of three stocks within a few minutes, and the
+# refresh times at which every stock has traded since the last one
+trades <- tibble(
+  stock = rep(c("Stock 1", "Stock 2", "Stock 3"), c(14, 8, 5)),
+  time = c(
+    c(0.2, 0.7, 1.1, 1.6, 2.3, 2.6, 3.4, 4.1, 4.5, 5.2, 6.1, 6.6, 7.4, 8.3),
+    c(0.5, 1.9, 2.4, 3.9, 5.0, 5.5, 7.0, 8.6),
+    c(1.4, 3.1, 4.8, 6.8, 9.1)
+  )
+)
+refresh_times <- c()
+last_refresh <- -Inf
+repeat {
+  later <- trades |> filter(time > last_refresh)
+  if (n_distinct(later$stock) < 3) {
+    break
+  }
+  last_refresh <- later |>
+    summarize(time = min(time), .by = stock) |>
+    pull(time) |>
+    max()
+  refresh_times <- c(refresh_times, last_refresh)
+}
+stock_levels <- c("Stock 3", "Stock 2", "Stock 1")
+
+ggplot(trades, aes(x = time, y = match(stock, stock_levels))) +
+  annotate(
+    "segment",
+    x = refresh_times,
+    xend = refresh_times,
+    y = 0.75,
+    yend = 3.35,
+    color = ku_red,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_hline(yintercept = 1:3, color = "#b3b3b3", linewidth = 0.5) +
+  geom_point(color = jet, size = 3) +
+  annotate(
+    "text",
+    x = refresh_times,
+    y = 0.5,
+    label = paste0(
+      "\u03c4",
+      map_chr(seq_along(refresh_times), \(k) intToUtf8(0x2080 + k))
+    ),
+    color = ku_red,
+    size = 5
+  ) +
+  scale_x_continuous(limits = c(0, 9.5), expand = c(0, 0)) +
+  scale_y_continuous(breaks = 1:3, labels = stock_levels) +
+  coord_cartesian(ylim = c(0.35, 3.3), clip = "off") +
+  labs(x = "Time", y = NULL) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(size = 14, color = jet)
+  )
+```
+
+- **Refresh time:** wait until every stock has traded since the last refresh time $\tau_k$, and take each stock's latest price. The returns between refresh times are synchronous, but the slowest stock sets the pace: most trades go unused
+- **Realized kernel:** add the autocovariance matrices $\Gamma_h = \sum_j r_{t,j}\, r_{t,j-h}'$ of the refresh-time returns, $\Gamma_{-h} = \Gamma_h'$, with weights that fall in the lag $h$:
+
+$$
+K_t = \sum_{h=-H}^{H} k\left(\frac{h}{H+1}\right)\Gamma_h
+$$
+
+- The lags add back what noise and stale prices push into neighbouring returns; with the Parzen weights $k$, $K_t$ is positive semidefinite (Barndorff-Nielsen, Hansen, Lunde & Shephard, 2011). VOLARE's `rk` is the version for one stock
+
+## Many stocks: blocking
+
+:::: {.columns}
+::: {.column width="42%"}
+```{r}
+#| label: plot-blocks
+#| echo: false
+#| dev: svglite
+#| fig-width: 4.6
+#| fig-height: 4.6
+# Schematic: three groups of stocks, A trading the most. Each block of the
+# matrix uses the refresh times of only the groups it contains
+group_names <- c("A", "B", "C")
+blocks <- expand_grid(block_row = 1:3, block_column = 1:3) |>
+  mutate(
+    groups = abs(block_row - block_column) + 1,
+    label = map2_chr(
+      pmin(block_row, block_column),
+      pmax(block_row, block_column),
+      \(first, last) paste(group_names[first:last], collapse = "+")
+    )
+  )
+
+ggplot(blocks, aes(x = block_column, y = -block_row)) +
+  geom_tile(aes(fill = factor(groups)), color = "white", linewidth = 2) +
+  geom_text(aes(label = label, color = groups == 1), size = 6) +
+  scale_fill_manual(
+    values = c("1" = ku_red, "2" = "#c27b7d", "3" = light),
+    guide = "none"
+  ) +
+  scale_color_manual(
+    values = c("TRUE" = "white", "FALSE" = jet),
+    guide = "none"
+  ) +
+  annotate(
+    "text",
+    x = 2,
+    y = -0.3,
+    label = "Stocks sorted from most to fewest trades",
+    color = grey,
+    size = 4.4
+  ) +
+  coord_equal(clip = "off") +
+  theme_void()
+```
+:::
+
+::: {.column width="58%"}
+- With `r n_stocks` stocks, refresh time waits for the slowest stock each time and throws away most trades of the others
+- **Blocking** (Hautsch, Kyj & Oomen, 2012): sort the stocks by how often they trade and split them into groups. Each block of the matrix gets its own realized kernel, with the refresh times of only the groups it contains
+- The blocks of frequently traded stocks (dark) keep most of their data; only the corner A+B+C waits for all
+- Correlations come from the blocks, each stock's variance from its own kernel. The pieces need not fit into a positive definite matrix: clean the eigenvalues, as in the shrinkage of lecture 4
+:::
+::::
+
+## Correlations move together
+
+```{r}
+#| label: plot-first-eigenvalue
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3
+first_share <- eigen_daily |>
+  mutate(
+    average = as.numeric(stats::filter(
+      first_share,
+      rep(1 / days_month, days_month),
+      sides = 1
+    ))
+  )
+peak <- first_share |> slice_max(first_share, n = 1)
+yearly_share <- first_share |>
+  mutate(year = year(date)) |>
+  summarize(median = median(first_share), .by = year)
+
+ggplot(first_share, aes(x = date)) +
+  geom_line(aes(y = first_share), color = "#b3b3b3", linewidth = 0.3) +
+  geom_line(aes(y = average), color = ku_red, linewidth = 0.9, na.rm = TRUE) +
+  annotate(
+    "text",
+    x = peak$date + 60,
+    y = peak$first_share,
+    label = format(peak$date, "%e %B %Y"),
+    hjust = 0,
+    color = jet
+  ) +
+  scale_y_continuous(labels = percent, limits = c(0, 0.85)) +
+  labs(
+    x = NULL,
+    y = "Share of the largest\neigenvalue"
+  )
+```
+
+- `r comma(n_days)` daily matrices, `r format(min(dates), "%B %Y")` to `r format(max(dates), "%B %Y")` (`r comma(n_rows)` rows = days × `r comma(n_pairs)` pairs). `r if (all(eigen_daily$smallest > 0)) "Every one is" else "Not every one is"` positive definite; the condition number, the largest over the smallest eigenvalue, is `r comma(median(eigen_daily$condition))` on the median day and at most `r comma(max(eigen_daily$condition))`
+- The largest eigenvalue $\delta_1$ of each day's realized correlation matrix, as a share of all `r n_stocks` (lecture 12: the variance share of the first principal component). Grey: every day; red: the average of the last `r days_month` days
+- Median `r percent(median(eigen_daily$first_share))`, but `r percent(peak$first_share)` on `r format(peak$date, "%e %B %Y")`; yearly medians from `r percent(min(yearly_share$median))` (`r yearly_share$year[which.min(yearly_share$median)]`) to `r percent(max(yearly_share$median))` (`r yearly_share$year[which.max(yearly_share$median)]`)
+- When one factor moves all stocks, diversification helps less. A daily matrix sees this at once; a 250-day sample covariance only slowly
+
+# Covariance forecasts
+
+## Forecasting a covariance matrix
+
+::: {.box}
+Tomorrow's minimum-variance portfolio needs a forecast of $\Sigma_{t+1}$ that we can invert. $RCov_t$ measures today's matrix, with noise. Which forecasts would you use, and which of them stay positive definite?
+:::
+
+::: {.fragment}
+- **Random walk:** $\hat\Sigma_{t+1} = RCov_t$, the most recent and the noisiest
+- **Averages:** the last 22 days, $RCov^{m}_t$; or exponential smoothing, $\hat\Sigma_{t+1} = 0.94\,\hat\Sigma_t + 0.06\,RCov_t$ (RiskMetrics)
+- **HAR** (lecture 17) for the whole matrix, with one weight per horizon for all $N(N+1)/2$ elements and the rest on $\bar S_t$, the average of the last 250 days:
+
+$$
+\hat\Sigma_{t+1} = (1 - b_d - b_w - b_m)\,\bar S_t + b_d\,RCov_t + b_w\,RCov^{w}_t + b_m\,RCov^{m}_t
+$$
+
+- $RCov^{w}_t$ and $RCov^{m}_t$ average the last 5 and 22 days. With weights $\geq 0$ that sum to one, every forecast is a weighted average of positive definite matrices, so it is positive definite, too
+- From daily returns alone: multivariate GARCH, e.g. dynamic conditional correlations (Engle, 2002)
+:::
+
+## The HAR forecast in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: define-forecast-r
+# HAR weights on the last day, week and month, chosen by hand; the rest goes
+# to the average of the last year
+har_weights <- c(day = 0.4, week = 0.3, month = 0.2)
+days_week <- 5
+days_month <- 22
+window_length <- 250
+
+# Average of the realized covariance matrices of `days` days up to day t
+average_rcov <- function(t, days) {
+  rowMeans(rcov[,, (t - days + 1):t, drop = FALSE], dims = 2)
+}
+
+forecast_har <- function(t) {
+  long_run <- (1 - sum(har_weights)) * average_rcov(t, window_length)
+  day <- har_weights[["day"]] * rcov[,, t]
+  week <- har_weights[["week"]] * average_rcov(t, days_week)
+  month <- har_weights[["month"]] * average_rcov(t, days_month)
+  long_run + day + week + month
+}
+```
+
+## Python
+
+```{python}
+#| label: define-forecast-py
+#| eval: false
+# HAR weights on the last day, week and month, chosen by hand; the rest goes
+# to the average of the last year
+har_weights = {"day": 0.4, "week": 0.3, "month": 0.2}
+days_week = 5
+days_month = 22
+window_length = 250
+
+
+# Average of the realized covariance matrices of `days` days up to day t
+def average_rcov(t, days):
+    return rcov[t - days + 1 : t + 1].mean(axis=0)
+
+
+def forecast_har(t):
+    long_run = (1 - sum(har_weights.values())) * average_rcov(t, window_length)
+    day = har_weights["day"] * rcov[t]
+    week = har_weights["week"] * average_rcov(t, days_week)
+    month = har_weights["month"] * average_rcov(t, days_month)
+    return long_run + day + week + month
+```
+:::
+
+```{r}
+#| label: define-mvp-r
+#| include: false
+# The minimum-variance portfolio of lectures 2 to 5
+mvp <- function(sigma) {
+  weights <- solve(sigma, rep(1, ncol(sigma)))
+  weights / sum(weights)
+}
+```
+
+# Back to the Dow Jones
+
+## The backtest
+
+- The `r n_stocks` Dow Jones stocks, every trading day from `r format(backtest_start, "%B %Y")` to `r format(max(dates), "%B %Y")`: forecast $\Sigma$ with data up to the day before, buy the minimum-variance portfolio at the close, hold it until the next close. Today's $RCov_t$ is complete only after the close (lecture 3: a signal from today's close cannot trade at today's close)
+- **From daily returns** (lectures 3 and 4): the sample covariance and Ledoit-Wolf of the last `r window_length` days. **From intraday returns:** $RCov$ of the last day, its `r days_month`-day average, exponential smoothing and HAR. And 1/N
+- **Caveats:** $RCov$ misses the night, `r percent(night_share)` of the close-to-close variance (median stock). Today's Dow Jones stocks, a look-ahead choice (lecture 3). VOLARE's prices are not adjusted for splits; we undo the `r n_splits` splits
+- **In the code:** `returns` holds the daily returns from close to close, one row per day; `mvp()` gives the minimum-variance weights of lectures 2 to 5
+
+```{r}
+#| label: plot-backtest-timing
+#| echo: false
+#| dev: svglite
+#| fig-width: 10
+#| fig-height: 2.2
+# Schematic, not to scale: 10 cells stand for the data up to yesterday
+cells <- 10
+rebalancings <- 3
+timing <- expand_grid(
+  row = 1:rebalancings,
+  cell = 1:(cells + rebalancings + 1)
+) |>
+  mutate(
+    role = case_when(
+      cell >= row & cell < row + cells ~ "data",
+      cell == row + cells ~ "today",
+      cell == row + cells + 1 ~ "hold"
+    )
+  ) |>
+  drop_na(role)
+row_labels <- tibble(row = 1:rebalancings, label = c("Day t", "t + 1", "t + 2"))
+
+ggplot(timing, aes(x = cell, y = -row)) +
+  geom_tile(aes(fill = role), color = "white", linewidth = 1.2, height = 0.72) +
+  scale_fill_manual(
+    values = c(data = light, today = "#b3b3b3", hold = ku_red),
+    guide = "none"
+  ) +
+  geom_text(
+    data = row_labels,
+    aes(x = row - 0.8, label = label),
+    hjust = 1,
+    color = jet,
+    size = 4.6
+  ) +
+  annotate(
+    "text",
+    x = (1 + cells) / 2,
+    y = -0.3,
+    color = jet,
+    size = 4.4,
+    label = "Data up to the day before"
+  ) +
+  annotate(
+    "text",
+    x = cells + 1,
+    y = -0.3,
+    color = grey,
+    size = 4.4,
+    label = "Today: buy at the close"
+  ) +
+  annotate(
+    "text",
+    x = cells + 2.7,
+    y = -1,
+    color = ku_red,
+    size = 4.4,
+    hjust = 0,
+    label = "Hold until the next close"
+  ) +
+  coord_cartesian(
+    xlim = c(-2, cells + rebalancings + 4),
+    ylim = c(-rebalancings - 0.5, 0),
+    clip = "off"
+  ) +
+  theme_void()
+```
+
+## The backtest in code
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: define-backtest-r
+cost <- 0.001 # 10 bps of every trade's value, as in the trading game
+# Days t whose next day t + 1 lies in the backtest
+backtest_start <- as.Date("2016-01-01")
+days <- which(dates >= backtest_start) - 1
+
+backtest <- function(forecast, rebalance_every = 1) {
+  w_plus <- rep(1 / n_stocks, n_stocks)
+  ret <- turnover <- numeric(length(days))
+  for (k in seq_along(days)) {
+    t <- days[k]
+    # Trade at day t's close with data up to t - 1, or let the weights drift
+    rebalance <- (k - 1) %% rebalance_every == 0
+    w <- if (rebalance) mvp(forecast(t - 1)) else w_plus
+    turnover[k] <- sum(abs(w - w_plus))
+    ret[k] <- sum(w * returns[t + 1, ])
+    w_plus <- w * (1 + returns[t + 1, ]) / (1 + ret[k])
+  }
+  ret_net <- ret - cost * turnover
+  tibble(date = dates[days + 1], ret, ret_net, turnover)
+}
+```
+
+## Python
+
+```{python}
+#| label: define-backtest-py
+#| eval: false
+cost = 0.001  # 10 bps of every trade's value, as in the trading game
+# Days t whose next day t + 1 lies in the backtest
+backtest_start = date(2016, 1, 1)
+days = np.flatnonzero(dates >= backtest_start) - 1
+
+
+def backtest(forecast, rebalance_every=1):
+    w_plus = np.ones(n_stocks) / n_stocks
+    ret, turnover = np.zeros(len(days)), np.zeros(len(days))
+    for k, t in enumerate(days):
+        # Trade at day t's close with data up to t - 1, or let the weights drift
+        rebalance = k % rebalance_every == 0
+        w = mvp(forecast(t - 1)) if rebalance else w_plus
+        turnover[k] = np.abs(w - w_plus).sum()
+        ret[k] = w @ returns[t + 1]
+        w_plus = w * (1 + returns[t + 1]) / (1 + ret[k])
+    ret_net = ret - cost * turnover
+    columns = {"ret": ret, "ret_net": ret_net, "turnover": turnover}
+    return pl.DataFrame({"date": dates[days + 1], **columns})
+```
+:::
+
+```{r}
+#| label: run-backtests
+#| include: false
+#| cache: true
+#| cache.extra: !expr list(rlang::hash(returns), rlang::hash(rcov), deparse(forecast_har), deparse(backtest), smoothing, rebalance_monthly, backtest_start)
+# Ledoit-Wolf of lecture 4: shrink toward the average variance times the
+# identity
+ledoit_wolf <- function(x) {
+  t <- nrow(x)
+  x <- sweep(x, 2, colMeans(x))
+  sample <- crossprod(x) / t
+  target <- mean(diag(sample)) * diag(ncol(x))
+  products <- map_dbl(seq_len(t), \(s) sum((tcrossprod(x[s, ]) - sample)^2))
+  noise <- sum(products) / t^2
+  delta <- min(noise / sum((sample - target)^2), 1)
+  delta * target + (1 - delta) * sample
+}
+
+# Exponential smoothing of the realized covariance matrices
+smoothed <- rcov
+for (t in 2:n_days) {
+  update <- (1 - smoothing) * rcov[,, t]
+  smoothed[,, t] <- smoothing * smoothed[,, t - 1] + update
+}
+
+daily_window <- \(t) returns[(t - window_length + 1):t, ]
+forecasts <- list(
+  # The minimum-variance portfolio of the identity matrix is 1/N
+  "1/N" = \(t) diag(n_stocks),
+  "Sample covariance, 250 days" = \(t) cov(daily_window(t)),
+  "Ledoit-Wolf, 250 days" = \(t) ledoit_wolf(daily_window(t)),
+  "RCov, last day" = \(t) rcov[,, t],
+  "RCov, 22-day average" = \(t) average_rcov(t, days_month),
+  "RCov, exponential smoothing" = \(t) smoothed[,, t],
+  "RCov, HAR" = forecast_har
+)
+strategies <- names(forecasts)
+
+backtests <- expand_grid(
+  strategy = strategies,
+  rebalance_every = c(1, rebalance_monthly)
+) |>
+  mutate(
+    result = map2(strategy, rebalance_every, \(s, r) {
+      backtest(forecasts[[s]], r)
+    })
+  ) |>
+  unnest(result)
+```
+
+```{r}
+#| label: summarize-backtests
+#| include: false
+performance <- backtests |>
+  summarize(
+    volatility = sd(ret) * sqrt(days_per_year),
+    volatility_first = sd(ret[date < period_split]) * sqrt(days_per_year),
+    volatility_second = sd(ret[date >= period_split]) * sqrt(days_per_year),
+    mean = mean(ret) * days_per_year,
+    mean_net = mean(ret_net) * days_per_year,
+    turnover = mean(turnover),
+    costs = cost * mean(turnover) * days_per_year,
+    .by = c(strategy, rebalance_every)
+  ) |>
+  mutate(
+    strategy = factor(strategy, levels = strategies),
+    rebalancing = if_else(rebalance_every == 1, "Daily", "Monthly")
+  )
+daily <- performance |>
+  filter(rebalancing == "Daily") |>
+  arrange(strategy)
+monthly <- performance |>
+  filter(rebalancing == "Monthly") |>
+  arrange(strategy)
+of <- function(table, name, column) {
+  table |>
+    filter(strategy == name) |>
+    pull({{ column }})
+}
+backtest_period <- paste(
+  format(min(backtests$date), "%B %Y"),
+  "to",
+  format(max(backtests$date), "%B %Y")
+)
+first_period <- paste0(year(min(backtests$date)), "–", year(period_split) - 1)
+second_period <- paste0(year(period_split), "–", year(max(backtests$date)))
+rcov_strategies <- str_subset(strategies, "^RCov")
+```
+
+## Lower volatility out of sample
+
+```{r}
+#| label: table-volatility
+#| echo: false
+daily |>
+  transmute(
+    Strategy = strategy,
+    Volatility = percent(volatility, 0.1),
+    "{first_period}" := percent(volatility_first, 0.1),
+    "{second_period}" := percent(volatility_second, 0.1)
+  )
+```
+
+- Minimum-variance portfolios rebalanced every day, `r backtest_period`: annualized volatility of the daily returns, in the whole backtest and in its two halves
+- Ledoit-Wolf beats the sample covariance, as in lecture 4. Every forecast from realized covariances beats both: HAR has `r number(100 * (of(daily, "Ledoit-Wolf, 250 days", volatility) - of(daily, "RCov, HAR", volatility)), 0.1)` percentage points less volatility than Ledoit-Wolf, and less in both halves
+- The last day alone is the worst of the realized forecasts: one day of 1-minute returns is a noisy measurement
+
+## Why fixed HAR weights?
+
+```{r}
+#| label: reestimate-har
+#| include: false
+#| cache: true
+#| cache.extra: !expr list(rlang::hash(returns), rlang::hash(rcov), deparse(backtest), reestimate_every, backtest_start)
+# Every matrix as a row of its N(N + 1) / 2 distinct elements, and their
+# averages over the last week and month
+upper <- upper.tri(diag(n_stocks), diag = TRUE)
+elements <- t(apply(rcov, 3, \(m) m[upper]))
+moving_average <- function(x, days) {
+  sums <- apply(x, 2, cumsum)
+  rbind(
+    matrix(NA, days - 1, ncol(x)),
+    (sums[days:nrow(x), ] - rbind(0, sums[seq_len(nrow(x) - days), ])) / days
+  )
+}
+elements_week <- moving_average(elements, days_week)
+elements_month <- moving_average(elements, days_month)
+as_matrix <- function(v) {
+  m <- matrix(0, n_stocks, n_stocks)
+  m[upper] <- v
+  m + t(m) - diag(diag(m))
+}
+
+# Pooled OLS on all past days and all elements, with the average of all past
+# days as the target, re-estimated every 21 trading days
+estimation_days <- days[seq(1, length(days), by = reestimate_every)] - 1
+har_estimates <- map(estimation_days, \(u) {
+  rows <- days_month:(u - 1)
+  target <- colMeans(elements[1:u, ])
+  centred <- \(x) as.vector(t(sweep(x, 2, target)))
+  fit <- lm.fit(
+    cbind(
+      centred(elements[rows, ]),
+      centred(elements_week[rows, ]),
+      centred(elements_month[rows, ])
+    ),
+    centred(elements[rows + 1, ])
+  )
+  tibble(
+    day = u,
+    date = dates[u],
+    day_weight = fit$coefficients[1],
+    week_weight = fit$coefficients[2],
+    month_weight = fit$coefficients[3],
+    target = list(target)
+  )
+}) |>
+  bind_rows()
+
+forecast_har_estimated <- function(t) {
+  estimate <- har_estimates |>
+    filter(day <= t) |>
+    slice_max(day, n = 1)
+  target <- estimate$target[[1]]
+  as_matrix(
+    target +
+      estimate$day_weight * (elements[t, ] - target) +
+      estimate$week_weight * (elements_week[t, ] - target) +
+      estimate$month_weight * (elements_month[t, ] - target)
+  )
+}
+backtest_estimated <- backtest(forecast_har_estimated)
+```
+
+```{r}
+#| label: summarize-reestimated-har
+#| include: false
+volatility_estimated <- backtest_estimated |>
+  summarize(
+    all = sd(ret),
+    first = sd(ret[date < period_split]),
+    second = sd(ret[date >= period_split])
+  ) |>
+  mutate(across(everything(), \(x) x * sqrt(days_per_year)))
+weights_long <- har_estimates |>
+  select(date, day = day_weight, week = week_weight, month = month_weight) |>
+  pivot_longer(-date, names_to = "horizon", values_to = "weight") |>
+  mutate(horizon = factor(horizon, levels = c("day", "week", "month")))
+weight_range <- range(weights_long$weight)
+```
+
+:::: {.columns}
+::: {.column width="55%"}
+```{r}
+#| label: plot-reestimated-har
+#| echo: false
+#| fig-width: 6.2
+#| fig-height: 4.4
+horizon_colors <- c(day = ku_red, week = jet, month = "#b3b3b3")
+fixed <- tibble(
+  horizon = factor(names(har_weights), levels = names(har_weights)),
+  weight = har_weights
+)
+ggplot(weights_long, aes(x = date, y = weight, color = horizon)) +
+  geom_hline(
+    data = fixed,
+    aes(yintercept = weight, color = horizon),
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_step(linewidth = 0.9) +
+  geom_hline(yintercept = 0, color = grey, linewidth = 0.3) +
+  scale_color_manual(
+    values = horizon_colors,
+    labels = c(day = "Day", week = "Week", month = "Month")
+  ) +
+  labs(x = NULL, y = "HAR weight", color = NULL) +
+  theme(legend.position = "bottom")
+```
+:::
+
+::: {.column width="45%"}
+- **By hand:** `r paste(har_weights, collapse = ", ")` on the last day, week and month (dashed), about the size of the log-HAR slopes $b_d, b_w, b_m$ in lecture 17; `r percent(1 - sum(har_weights))` stays on the yearly average
+- **By OLS** on all past days, pooled over the `r comma(n_pairs)` elements and re-estimated every `r reestimate_every` days (solid): between `r number(weight_range[1], 0.01, style_negative = "minus")` and `r number(weight_range[2], 0.01)`, with a jump after March 2020. Squared returns in levels are ruled by a few extreme days
+- With the estimated weights, the volatility is `r percent(volatility_estimated$first, 0.1)` in `r first_period` (fixed: `r percent(of(daily, "RCov, HAR", volatility_first), 0.1)`)
+- Weights picked after seeing the data are a full-sample choice (lecture 3): read the HAR row with care
+:::
+::::
+
+## What can go wrong when you rebalance daily?
+
+```{r}
+#| label: poll-setup
+#| include: false
+if (live) {
+  ojs_define(poll_base = poll_base, rebalancing_poll = rebalancing_poll)
+}
+```
+
+::: {.content-visible when-profile="live"}
+{{< include _live-poll-ojs.qmd >}}
+
+:::: {.columns}
+::: {.column width="35%"}
+```{ojs}
+//| label: rebalancing-poll-qr
+//| echo: false
+qrCode(`${poll_base}/?poll=${rebalancing_poll}&type=text`, `${poll_base}/?poll=${rebalancing_poll}`, 300)
+```
+
+What can go wrong when you rebalance every day? Up to 30 characters each
+:::
+::: {.column width="65%"}
+```{ojs}
+//| label: rebalancing-wordcloud-live
+//| echo: false
+wordcloud_refresh = Generators.observe(notify => {
+  let i = 0;
+  notify(i);
+  const timer = setInterval(() => notify(++i), 3000);
+  return () => clearInterval(timer);
+})
+html`<img src="${poll_base}/wordcloud?poll=${rebalancing_poll}&refresh=${wordcloud_refresh}" style="width: 100%">`
+```
+
+<p style="font-size: 0.5em; color: #666">An AI groups the answers into themes</p>
+:::
+::::
+:::
+
+::: {.content-visible unless-profile="live"}
+In the lecture, you answer on your phone: what can go wrong when you rebalance every day? An AI groups the answers of the class into a word cloud of themes
+:::
+
+## Responsive forecasts trade a lot
+
+```{r}
+#| label: table-costs
+#| echo: false
+daily |>
+  transmute(
+    Strategy = strategy,
+    `Turnover per day` = percent(turnover, 0.1),
+    `Costs per year` = percent(costs, 0.1),
+    Volatility = percent(volatility, 0.1),
+    `Return after costs` = percent(mean_net, 0.1, style_negative = "minus")
+  )
+```
+
+- Daily rebalancing as before; every trade costs `r cost * 1e4` bps of its value, so a year costs `r cost * 1e4` bps × turnover per day × `r days_per_year` days. Returns are annualized, before subtracting the T-bill rate
+- $RCov$ of the last day trades `r percent(of(daily, "RCov, last day", turnover))` of the portfolio every day and pays `r percent(of(daily, "RCov, last day", costs))` a year: more than any of these portfolios earns. HAR, with `r percent(har_weights[["day"]])` on the last day, still pays `r percent(of(daily, "RCov, HAR", costs))`
+- Exponential smoothing and the `r days_month`-day average keep almost all of the lower volatility for `r percent(of(daily, "RCov, exponential smoothing", costs), 0.1)` and `r percent(of(daily, "RCov, 22-day average", costs), 0.1)` a year
+
+## Trading less often
+
+```{r}
+#| label: plot-costs-volatility
+#| echo: false
+#| fig-width: 11
+#| fig-height: 3.9
+# One row per strategy, top to bottom as in the tables; daily and monthly
+# rebalancing joined by a line
+dumbbells <- performance |>
+  mutate(strategy = fct_rev(factor(strategy, levels = strategies)))
+rebalancing_colors <- c(Daily = ku_red, Monthly = grey)
+dumbbell_panel <- function(x, x_label) {
+  ggplot(dumbbells, aes(x = {{ x }}, y = strategy)) +
+    geom_line(aes(group = strategy), color = "#b3b3b3", linewidth = 1) +
+    geom_point(aes(color = rebalancing), size = 3.5) +
+    scale_color_manual(values = rebalancing_colors) +
+    labs(x = x_label, y = NULL, color = "Rebalancing") +
+    theme(panel.grid.major.y = element_blank())
+}
+volatility_panel <- dumbbell_panel(volatility, "Volatility") +
+  scale_x_continuous(labels = label_percent(accuracy = 1))
+costs_panel <- dumbbell_panel(costs, "Costs per year at 10 bps (log scale)") +
+  scale_x_log10(labels = label_percent(accuracy = 0.1)) +
+  theme(axis.text.y = element_blank())
+volatility_panel +
+  costs_panel +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+```
+
+- Rebalanced every `r rebalance_monthly` trading days, with the weights drifting in between: the `r days_month`-day average has `r percent(of(monthly, "RCov, 22-day average", volatility), 0.1)` volatility for `r percent(of(monthly, "RCov, 22-day average", costs), 0.1)` a year, still below Ledoit-Wolf rebalanced daily (`r percent(of(daily, "Ledoit-Wolf, 250 days", volatility), 0.1)`)
+- HAR forecasts tomorrow; a portfolio held for a month needs a forecast for the month, and the `r days_month`-day average is one
+- Instead of trading all or nothing: lecture 5's quadratic cost $\beta$ makes the portfolio trade part of the way every day, $\Sigma^* = \Sigma + \frac{\beta}{\gamma}I$ (Hautsch & Voigt, 2019)
+
+## The conference on 20 May
+
+- **Next Thursday:** the conference session, our last lecture. The teams with the best out-of-sample performance in the trading game present their approach, and other students discuss it, in front of faculty and quantitative traders
+- **A jury** picks the best team, on investment performance and presentation
+- Your game portfolio faces today's questions: how did you estimate risk, how often did you trade, and what did the trades cost at 10 bps each?
+
+[10,000 DKK]{.prize} for the winning team
