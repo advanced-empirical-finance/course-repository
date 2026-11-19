@@ -8,7 +8,7 @@ date: 2027-04-01
 #| include: false
 library(tidyverse)
 library(nanoparquet)
-library(glmnet)
+library(tidymodels)
 library(scales)
 library(patchwork)
 
@@ -34,7 +34,9 @@ from datetime import date
 
 import numpy as np
 import polars as pl
-from sklearn.linear_model import Lasso, LinearRegression
+from sklearn.base import clone
+from sklearn.linear_model import ElasticNet, LinearRegression
+from sklearn.metrics import make_scorer
 
 months_per_year = 12
 ```
@@ -82,7 +84,7 @@ n_osap <- ncol(read_parquet(osap_file)) - 1
 :::
 ::::
 
-## From 27 stocks to `r ncol(returns)` anomalies
+## From 27 stocks to `r length(anomaly_names)` anomalies
 
 - **Lectures 2 to 5:** with 27 Dow Jones stocks, the plug-in portfolio already failed out of sample, and shrinkage helped
 - **Lectures 7 to 9:** a portfolio sort turns a characteristic into a long-short portfolio. Researchers have published hundreds of them: the factor zoo
@@ -90,7 +92,21 @@ n_osap <- ncol(read_parquet(osap_file)) - 1
 - **The SDF does not prescribe OLS:** theory says which portfolio to hold, not how to estimate its weights. The weights may also depend non-linearly on characteristics (lectures 13 and 14)
 
 ::: {.highlight}
-**Today:** the plug-in portfolio of all `r ncol(returns)` anomalies overfits; ridge regression and the lasso trade a little bias for much less variance
+**Today:** the plug-in portfolio of all `r length(anomaly_names)` anomalies overfits; ridge regression and the lasso trade a little bias for much less variance. All three run through the same machine learning workflow
+:::
+
+## The machine learning workflow
+
+| Step | R: tidymodels | Python: scikit-learn |
+|:-------------------------------------|:---------------------------------|:---------------------------|
+| **1. Split** the months by date into an estimation and a test sample | `make_splits()`, `training()`, `testing()` | `.filter()` on the date |
+| **2. Specify** the model, its engine and the penalty | `linear_reg()`, `set_engine()`, `workflow()` | `LinearRegression()`, `ElasticNet()` |
+| **3. Resample and tune:** choose the penalty with the estimation sample only | `group_vfold_cv()`, `tune_grid()`, `select_best()` | `GroupKFold()`, `GridSearchCV()` |
+| **4. Fit** the model with this penalty on the whole estimation sample | `finalize_workflow()`, `fit()` | `set_params()`, `.fit()` |
+| **5. Evaluate** the fitted model once, in the test sample, with a metric | `augment()`, a yardstick metric | `.predict()`, `make_scorer()` |
+
+::: {.highlight}
+The same steps for every model of lectures 10 to 15. Today: steps 1, 2, 4 and 5 for every penalty on a grid; lecture 11 adds step 3
 :::
 
 ## The factor zoo
@@ -109,9 +125,14 @@ test_start <- ymd("2000-01-01")
 anomalies <- read_parquet("data/osap_long_short_returns.parquet") |>
   filter(between(date, sample_start, sample_end)) |>
   select(date, where(\(x) !anyNA(x))) |>
-  mutate(across(-date, \(x) x / 100))
-returns <- as.matrix(select(anomalies, -date))
-estimation <- anomalies$date < test_start
+  mutate(across(-date, \(x) x / 100), y = 1)
+anomaly_names <- setdiff(names(anomalies), c("date", "y"))
+sample_split <- make_splits(
+  filter(anomalies, date < test_start),
+  assessment = filter(anomalies, date >= test_start)
+)
+estimation_months <- training(sample_split)
+test_months <- testing(sample_split)
 ```
 
 ## Python
@@ -127,40 +148,142 @@ test_start = date(2000, 1, 1)
 anomalies = pl.read_parquet("data/osap_long_short_returns.parquet").filter(
     pl.col("date").is_between(sample_start, sample_end)
 )
-complete = [
+anomaly_names = [
     c for c in anomalies.columns if c != "date" and anomalies[c].null_count() == 0
 ]
-returns = anomalies.select(pl.col(complete) / 100).to_numpy()
-estimation = (anomalies["date"] < test_start).to_numpy()
+anomalies = anomalies.select("date", pl.col(anomaly_names) / 100, y=pl.lit(1.0))
+estimation_months = anomalies.filter(pl.col("date") < test_start)
+test_months = anomalies.filter(pl.col("date") >= test_start)
 ```
 :::
 
-Long-short portfolios from Open Source Asset Pricing (Chen & Zimmermann), the same data as exercise 5; the file stores returns in percent. `r ncol(returns)` of the `r n_osap` anomalies have a return in every month. Estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r sum(estimation)` months), test sample `r year(test_start)`–`r year(sample_end)` (`r sum(!estimation)` months)
+Open Source Asset Pricing (Chen & Zimmermann), as in exercise 5; the file stores returns in percent. `r length(anomaly_names)` of the `r n_osap` long-short anomalies have a return in every month; `y`, a one in every month, is the target of today's regressions. Estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r nrow(estimation_months)` months), test `r year(test_start)`–`r year(sample_end)` (`r nrow(test_months)`)
+
+## The plug-in portfolio of the zoo
+
+- The mean-variance efficient weights are proportional to $\hat\Sigma^{-1}\hat\mu$. Britten-Jones (1999): the same weights come from an OLS regression without an intercept, of the number one on the vector $F_t$ of the $N$ anomaly returns in month $t$
+
+$$
+1 = b'F_t + u_t, \qquad t = 1, \dots, T
+$$
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: plug-in-r
+# OLS without an intercept (0 +): the weights of the plug-in portfolio
+plug_in_workflow <- workflow() |>
+  add_variables(outcomes = y, predictors = all_of(anomaly_names)) |>
+  add_model(linear_reg(), formula = y ~ 0 + .)
+plug_in_fit <- fit(plug_in_workflow, estimation_months)
+```
+
+## Python
+
+```{python}
+#| label: plug-in-py
+#| eval: false
+x_estimation = estimation_months.select(anomaly_names)
+y_estimation = estimation_months["y"]
+x_test = test_months.select(anomaly_names)
+y_test = test_months["y"]
+
+plug_in = LinearRegression(fit_intercept=False).fit(x_estimation, y_estimation)
+```
+:::
+
+- `workflow()` bundles the variables and the model: `linear_reg()` with its default engine, `lm()`. `r length(anomaly_names)` weights from `r nrow(estimation_months)` months
+- The fitted values $\hat b'F_t$ are the returns of the portfolio $\hat b$: the Sharpe ratio of the predictions is the Sharpe ratio of the portfolio. Unlike the squared error, it does not depend on how much of the portfolio we hold
+
+## The Sharpe ratio as a metric
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: metric-r
+#| results: hide
+# Predictions b'F_t are the portfolio's returns; y (truth) does not enter
+sharpe_ratio_vec <- function(truth, estimate, ...) {
+  mean(estimate) / sd(estimate) * sqrt(months_per_year)
+}
+sharpe_ratio <- function(data, truth, estimate, ...) {
+  numeric_metric_summarizer(
+    "sharpe_ratio",
+    sharpe_ratio_vec,
+    data,
+    !!enquo(truth),
+    !!enquo(estimate)
+  )
+}
+sharpe_ratio <- new_numeric_metric(sharpe_ratio, direction = "maximize")
+
+augment(plug_in_fit, estimation_months) |> sharpe_ratio(y, .pred)
+```
+
+## Python
+
+```{python}
+#| label: metric-py
+#| eval: false
+# Predictions b'F_t are the portfolio's returns; y does not enter
+def sharpe_ratio(y, y_pred):
+    return y_pred.mean() / y_pred.std(ddof=1) * np.sqrt(months_per_year)
+
+
+sharpe_scorer = make_scorer(sharpe_ratio)
+sharpe_scorer(plug_in, x_estimation, y_estimation)
+```
+:::
+
+```{r}
+#| label: plug-in-sharpe
+#| include: false
+# Sharpe ratios of a fitted workflow in both samples, for the figures
+sample_sharpe <- function(fit) {
+  c(
+    estimation = sharpe_ratio_vec(
+      estimation_months$y,
+      predict(fit, estimation_months)$.pred
+    ),
+    test = sharpe_ratio_vec(test_months$y, predict(fit, test_months)$.pred)
+  )
+}
+plug_in_sharpe <- sample_sharpe(plug_in_fit)
+if (live) {
+  ojs_define(
+    poll_base = poll_base,
+    guess_poll = guess_poll,
+    test_years = paste0(year(test_start), "–", year(sample_end))
+  )
+}
+```
+
+In the estimation sample, the plug-in portfolio has an annualized Sharpe ratio of **`r number(plug_in_sharpe[["estimation"]], 0.1)`**. `metric_set(sharpe_ratio)` and `sharpe_scorer` let lecture 11 choose penalties by this metric
 
 ## Sharpe ratios in both samples
 
 ```{r}
 #| label: market-and-equal-weights
 #| include: false
-# Annualized Sharpe ratios of the same weights in both samples, as in
-# lectures 2 to 5
-sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
-
-portfolio_sharpe <- function(weights) {
-  c(
-    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
-    test = sharpe_ratio(returns[!estimation, ] %*% weights)
-  )
-}
-
-equal_weights <- rep(1 / ncol(returns), ncol(returns))
-equal_sharpe <- portfolio_sharpe(equal_weights)
-
+# Annualized Sharpe ratios in both samples, as in lectures 2 to 5
 market <- read_parquet("data/factors_ff3_monthly.parquet") |>
   filter(between(date, sample_start, sample_end))
 market_sharpe <- c(
-  estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
-  test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+  estimation = sharpe_ratio_vec(
+    estimate = market$mkt_excess[market$date < test_start]
+  ),
+  test = sharpe_ratio_vec(
+    estimate = market$mkt_excess[market$date >= test_start]
+  )
+)
+# 1/N: the average return of all anomalies in each month
+equal_sharpe <- c(
+  estimation = sharpe_ratio_vec(
+    estimate = rowMeans(estimation_months[anomaly_names])
+  ),
+  test = sharpe_ratio_vec(estimate = rowMeans(test_months[anomaly_names]))
 )
 
 # The two samples in figures and tables
@@ -176,57 +299,6 @@ sample_names <- c(
 
 - **Market:** Sharpe ratio `r number(market_sharpe[["estimation"]], 0.01)` until `r year(test_start) - 1`, `r number(market_sharpe[["test"]], 0.01)` since `r year(test_start)`
 - **1/N over all anomalies:** `r number(equal_sharpe[["estimation"]], 0.01)` until `r year(test_start) - 1`, `r number(equal_sharpe[["test"]], 0.01)` since `r year(test_start)`. Diversifying across the zoo beats the market by far, but the anomalies lost `r percent(1 - equal_sharpe[["test"]] / equal_sharpe[["estimation"]])` of their Sharpe ratio after `r year(test_start) - 1`
-
-## The plug-in portfolio of the zoo
-
-- The mean-variance efficient weights are proportional to $\hat\Sigma^{-1}\hat\mu$. Britten-Jones (1999): the same weights come from an OLS regression without an intercept, of the number one on the vector $F_t$ of the $N$ anomaly returns in month $t$
-
-$$
-1 = b'F_t + u_t, \qquad t = 1, \dots, T
-$$
-
-::: {.panel-tabset group="language"}
-## R
-
-```{r}
-#| label: plug-in-r
-x_estimation <- returns[estimation, ]
-ones <- rep(1, nrow(x_estimation))
-plug_in_weights <- coef(lm(ones ~ x_estimation - 1))
-
-sharpe_ratio <- function(r) mean(r) / sd(r) * sqrt(months_per_year)
-```
-
-## Python
-
-```{python}
-#| label: plug-in-py
-#| eval: false
-x_estimation = returns[estimation]
-ones = np.ones(len(x_estimation))
-plug_in = LinearRegression(fit_intercept=False).fit(x_estimation, ones)
-plug_in_weights = plug_in.coef_
-
-
-def sharpe_ratio(r):
-    return r.mean() / r.std(ddof=1) * np.sqrt(months_per_year)
-```
-:::
-
-```{r}
-#| label: plug-in-sharpe
-#| include: false
-plug_in_sharpe <- portfolio_sharpe(plug_in_weights)
-if (live) {
-  ojs_define(
-    poll_base = poll_base,
-    guess_poll = guess_poll,
-    test_years = sample_years[["test"]]
-  )
-}
-```
-
-- `r ncol(returns)` weights from `r sum(estimation)` months. In the estimation sample, this portfolio has an annualized Sharpe ratio of **`r number(plug_in_sharpe[["estimation"]], 0.1)`**
 
 ## Your guess: the Sharpe ratio since `r year(test_start)`
 
@@ -303,7 +375,7 @@ ggplot(overfitting, aes(x = portfolio, y = sharpe, fill = sample)) +
   theme(legend.position = "bottom")
 ```
 
-- In the test sample, the plug-in portfolio keeps `r percent(plug_in_sharpe[["test"]] / plug_in_sharpe[["estimation"]])` of its Sharpe ratio: the weights fit the noise of `r sum(estimation)` months as well as the signal
+- In the test sample, the plug-in portfolio keeps `r percent(plug_in_sharpe[["test"]] / plug_in_sharpe[["estimation"]])` of its Sharpe ratio: the weights fit the noise of `r nrow(estimation_months)` months as well as the signal
 - Still `r number(plug_in_sharpe[["test"]], 0.01)` against `r number(equal_sharpe[["test"]], 0.01)` for 1/N: the estimated weights beat equal weights, despite their noise. The rest of the lecture estimates them with less noise
 
 # The bias-variance trade-off
@@ -319,7 +391,7 @@ $$
 E\big[(y - \hat f(x))^2\big] = \underbrace{\big(f(x) - E[\hat f(x)]\big)^2}_{\text{bias}^2} + \underbrace{\text{Var}\big(\hat f(x)\big)}_{\text{variance}} + \underbrace{\sigma_\varepsilon^2}_{\text{noise}}
 $$
 
-- OLS is unbiased, but with `r ncol(returns)` regressors and `r sum(estimation)` months its variance is huge
+- OLS is unbiased, but with `r length(anomaly_names)` regressors and `r nrow(estimation_months)` months its variance is huge
 - A little bias for much less variance: a **penalty** on large coefficients. The same idea as the shrinkage of covariance matrices in lecture 4
 :::
 
@@ -330,7 +402,7 @@ $$
 \hat b^{\text{ridge}}_\lambda = \arg\min_b \ \underbrace{(y - Fb)'(y - Fb)}_{\text{sum of squared errors}} + T\lambda\, b'b
 $$
 
-On the zoo: $y$ is a vector of $T$ ones, $F$ has one row of anomaly returns $F_t'$ per month. $\lambda$ is the penalty (`lambda` in `glmnet()`), not the risk premium of lectures 7–8; the factor $T$ makes it mean the same for any sample length
+On the zoo: $y$ is a vector of $T$ ones, $F$ has one row of anomaly returns $F_t'$ per month. $\lambda$ is the penalty (`penalty` in `linear_reg()`), not the risk premium of lectures 7–8; the factor $T$ makes it mean the same for any sample length
 :::
 
 ::: {.fragment}
@@ -343,6 +415,39 @@ $$
 - Ridge shrinks portfolio $j$ by $\ell_j / (\ell_j + \lambda)$, most where $\ell_j$ is small: combinations that look best in the sample, partly because their variance is underestimated (lecture 4)
 :::
 
+## Ridge in the workflow
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: ridge-model-r
+ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+ridge_model <- linear_reg(penalty = tune(), mixture = 0) |>
+  set_engine(
+    "glmnet",
+    intercept = FALSE,
+    standardize = FALSE,
+    path_values = ridge_lambdas,
+    control = list(thresh = 1e-12) # tight, so that R and Python agree
+  )
+ridge_workflow <- update_model(plug_in_workflow, ridge_model)
+```
+
+## Python
+
+```{python}
+#| label: ridge-model-py
+#| eval: false
+ridge_lambdas = 10 ** np.arange(-7, -0.99, 0.25)
+# l1_ratio=0: the ridge penalty; tight tolerance, so that R and Python agree
+ridge_model = ElasticNet(l1_ratio=0, fit_intercept=False, tol=1e-8, max_iter=1_000_000)
+```
+:::
+
+- **glmnet** with `mixture = 0` minimizes the ridge objective divided by $2T$, with $\lambda$ as on the last slide. `penalty = tune()` leaves $\lambda$ open; `path_values`: glmnet fits all penalties of the grid in one run
+- **scikit-learn's `ElasticNet()`** with `l1_ratio=0` minimizes the same objective as glmnet: its penalty alpha is $\lambda$
+
 ## Ridge on the zoo
 
 ::: {.panel-tabset group="language"}
@@ -350,18 +455,21 @@ $$
 
 ```{r}
 #| label: ridge-path-r
-ridge_weights <- function(x, lambda) {
-  y <- rep(1, nrow(x))
-  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), crossprod(x, y))
+# The Sharpe ratio of a fitted workflow in some months
+sharpe_in <- function(fit, months) {
+  augment(fit, months) |> sharpe_ratio(y, .pred) |> pull(.estimate)
 }
 
-x_test <- returns[!estimation, ]
-ridge_lambdas <- 10^seq(-7, -1, by = 0.25)
+# Each penalty: fit on the estimation months, evaluate in both samples
 ridge_path <- tibble(lambda = ridge_lambdas) |>
   mutate(
-    weights = map(lambda, \(lambda) ridge_weights(x_estimation, lambda)),
-    estimation = map_dbl(weights, \(w) sharpe_ratio(x_estimation %*% w)),
-    test = map_dbl(weights, \(w) sharpe_ratio(x_test %*% w))
+    fit = map(lambda, \(lambda) {
+      ridge_workflow |>
+        finalize_workflow(tibble(penalty = lambda)) |>
+        fit(estimation_months)
+    }),
+    estimation = map_dbl(fit, \(fit) sharpe_in(fit, estimation_months)),
+    test = map_dbl(fit, \(fit) sharpe_in(fit, test_months))
   )
 ```
 
@@ -370,25 +478,23 @@ ridge_path <- tibble(lambda = ridge_lambdas) |>
 ```{python}
 #| label: ridge-path-py
 #| eval: false
-def ridge_weights(x, lam):
-    y = np.ones(len(x))
-    return np.linalg.solve(x.T @ x + len(x) * lam * np.eye(x.shape[1]), x.T @ y)
-
-
-x_test = returns[~estimation]
-ridge_lambdas = 10 ** np.arange(-7, -0.99, 0.25)
-weights = [ridge_weights(x_estimation, lam) for lam in ridge_lambdas]
-ridge_path = pl.DataFrame(
-    {
-        "lambda": ridge_lambdas,
-        "estimation": [sharpe_ratio(x_estimation @ w) for w in weights],
-        "test": [sharpe_ratio(x_test @ w) for w in weights],
-    }
-)
+# Each penalty: fit on the estimation months, evaluate in both samples
+ridge_path = []
+for lam in ridge_lambdas:
+    ridge = clone(ridge_model).set_params(alpha=lam)
+    ridge.fit(x_estimation, y_estimation)
+    ridge_path.append(
+        {
+            "lambda": lam,
+            "estimation": sharpe_scorer(ridge, x_estimation, y_estimation),
+            "test": sharpe_scorer(ridge, x_test, y_test),
+        }
+    )
+ridge_path = pl.DataFrame(ridge_path)
 ```
 :::
 
-`ridge_weights()` is the formula $(F'F + T\lambda I)^{-1}F'y$ of the previous slide, with $F$ = `x`, $T$ its number of rows and $y$ a vector of ones. `sharpe_ratio()` evaluates the weights of each penalty in both samples
+`finalize_workflow()` and `set_params()` set the penalty, `fit()` estimates the weights, `sharpe_in()` and `sharpe_scorer` evaluate them: in hindsight also in the test sample
 
 ## The penalty in action
 
@@ -397,7 +503,14 @@ ridge_path = pl.DataFrame(
 #| include: false
 # Weights as shares of the gross position, sorted, for each penalty
 ridge_shares <- ridge_path |>
-  mutate(share = map(weights, \(w) sort(w / sum(abs(w)), decreasing = TRUE))) |>
+  mutate(
+    share = map(fit, \(fit) {
+      weights <- tidy(fit) |>
+        filter(term != "(Intercept)") |>
+        pull(estimate)
+      sort(weights / sum(abs(weights)), decreasing = TRUE)
+    })
+  ) |>
   select(lambda, share) |>
   unnest(share) |>
   mutate(rank = row_number(), .by = lambda)
@@ -612,23 +725,24 @@ ggplot(mapping = aes(x = b1, y = b2)) +
 
 ```{r}
 #| label: lasso-path-r
-lasso_weights <- function(x, lambda) {
-  fit <- glmnet(
-    x,
-    rep(1, nrow(x)),
-    lambda = lambda,
+lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
+lasso_model <- linear_reg(penalty = tune(), mixture = 1) |>
+  set_engine(
+    "glmnet",
     intercept = FALSE,
     standardize = FALSE,
-    control = list(thresh = 1e-12) # tight, so that R and Python agree
+    path_values = lasso_lambdas,
+    control = list(thresh = 1e-12)
   )
-  as.vector(coef(fit))[-1]
-}
-
-lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
+lasso_workflow <- update_model(plug_in_workflow, lasso_model)
 lasso_path <- tibble(lambda = lasso_lambdas) |>
   mutate(
-    weights = map(lambda, \(lambda) lasso_weights(x_estimation, lambda)),
-    anomalies = map_dbl(weights, \(w) sum(w != 0))
+    fit = map(lambda, \(lambda) {
+      lasso_workflow |>
+        finalize_workflow(tibble(penalty = lambda)) |>
+        fit(estimation_months)
+    }),
+    anomalies = map_dbl(fit, \(fit) sum(tidy(fit)$estimate != 0))
   )
 ```
 
@@ -637,35 +751,30 @@ lasso_path <- tibble(lambda = lasso_lambdas) |>
 ```{python}
 #| label: lasso-path-py
 #| eval: false
-def lasso_weights(x, lam):
-    y = np.ones(len(x))
-    fit = Lasso(alpha=lam, fit_intercept=False, max_iter=100_000).fit(x, y)
-    return fit.coef_
-
-
 lasso_lambdas = 10 ** np.arange(-6, -2.49, 0.25)
-weights = [lasso_weights(x_estimation, lam) for lam in lasso_lambdas]
-lasso_path = pl.DataFrame(
-    {
-        "lambda": lasso_lambdas,
-        "anomalies": [int(np.sum(w != 0)) for w in weights],
-    }
-)
+lasso_model = ElasticNet(l1_ratio=1, fit_intercept=False, tol=1e-8, max_iter=1_000_000)
+
+lasso_path = []
+for lam in lasso_lambdas:
+    lasso = clone(lasso_model).set_params(alpha=lam)
+    lasso.fit(x_estimation, y_estimation)
+    lasso_path.append({"lambda": lam, "anomalies": int(np.sum(lasso.coef_ != 0))})
+lasso_path = pl.DataFrame(lasso_path)
 ```
 :::
 
 ```{r}
 #| label: lasso-sharpe
 #| include: false
-# Sharpe ratios of the lasso weights in both samples, as for ridge
+# Sharpe ratios of the lasso fits in both samples, as for ridge
 lasso_path <- lasso_path |>
   mutate(
-    estimation = map_dbl(weights, \(w) sharpe_ratio(x_estimation %*% w)),
-    test = map_dbl(weights, \(w) sharpe_ratio(x_test %*% w))
+    estimation = map_dbl(fit, \(fit) sharpe_in(fit, estimation_months)),
+    test = map_dbl(fit, \(fit) sharpe_in(fit, test_months))
   )
 ```
 
-`glmnet()` and `Lasso()` minimize the objective of the lasso slide divided by $2T$: $\frac{1}{2T}$ times the squared errors plus $\lambda$ times the sum of absolute weights. Sharpe ratios as for ridge
+`mixture = 1` and `l1_ratio=1`: the lasso. glmnet and `ElasticNet()` minimize the lasso objective divided by $2T$; alpha = $\lambda$
 
 ## The lasso on the zoo
 
@@ -704,7 +813,7 @@ count_panel + lasso_sharpe_panel & theme(legend.position = "bottom")
 #| echo: false
 tibble(
   Portfolio = c("Market", "1/N over all anomalies", "Plug-in mean-variance"),
-  Anomalies = c("–", ncol(returns), ncol(returns)),
+  Anomalies = c("–", length(anomaly_names), length(anomaly_names)),
   estimation = number(
     c(
       market_sharpe[["estimation"]],

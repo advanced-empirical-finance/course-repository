@@ -856,7 +856,11 @@ tibble(
   ),
   Inputs = c(
     paste(ncol(returns), "anomalies"),
-    rep(paste(n_predictors, "predictors"), nrow(forecast_rows))
+    # The tree of depth 2 splits on two predictors only
+    paste(
+      c(n_predictors, length(attr(tree$terms, "term.labels")), n_predictors),
+      "predictors"
+    )
   ),
   estimation = c(ridge_sharpe[["estimation"]], forecast_rows$estimation),
   test = c(ridge_sharpe[["test"]], forecast_rows$test)

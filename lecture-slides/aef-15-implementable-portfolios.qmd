@@ -2,8 +2,6 @@
 subtitle: From predictions to implementable portfolios
 date: 2027-04-26
 # The first hour is the assignment 2 discussion, so the lecture itself has one hour.
-# The Sharpe ratios after costs wait for the factor library with trading costs
-# (decision of 14 Nov 2026, course-homepage#16).
 ---
 
 ```{r}
@@ -11,10 +9,10 @@ date: 2027-04-26
 #| include: false
 library(tidyverse)
 library(nanoparquet)
-library(glmnet)
-library(nnet)
 library(tidymodels)
 library(scales)
+library(ggridges)
+library(ggrepel)
 
 # The factor zoo of lectures 10 to 14
 sample_start <- ymd("1973-01-01")
@@ -36,6 +34,22 @@ months_per_year <- 12
 # Test sample in labels, e.g. 2000–2023
 test_years <- paste0(year(test_start), "–", year(sample_end))
 
+# Numbers with a typographic minus sign: values already in percent on axes,
+# shares in tables and text
+percent_axis <- label_number(suffix = "%", style_negative = "minus")
+percent_text <- function(x, accuracy) {
+  percent(x, accuracy, style_negative = "minus")
+}
+number_text <- function(x, accuracy, ...) {
+  number(x, accuracy, style_negative = "minus", ...)
+}
+
+# Private on eumel until the papers are public: the factor library paper, with
+# the composite spread and the paths of OSAP and JKP, and Scheuch & Voigt
+# (2026) on the construction premium
+factor_library_paper <- "~/claude-home/paper-factor-library"
+construction_paper <- "~/claude-home/apt-and-nse"
+
 # Colours of the slides, used by the figures
 ku_red <- "#901A1E"
 jet <- "#3d3d3d"
@@ -53,8 +67,11 @@ scoreboard_survey <- "aef27-ex08-scoreboard"
 #| label: lectures-10-to-14-code
 #| include: false
 #| cache: true
-#| cache.extra: !expr list(ridge_lambdas, lasso_lambdas, max_factors, phi_rp, n_trees, forest_grid, macro_names, sample_end)
+#| cache.extra: !expr list(sample_start, sample_end, test_start, n_folds, ridge_lambdas, lasso_lambdas, macro_names, max_factors, phi_rp, n_trees, forest_grid)
 # Every row of the scoreboard, with the code of lectures 10 to 14
+
+# Lecture 10: the zoo, the sample split, the Sharpe ratio metric and the
+# workflows. Months start on their first day, as in lectures 13 and 14
 osap_url <- paste0(
   "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
@@ -64,168 +81,244 @@ if (!file.exists(osap_file)) {
   download.file(osap_url, osap_file, mode = "wb")
 }
 anomalies <- read_parquet(osap_file) |>
-  mutate(date = floor_date(as.Date(date), "month")) |>
+  mutate(date = floor_date(date, "month")) |>
   filter(between(date, sample_start, sample_end)) |>
-  select(date, where(\(x) !anyNA(x)))
-returns <- as.matrix(select(anomalies, -date)) / 100
-estimation <- anomalies$date < test_start
-x_estimation <- returns[estimation, ]
+  select(date, where(\(x) !anyNA(x))) |>
+  mutate(across(-date, \(x) x / 100), y = 1)
+anomaly_names <- setdiff(names(anomalies), c("date", "y"))
+sample_split <- make_splits(
+  filter(anomalies, date < test_start),
+  assessment = filter(anomalies, date >= test_start)
+)
+estimation_months <- training(sample_split)
+test_months <- testing(sample_split)
+x_estimation <- as.matrix(estimation_months[anomaly_names])
 
-sharpe_ratio <- function(x) mean(x) / sd(x) * sqrt(months_per_year)
-portfolio_sharpe <- function(weights) {
-  c(
-    estimation = sharpe_ratio(returns[estimation, ] %*% weights),
-    test = sharpe_ratio(returns[!estimation, ] %*% weights)
+sharpe_ratio_vec <- function(truth, estimate, ...) {
+  mean(estimate) / sd(estimate) * sqrt(months_per_year)
+}
+sharpe_ratio <- function(data, truth, estimate, ...) {
+  numeric_metric_summarizer(
+    "sharpe_ratio",
+    sharpe_ratio_vec,
+    data,
+    !!enquo(truth),
+    !!enquo(estimate)
   )
 }
-ridge_weights <- function(x, lambda) {
-  solve(crossprod(x) + nrow(x) * lambda * diag(ncol(x)), colSums(x))
-}
-lasso_weights <- function(x, lambda) {
-  fit <- glmnet(
-    x,
-    rep(1, nrow(x)),
-    lambda = lambda,
+sharpe_ratio <- new_numeric_metric(sharpe_ratio, direction = "maximize")
+
+plug_in_workflow <- workflow() |>
+  add_variables(outcomes = y, predictors = all_of(anomaly_names)) |>
+  add_model(linear_reg(), formula = y ~ 0 + .)
+plug_in_fit <- fit(plug_in_workflow, estimation_months)
+ridge_model <- linear_reg(penalty = tune(), mixture = 0) |>
+  set_engine(
+    "glmnet",
     intercept = FALSE,
     standardize = FALSE,
+    path_values = ridge_lambdas,
     control = list(thresh = 1e-12)
   )
-  as.vector(coef(fit))[-1]
-}
-pc_lasso_weights <- function(x, lambda) {
+ridge_workflow <- update_model(plug_in_workflow, ridge_model)
+lasso_model <- linear_reg(penalty = tune(), mixture = 1) |>
+  set_engine(
+    "glmnet",
+    intercept = FALSE,
+    standardize = FALSE,
+    path_values = lasso_lambdas,
+    control = list(thresh = 1e-12)
+  )
+lasso_workflow <- update_model(plug_in_workflow, lasso_model)
+
+# Lecture 11: the penalties chosen by cross-validation on k = 5 consecutive
+# blocks of the estimation months
+block_folds <- estimation_months |>
+  mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds))) |>
+  group_vfold_cv(group = block, v = n_folds)
+ridge_tuning <- tune_grid(
+  ridge_workflow,
+  block_folds,
+  grid = tibble(penalty = ridge_lambdas),
+  metrics = metric_set(sharpe_ratio)
+)
+ridge_fit <- ridge_workflow |>
+  finalize_workflow(select_best(ridge_tuning, metric = "sharpe_ratio")) |>
+  fit(estimation_months)
+lasso_tuning <- tune_grid(
+  lasso_workflow,
+  block_folds,
+  grid = tibble(penalty = lasso_lambdas),
+  metrics = metric_set(sharpe_ratio)
+)
+lasso_fit <- lasso_workflow |>
+  finalize_workflow(select_best(lasso_tuning, metric = "sharpe_ratio")) |>
+  fit(estimation_months)
+ridge_lambda <- select_best(ridge_tuning, metric = "sharpe_ratio")$penalty
+
+pc_lasso_weights <- function(months, lambda) {
+  x <- as.matrix(months[anomaly_names])
   components <- eigen(cov(x), symmetric = TRUE)$vectors
-  components %*% lasso_weights(x %*% components, lambda)
+  lasso_fit <- lasso_model |>
+    finalize_model(tibble(penalty = lambda)) |>
+    fit_xy(as.data.frame(x %*% components), months$y)
+  components %*% tidy(lasso_fit)$estimate[-1]
 }
-factor_weights <- function(x, k, phi = 0) {
+pc_lasso_cv <- map_dbl(lasso_lambdas, \(lambda) {
+  map_dbl(block_folds$splits, \(split) {
+    weights <- pc_lasso_weights(analysis(split), lambda)
+    validation <- assessment(split)
+    portfolio_returns <- as.matrix(validation[anomaly_names]) %*% weights
+    sharpe_ratio_vec(validation$y, portfolio_returns[, 1])
+  }) |>
+    mean()
+})
+pc_lasso_lambda <- lasso_lambdas[which.max(pc_lasso_cv)]
+
+# Lecture 12: PCA and RP-PCA, the number of factors chosen in the same folds
+factor_weights <- function(months, k, phi = 0) {
+  x <- as.matrix(months[anomaly_names])
   mu <- colMeans(x)
   vectors <- eigen(cov(x) + phi * tcrossprod(mu), symmetric = TRUE)$vectors
   loadings <- vectors[, seq_len(k), drop = FALSE]
   factors <- x %*% loadings
   loadings %*% solve(cov(factors), colMeans(factors))
 }
-folds <- ceiling(seq_len(nrow(x_estimation)) / (nrow(x_estimation) / n_folds))
-cv_sharpe <- function(fit_weights, lambda) {
-  map_dbl(seq_len(n_folds), \(k) {
-    weights <- fit_weights(x_estimation[folds != k, ], lambda)
-    sharpe_ratio(x_estimation[folds == k, ] %*% weights)
-  }) |>
-    mean(na.rm = TRUE)
-}
-choose <- function(fit_weights, lambdas) {
-  lambdas[which.max(map_dbl(lambdas, \(l) cv_sharpe(fit_weights, l)))]
-}
+factor_cv <- expand_grid(phi = c(0, phi_rp), factors = seq_len(max_factors)) |>
+  mutate(
+    cv = map2_dbl(phi, factors, \(phi, k) {
+      map_dbl(block_folds$splits, \(split) {
+        weights <- factor_weights(analysis(split), k, phi)
+        validation <- assessment(split)
+        portfolio_returns <- as.matrix(validation[anomaly_names]) %*% weights
+        sharpe_ratio_vec(validation$y, portfolio_returns[, 1])
+      }) |>
+        mean()
+    })
+  )
+chosen_factors <- factor_cv |>
+  group_by(phi) |>
+  slice_max(cv) |>
+  ungroup()
+pca_factors <- chosen_factors$factors[chosen_factors$phi == 0]
+rp_pca_factors <- chosen_factors$factors[chosen_factors$phi == phi_rp]
 
-market <- read_parquet("data/factors_ff3_monthly.parquet") |>
-  filter(between(date, sample_start, sample_end))
-ridge_lambda <- choose(ridge_weights, ridge_lambdas)
-lasso_lambda <- choose(lasso_weights, lasso_lambdas)
-pc_lasso_lambda <- choose(pc_lasso_weights, lasso_lambdas)
-pca_factors <- choose(\(x, k) factor_weights(x, k), seq_len(max_factors))
-rp_pca_factors <- choose(
-  \(x, k) factor_weights(x, k, phi_rp),
-  seq_len(max_factors)
-)
+# The weights of the SDF portfolios on the anomalies
+fitted_weights <- function(fit) {
+  estimates <- tidy(fit)
+  estimates$estimate[match(anomaly_names, estimates$term)]
+}
 pca_name <- paste0("PCA, ", pca_factors, " factors")
 rp_pca_name <- paste0("RP-PCA, ", rp_pca_factors, " factors")
 static_weights <- list(
-  "1/N over all anomalies" = rep(1 / ncol(returns), ncol(returns)),
-  "Plug-in mean-variance" = ridge_weights(x_estimation, 0),
-  "Ridge (prior on Sharpe ratios)" = ridge_weights(x_estimation, ridge_lambda),
-  "Lasso on anomalies" = lasso_weights(x_estimation, lasso_lambda),
+  "1/N over all anomalies" = rep(
+    1 / length(anomaly_names),
+    length(anomaly_names)
+  ),
+  "Plug-in mean-variance" = fitted_weights(plug_in_fit),
+  "Ridge (prior on Sharpe ratios)" = fitted_weights(ridge_fit),
+  "Lasso on anomalies" = fitted_weights(lasso_fit),
   "Lasso on principal components" = pc_lasso_weights(
-    x_estimation,
+    estimation_months,
     pc_lasso_lambda
   )
 )
-static_weights[[pca_name]] <- factor_weights(x_estimation, pca_factors)
+static_weights[[pca_name]] <- factor_weights(estimation_months, pca_factors)
 static_weights[[rp_pca_name]] <- factor_weights(
-  x_estimation,
+  estimation_months,
   rp_pca_factors,
   phi_rp
 )
+static_weights <- map(static_weights, as.vector)
+stopifnot(!anyNA(unlist(static_weights)))
 
-# Forecasts of lectures 13 and 14, used as expected returns each month
+market <- read_parquet("data/factors_ff3_monthly.parquet") |>
+  filter(between(date, sample_start, sample_end))
+
+# Lecture 13: the zoo as a panel, OLS and the random forest
 macro <- read_parquet("data/macro_predictors.parquet") |>
   transmute(date = date %m+% months(1), across(all_of(macro_names))) |>
   mutate(across(all_of(macro_names), \(x) {
     (x - mean(x[date < test_start])) / sd(x[date < test_start])
   }))
+momentum_months <- 12
 panel <- anomalies |>
+  select(-y) |>
   pivot_longer(-date, names_to = "anomaly", values_to = "ret") |>
-  mutate(ret = ret / 100) |>
   arrange(anomaly, date) |>
   mutate(
     ret_lag_1 = lag(ret),
     momentum_12 = slider::slide_dbl(
       lag(ret),
       mean,
-      .before = 11,
+      .before = momentum_months - 1,
       .complete = TRUE
     ),
     .by = anomaly
   ) |>
   left_join(macro, join_by(date)) |>
   drop_na()
-train <- panel |>
-  filter(date < test_start) |>
-  mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds)))
+train <- panel |> filter(date < test_start)
 features <- c("ret_lag_1", "momentum_12", macro_names)
+ols_fit <- lm(reformulate(features, response = "ret"), data = train)
 
+# Consecutive blocks of months as folds, now of the panel
+block_folds <- train |>
+  mutate(block = ceiling(dense_rank(date) / (n_distinct(date) / n_folds))) |>
+  group_vfold_cv(group = block, v = n_folds)
+forest_model <- rand_forest(mtry = tune(), min_n = tune(), trees = n_trees) |>
+  set_engine("ranger", seed = 2027) |>
+  set_mode("regression")
 forest_workflow <- workflow() |>
   add_formula(ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar) |>
-  add_model(
-    rand_forest(mtry = tune(), min_n = tune(), trees = n_trees) |>
-      set_engine("ranger", seed = 2027) |>
-      set_mode("regression")
-  )
-forest_tuning <- tune_grid(
-  forest_workflow,
-  resamples = group_vfold_cv(train, group = block, v = n_folds),
-  grid = forest_grid
-)
+  add_model(forest_model)
+forest_tuning <- tune_grid(forest_workflow, block_folds, grid = forest_grid)
 forest_fit <- forest_workflow |>
   finalize_workflow(select_best(forest_tuning, metric = "rmse")) |>
   fit(train)
-centers <- colMeans(train[features])
-input_sd <- apply(train[features], 2, sd)
-scale_inputs <- function(data) {
-  scale(as.matrix(data[features]), centers, input_sd)
-}
+
+# Lecture 14: the predictors standardized and the return in units of its
+# standard deviation, both with the estimation sample; the weight decay
+# chosen on the years from validation_start; an ensemble of networks
 ret_sd <- sd(train$ret)
-fit_network <- function(data, decay, seed) {
+scaled_panel <- panel |>
+  mutate(
+    across(all_of(features), \(x) {
+      (x - mean(x[date < test_start])) / sd(x[date < test_start])
+    }),
+    ret_scaled = ret / ret_sd
+  )
+scaled_train <- filter(scaled_panel, date < test_start)
+validation_start <- ymd("1995-01-01")
+decay_grid <- tibble(penalty = c(1, 3, 10, 30, 100, 300, 1000))
+validation_split <- make_splits(
+  filter(scaled_train, date < validation_start),
+  assessment = filter(scaled_train, date >= validation_start)
+)
+validation <- manual_rset(list(validation_split), ids = "validation")
+network_model <- mlp(hidden_units = 5, penalty = tune(), epochs = 500) |>
+  set_engine("nnet") |>
+  set_mode("regression")
+network_workflow <- workflow() |>
+  add_variables(outcomes = ret_scaled, predictors = all_of(features)) |>
+  add_model(network_model)
+set.seed(1) # tune_grid() draws the random starts of the networks
+network_tuning <- tune_grid(network_workflow, validation, grid = decay_grid)
+best_decay <- select_best(network_tuning, metric = "rmse")
+n_networks <- 5
+network_forecasts <- map(seq_len(n_networks), \(seed) {
   set.seed(seed)
-  nnet(
-    scale_inputs(data),
-    data$ret / ret_sd,
-    size = 5,
-    decay = decay,
-    linout = TRUE,
-    maxit = 500,
-    trace = FALSE
-  )
-}
-fitting <- filter(train, date < ymd("1995-01-01"))
-validation <- filter(train, date >= ymd("1995-01-01"))
-decays <- c(1, 3, 10, 30, 100, 300, 1000)
-decay <- decays[which.min(map_dbl(decays, \(d) {
-  mean(
-    (validation$ret -
-      predict(fit_network(fitting, d, 1), scale_inputs(validation)) * ret_sd)^2
-  )
-}))]
-network_forecasts <- map(1:5, \(seed) {
-  as.vector(predict(fit_network(train, decay, seed), scale_inputs(panel))) *
-    ret_sd
+  network_fit <- network_workflow |>
+    finalize_workflow(best_decay) |>
+    fit(scaled_train)
+  predict(network_fit, scaled_panel)$.pred * ret_sd
 })
-network_forecast <- reduce(network_forecasts, `+`) / length(network_forecasts)
+network_forecast <- reduce(network_forecasts, `+`) / n_networks
+
+# Lectures 13 and 14: the forecasts as expected returns, new weights every
+# month with the covariance matrix and the penalty of the ridge SDF
 forecasts <- list(
-  "Forecasts: OLS" = predict(
-    lm(
-      ret ~ ret_lag_1 + momentum_12 + dp + tbl + tms + dfy + svar,
-      data = train
-    ),
-    panel
-  ),
+  "Forecasts: OLS" = predict(ols_fit, panel),
   "Forecasts: random forest" = predict(forest_fit, panel)$.pred,
   "Forecasts: neural network" = network_forecast
 )
@@ -238,8 +331,8 @@ forecast_weights <- map(forecasts, \(forecast) {
     mutate(
       weights = map(data, \(d) {
         as.vector(solve(
-          covariance + ridge_lambda * diag(ncol(returns)),
-          d$forecast[match(colnames(returns), d$anomaly)]
+          covariance + ridge_lambda * diag(length(anomaly_names)),
+          d$forecast[match(anomaly_names, d$anomaly)]
         ))
       })
     ) |>
@@ -250,17 +343,19 @@ forecast_weights <- map(forecasts, \(forecast) {
 ```{r}
 #| label: scoreboard-rows
 #| include: false
+# The anomaly returns as a matrix, one column per anomaly
+returns <- as.matrix(anomalies[anomaly_names])
+
 # Weights each month: constant for the SDF portfolios, new each month for forecasts
 monthly_weights <- c(
   map(static_weights, \(w) {
     tibble(
       date = anomalies$date,
-      weights = rep(list(as.vector(w)), nrow(anomalies))
+      weights = rep(list(w), nrow(anomalies))
     )
   }),
   forecast_weights
 )
-month_index <- match(monthly_weights[[1]]$date, anomalies$date)
 
 # Turnover between anomalies: weights scaled to a gross position of 1, and the
 # weights of last month after they drifted with last month's returns
@@ -302,13 +397,17 @@ cpz_runs <- read_csv(
 scoreboard <- bind_rows(
   tibble(
     portfolio = "Market",
-    estimation = sharpe_ratio(market$mkt_excess[market$date < test_start]),
-    test = sharpe_ratio(market$mkt_excess[market$date >= test_start])
+    estimation = sharpe_ratio_vec(
+      estimate = market$mkt_excess[market$date < test_start]
+    ),
+    test = sharpe_ratio_vec(
+      estimate = market$mkt_excess[market$date >= test_start]
+    )
   ),
   realized |>
     summarize(
-      estimation = sharpe_ratio(ret[date < test_start]),
-      test = sharpe_ratio(ret[date >= test_start]),
+      estimation = sharpe_ratio_vec(estimate = ret[date < test_start]),
+      test = sharpe_ratio_vec(estimate = ret[date >= test_start]),
       .by = portfolio
     ),
   cpz_runs |>
@@ -333,12 +432,110 @@ if (live) {
 }
 ```
 
-## Today
+```{r}
+#| label: trading-costs
+#| include: false
+# The zoo anomalies in the factor library: the path of each characteristic
+# as in its original study (OSAP). For now the flag is in the private grid of
+# the paper; the next Hugging Face release of the grid adds it
+library_grid <- read_parquet(
+  file.path(factor_library_paper, "data/processed/portfolio_sort_grid.parquet"),
+  col_select = c("id", "sorting_variable", "is_osap_path")
+)
+zoo_paths <- tibble(
+  anomaly = anomaly_names,
+  sorting_variable = str_to_lower(anomaly_names)
+) |>
+  inner_join(filter(library_grid, is_osap_path), join_by(sorting_variable))
 
-- Assignment 2 discussion (first hour)
-- Your scoreboard
-- What the portfolios trade
-- After costs: the implementable efficient frontier
+# Each month of the test sample: the turnover, the microcap share and the cost
+# of each anomaly's own trades under the composite spread. The file holds the
+# rows of these paths from the cost files of the paper's library build on
+# UCloud (Hugging Face has the quoted spread only so far); never committed
+library_costs <- read_parquet("data/factor_library_costs_zoo.parquet") |>
+  inner_join(select(zoo_paths, id, anomaly), join_by(id)) |>
+  filter(between(date, test_start, sample_end)) |>
+  select(date, anomaly, turnover, microcap_share, cost = cost_composite_spread)
+inside_turnover <- mean(library_costs$turnover)
+inside_microcaps <- mean(library_costs$microcap_share, na.rm = TRUE)
+
+# Cost per unit of turnover: what trading an anomaly's whole long and short
+# legs once costs. Anomalies outside the library get the month's median
+test_dates <- anomalies$date[anomalies$date >= test_start]
+anomaly_costs <- expand_grid(date = test_dates, anomaly = anomaly_names) |>
+  left_join(library_costs, join_by(date, anomaly)) |>
+  mutate(
+    cost_per_turnover = sum(cost) / sum(turnover),
+    .by = anomaly
+  ) |>
+  mutate(
+    across(c(cost, cost_per_turnover), \(x) {
+      coalesce(x, median(x, na.rm = TRUE))
+    }),
+    .by = date
+  )
+cost_matrix <- function(values) {
+  anomaly_costs |>
+    select(date, anomaly, value = {{ values }}) |>
+    pivot_wider(names_from = anomaly, values_from = value) |>
+    select(all_of(anomaly_names)) |>
+    as.matrix()
+}
+inside_cost <- cost_matrix(cost)
+trade_cost <- cost_matrix(cost_per_turnover)
+
+# Each month: the return before costs, the costs of the trades inside the
+# anomalies held, and the costs of the trades between anomalies, from the
+# weights after last month's drift. Trades of the same stock in different
+# anomalies are not netted, so the costs are an upper bound
+portfolio_costs <- imap(monthly_weights, \(m, portfolio) {
+  rows <- match(m$date, anomalies$date)
+  map(which(m$date >= test_start), \(t) {
+    month <- match(m$date[t], test_dates)
+    drifted <- m$weights[[t - 1]] * (1 + returns[rows[t - 1], ])
+    tibble(
+      date = m$date[t],
+      gross = sum(m$weights[[t]] * returns[rows[t], ]),
+      inside = sum(abs(m$weights[[t]]) * inside_cost[month, ]),
+      between = sum(abs(m$weights[[t]] - drifted) * trade_cost[month, ]),
+      position = sum(abs(m$weights[[t]]))
+    )
+  }) |>
+    bind_rows() |>
+    mutate(portfolio = portfolio)
+}) |>
+  bind_rows()
+
+after_costs <- portfolio_costs |>
+  mutate(net = gross - inside - between) |>
+  summarize(
+    before = sharpe_ratio_vec(estimate = gross),
+    after_inside = sharpe_ratio_vec(estimate = gross - inside),
+    after = sharpe_ratio_vec(estimate = net),
+    # Per dollar of the average gross position, per year
+    mean_before = mean(gross) / mean(position) * months_per_year,
+    cost_inside = mean(inside) / mean(position) * months_per_year,
+    cost_between = mean(between) / mean(position) * months_per_year,
+    mean_after = mean(net) / mean(position) * months_per_year,
+    volatility_before = sd(gross) / mean(position) * sqrt(months_per_year),
+    volatility_after = sd(net) / mean(position) * sqrt(months_per_year),
+    .by = portfolio
+  )
+stopifnot(all.equal(
+  after_costs$before,
+  scoreboard$test[match(after_costs$portfolio, scoreboard$portfolio)]
+))
+```
+
+## The scoreboard so far
+
+- **Lectures 10 to 12:** the SDF, the best portfolio of the zoo, estimated directly, with shrinkage (ridge, lasso) or with a few factors (PCA, RP-PCA). The SDF weights stay constant
+- **Lectures 13 and 14:** forecasts of each anomaly's return from random forests and neural networks, turned into new weights every month, and SDFs from neural networks
+- Every Sharpe ratio so far is **before trading costs**, but an investor earns the return after costs
+
+::: {.highlight}
+**Today:** after the assignment 2 discussion in the first hour, your results against the scoreboard, how much each portfolio trades, and what is left after trading costs
+:::
 
 # Assignment 2 discussion
 
@@ -425,39 +622,450 @@ scoreboard |>
   theme(legend.position = "bottom", plot.margin = margin(5.5, 20, 5.5, 5.5))
 ```
 
-- **Between anomalies:** weights scaled to a gross position of 1. Constant SDF weights only trade back after the anomalies drift; forecasts change the weights every month
-- **Inside each anomaly:** every long-short portfolio is itself rebalanced. Our returns are before these costs. For comparison, the decile portfolios of Gu, Kelly & Xiu turn over 111% to 152% of their value a month with machine learning forecasts, 58% with OLS-3 (value-weighted, their Table 8)
+- **Between anomalies:** buys plus sells as a share of the gross position. Constant SDF weights only trade back after the anomalies drift; forecasts change the weights every month
+- **Inside each anomaly:** every long-short portfolio is itself rebalanced, and our returns are before these costs. In the factor library, the `r nrow(zoo_paths)` zoo anomalies built as in their original studies turn over `r percent(inside_turnover, 1)` a month and hold `r percent(inside_microcaps, 1)` of their weight in microcaps (averages `r test_years`)
 
-## After costs
+# What is left after costs
 
-TBD: Sharpe ratios after trading costs, with the costs inside each anomaly from our factor library with trading costs, and the trades between anomalies at 10 bps (the trading game) and 50 bps (lecture 5)
+## Premia before and after costs
+
+```{r}
+#| label: plot-premia
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.2
+# The premium of every characteristic of the factor library, 1960–2025, in
+# percent per year: built as in its original study (OSAP) or as by Jensen,
+# Kelly & Pedersen (JKP), before costs and after the composite spread.
+# Private paper files for now; the next Hugging Face release adds the flags
+premia <- read_csv(
+  file.path(factor_library_paper, "data/analysis/net_premia.csv"),
+  show_col_types = FALSE
+) |>
+  filter(
+    window == "full",
+    rule %in% c("reference", "jkp"),
+    measure %in% c("gross", "composite_spread")
+  ) |>
+  mutate(
+    construction = if_else(
+      rule == "reference",
+      "As in the original study (OSAP)",
+      "Jensen, Kelly & Pedersen (JKP)"
+    ),
+    costs = if_else(measure == "gross", "Before costs", "After costs")
+  )
+premium_medians <- premia |>
+  summarize(
+    median = median(premium),
+    significant = mean(t_premium > qnorm(0.975)),
+    .by = c(rule, measure)
+  )
+microcap_median <- read_csv(
+  file.path(factor_library_paper, "data/analysis/reference_path_costs.csv"),
+  show_col_types = FALSE
+) |>
+  filter(variable == "microcap_share") |>
+  summarize(median = median(value), .by = rule) |>
+  deframe()
+premium_text <- function(rule_name, measure_name, statistic = "median") {
+  value <- premium_medians |>
+    filter(rule == rule_name, measure == measure_name) |>
+    pull(statistic)
+  if (statistic == "median") {
+    number_text(value, 0.1, suffix = "%")
+  } else {
+    percent(value, 1)
+  }
+}
+# A few premia far out in the tails stay out of the figure
+premium_range <- c(-25, 25)
+premia_outside <- sum(
+  !between(premia$premium, premium_range[1], premium_range[2])
+)
+premia |>
+  filter(between(premium, premium_range[1], premium_range[2])) |>
+  mutate(construction = fct_rev(construction)) |>
+  ggplot(aes(
+    x = premium,
+    y = construction,
+    fill = fct_rev(costs),
+    colour = fct_rev(costs)
+  )) +
+  geom_vline(xintercept = 0, colour = grey, linewidth = 0.4) +
+  geom_density_ridges(
+    alpha = 0.6,
+    scale = 0.95,
+    quantile_lines = TRUE,
+    quantiles = 2,
+    bandwidth = 1,
+    rel_min_height = 0
+  ) +
+  scale_fill_manual(
+    values = c("Before costs" = "#b3b3b3", "After costs" = ku_red),
+    breaks = c("Before costs", "After costs")
+  ) +
+  scale_colour_manual(
+    values = c("Before costs" = grey, "After costs" = ku_red),
+    breaks = c("Before costs", "After costs")
+  ) +
+  scale_x_continuous(
+    labels = percent_axis,
+    limits = premium_range,
+    expand = expansion(0)
+  ) +
+  scale_y_discrete(expand = expansion(add = c(0.1, 0.95))) +
+  labs(
+    x = "Premium of each characteristic, per year, 1960–2025",
+    y = NULL,
+    fill = NULL,
+    colour = NULL
+  ) +
+  theme(legend.position = "bottom", panel.grid.major.y = element_blank())
+```
+
+- `r n_distinct(premia$sorting_variable)` characteristics of the factor library (Frey, Scheuch, Voigt & Weiss), each built two ways; lines mark the medians; `r premia_outside` of `r nrow(premia)` premia lie outside. Costs: half the composite spread of every trade, the mean of four spread estimators from daily CRSP data (Chen & Velikov, 2023)
+- **Medians:** as in the original studies `r premium_text("reference", "gross")` before and `r premium_text("reference", "composite_spread")` after costs; JKP `r premium_text("jkp", "gross")` and `r premium_text("jkp", "composite_spread")`. Significant before and after costs: `r premium_text("reference", "gross", "significant")` and `r premium_text("reference", "composite_spread", "significant")` (OSAP), `r premium_text("jkp", "gross", "significant")` and `r premium_text("jkp", "composite_spread", "significant")` (JKP)
+
+::: {.highlight}
+The original constructions earn the largest premia before costs and lose them to costs: the median one holds `r percent(microcap_median[["reference"]], 1)` of its weight in microcaps, against `r percent(microcap_median[["jkp"]], 1)` for JKP
+:::
+
+## The construction premium
+
+```{r}
+#| label: construction-premia-data
+#| include: false
+# Scheuch & Voigt (2026): the common construction premium of each choice, the
+# posterior mean and standard deviation, in CAPM alpha per year relative to
+# the average choice of its decision
+construction_estimates <- read_parquet(
+  file.path(construction_paper, "data/analysis/theta.parquet")
+)
+n_characteristics <- construction_estimates |>
+  filter(parameter == "concept alpha") |>
+  nrow()
+construction_paths <- read_parquet(
+  file.path(construction_paper, "data/analysis/paths.parquet"),
+  col_select = "concept"
+)
+paths_per_characteristic <- nrow(construction_paths) / n_characteristics
+common_premia <- construction_estimates |>
+  filter(parameter == "common effect")
+# Best minus worst path: the largest minus the smallest premium of every
+# decision, summed over the decisions and rounded as in the paper
+decision_ranges <- common_premia |>
+  summarize(largest = max(mean_pa), smallest = min(mean_pa), .by = decision)
+path_gap <- round(sum(decision_ranges$largest), 1) +
+  round(-sum(decision_ranges$smallest), 1)
+timing_gap <- decision_ranges |>
+  filter(decision %in% c("sorting_variable_lag", "rebalancing")) |>
+  summarize(gap = round(sum(largest - smallest), 1)) |>
+  pull(gap)
+```
+
+:::: {.columns}
+::: {.column width="40%"}
+- **Scheuch & Voigt (2026):** `r n_characteristics` characteristics, each built along `r comma(paths_per_characteristic)` paths of construction choices, and a Bayesian model that separates the alpha of a characteristic from the premia of its choices
+- **Common construction premium:** a choice that raises the alpha of most characteristics at once, such as the choices in red
+- **Best minus worst path:** `r number(path_gap, 0.1)`% per year; `r number(timing_gap, 0.1)`% from the timing (lag, rebalancing), `r number(path_gap - timing_gap, 0.1)`% from which stocks a factor holds and how
+:::
+
+::: {.column width="60%"}
+```{r}
+#| label: plot-construction-premia
+#| echo: false
+#| fig-width: 5.6
+#| fig-height: 4.6
+# The four decisions with the largest premia, in plain names
+choice_labels <- c(
+  "min_size_quantile.none" = "Keep small stocks",
+  "min_size_quantile.20%" = "Drop below 20th NYSE percentile",
+  "sorting_variable_lag.1m" = "Lag of 1 month",
+  "sorting_variable_lag.ff" = "Fama-French timing",
+  "sorting_variable_lag.3m" = "Lag of 3 months",
+  "sorting_variable_lag.6m" = "Lag of 6 months",
+  "weighting_scheme.EW" = "Equal weights",
+  "weighting_scheme.capped VW" = "Capped value weights",
+  "weighting_scheme.VW" = "Value weights",
+  "rebalancing.monthly" = "Rebalance monthly",
+  "rebalancing.annual" = "Rebalance annually"
+)
+decision_labels <- c(
+  min_size_quantile = "Size filter",
+  sorting_variable_lag = "Lag",
+  weighting_scheme = "Weights",
+  rebalancing = "Rebalancing"
+)
+raising_choices <- c(
+  "min_size_quantile.none",
+  "sorting_variable_lag.1m",
+  "weighting_scheme.EW",
+  "rebalancing.monthly"
+)
+interval_quantile <- qnorm(0.975)
+common_premia |>
+  mutate(key = paste0(decision, ".", choice)) |>
+  filter(key %in% names(choice_labels)) |>
+  mutate(
+    choice = factor(choice_labels[key], rev(choice_labels)),
+    decision = factor(decision_labels[decision], decision_labels),
+    raises = key %in% raising_choices
+  ) |>
+  ggplot(aes(x = mean_pa, y = choice, colour = raises)) +
+  geom_vline(xintercept = 0, colour = grey, linewidth = 0.4) +
+  geom_segment(
+    aes(
+      x = mean_pa - interval_quantile * sd_pa,
+      xend = mean_pa + interval_quantile * sd_pa
+    ),
+    linewidth = 2.5,
+    alpha = 0.3
+  ) +
+  geom_point(size = 3) +
+  facet_grid(decision ~ ., scales = "free_y", space = "free_y") +
+  scale_colour_manual(values = c("TRUE" = ku_red, "FALSE" = grey)) +
+  scale_x_continuous(labels = percent_axis) +
+  labs(x = "CAPM alpha per year, with 95% interval", y = NULL) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    strip.text.y = element_text(angle = 0, hjust = 0, face = "bold"),
+    panel.spacing.y = unit(10, "pt")
+  )
+```
+:::
+::::
+
+## The construction premium after costs
+
+```{r}
+#| label: construction-sort
+#| include: false
+# Scheuch & Voigt (2026), out of sample: every month, the model estimated on
+# the months up to then sorts the factors of each characteristic into ten
+# groups by their posterior construction premium, held over the next month.
+# Returns relative to the average factor of the characteristic, CAPM alphas in
+# percent per year, before costs and after half the quoted spread
+construction_sort <- read_parquet(
+  file.path(construction_paper, "data/analysis/construction_sort.parquet")
+) |>
+  filter(measure %in% c("before costs", "net 1"))
+sort_months <- read_parquet(
+  file.path(construction_paper, "data/analysis/construction_portfolios.parquet")
+) |>
+  pull(date) |>
+  range()
+sort_value <- function(group, measure_name, column) {
+  construction_sort |>
+    filter(portfolio == group, measure == measure_name) |>
+    pull({{ column }})
+}
+break_even <- read_parquet(
+  file.path(construction_paper, "data/analysis/break_even.parquet")
+) |>
+  filter(comparison == "construction") |>
+  pull(break_even)
+```
+
+```{r}
+#| label: plot-construction-sort
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.3
+construction_sort |>
+  filter(portfolio != "high minus low") |>
+  mutate(
+    group = as.integer(portfolio),
+    costs = if_else(
+      measure == "before costs",
+      "Before costs",
+      "After half the quoted spread"
+    )
+  ) |>
+  ggplot(aes(x = group, y = capm_alpha_pa, colour = costs)) +
+  geom_hline(yintercept = 0, colour = grey, linewidth = 0.4) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_x_continuous(
+    breaks = 1:10,
+    labels = c("1\nSmallest", 2:9, "10\nLargest")
+  ) +
+  scale_y_continuous(labels = percent_axis) +
+  scale_colour_manual(
+    values = c(
+      "Before costs" = "#b3b3b3",
+      "After half the quoted spread" = ku_red
+    ),
+    breaks = c("Before costs", "After half the quoted spread")
+  ) +
+  labs(
+    x = "Group of factors by their posterior construction premium",
+    y = "CAPM alpha per year\nover the average factor",
+    colour = NULL
+  ) +
+  theme(legend.position = "right")
+```
+
+- **Out of sample,** `r format(sort_months[1], "%B %Y")` to `r format(sort_months[2], "%B %Y")`: the factors with the largest posterior construction premium earn a CAPM alpha of `r number(sort_value("high minus low", "before costs", capm_alpha_pa), 0.1)`% per year more than those with the smallest (t = `r number(sort_value("high minus low", "before costs", capm_t_statistic), 0.1)`), but `r number(-sort_value("high minus low", "net 1", capm_alpha_pa), 0.1)`% less after half the quoted spread of every trade (t = `r number_text(sort_value("high minus low", "net 1", capm_t_statistic), 0.1)`); the difference breaks even at `r percent(break_even, 1)` of the quoted half-spread
+- **Why:** the largest group holds `r percent(sort_value("10", "before costs", microcap_share), 1)` of its weight in microcaps and turns over `r percent(sort_value("10", "before costs", turnover), 1)` a month, the smallest `r percent(sort_value("1", "before costs", microcap_share), 1)` and `r percent(sort_value("1", "before costs", turnover), 1)`
+
+## The costs of a portfolio of anomalies
+
+$$
+r^{\text{net}}_{t} = \sum_{i=1}^{N} w_{i,t}\, r_{i,t} \;-\; \sum_{i=1}^{N} |w_{i,t}|\, c_{i,t} \;-\; \sum_{i=1}^{N} |w_{i,t} - \tilde w_{i,t}|\, \kappa_i
+$$
+
+- **Inside anomaly $i$:** $c_{i,t}$ is the cost of its own trades in month $t$, per dollar in each leg, from the factor library under the composite spread. The `r length(anomaly_names) - nrow(zoo_paths)` zoo anomalies that are not in the library get the median cost of the month
+- **Between anomalies:** $\tilde w_{i,t}$ is last month's weight after it drifted with the anomaly's return. Moving one dollar into or out of anomaly $i$ costs $\kappa_i$, its average cost per unit of turnover in the library: `r number(10000 * median(trade_cost[1, ]), 1)` basis points for the median anomaly
+- **An upper bound:** a stock that one anomaly buys and another sells pays twice, since we do not net trades across anomalies
 
 ## The implementable efficient frontier
 
-- **Jensen, Kelly, Malamud & Pedersen:** judge a strategy by its return **after trading costs** at each level of risk, the *implementable efficient frontier*
-- In their stock-level data, forecasts that ignore costs lean on short-lived characteristics: what looks best before costs trades the most
-- Better: learn the **portfolio weights** directly, with the trading costs in the objective. The same idea as the cost-aware weights of lecture 5, now with machine learning
-- *Economic feature importance:* which characteristics still matter after costs
+```{r}
+#| label: plot-frontier
+#| echo: false
+#| fig-width: 10
+#| fig-height: 3.4
+# Short names in the figure
+short_names <- c(
+  "1/N over all anomalies" = "1/N",
+  "Plug-in mean-variance" = "Plug-in",
+  "Ridge (prior on Sharpe ratios)" = "Ridge",
+  "Lasso on anomalies" = "Lasso",
+  "Lasso on principal components" = "PC lasso",
+  "Forecasts: OLS" = "OLS",
+  "Forecasts: random forest" = "Random forest",
+  "Forecasts: neural network" = "Neural network"
+)
+short_names[pca_name] <- "PCA"
+short_names[rp_pca_name] <- "RP-PCA"
+market_sharpe <- scoreboard$test[scoreboard$portfolio == "Market"]
+after_costs |>
+  mutate(
+    name = short_names[portfolio],
+    kind = if_else(
+      str_starts(portfolio, "Forecasts"),
+      "Forecasts: new weights every month",
+      "SDFs: constant weights"
+    ),
+    kind = fct_rev(kind)
+  ) |>
+  ggplot() +
+  geom_hline(yintercept = 0, colour = grey, linewidth = 0.4) +
+  geom_abline(
+    slope = market_sharpe,
+    intercept = 0,
+    colour = grey,
+    linetype = "dashed"
+  ) +
+  # Arrows end just before the points after costs
+  geom_segment(
+    aes(
+      x = 100 * volatility_before,
+      y = 100 * mean_before,
+      xend = 100 *
+        (volatility_before + 0.95 * (volatility_after - volatility_before)),
+      yend = 100 * (mean_before + 0.95 * (mean_after - mean_before))
+    ),
+    colour = "#b3b3b3",
+    arrow = arrow(length = unit(0.1, "inches"), type = "closed")
+  ) +
+  geom_point(
+    aes(x = 100 * volatility_before, y = 100 * mean_before),
+    colour = grey,
+    size = 3
+  ) +
+  geom_point(
+    aes(x = 100 * volatility_after, y = 100 * mean_after),
+    colour = ku_red,
+    size = 3
+  ) +
+  geom_text_repel(
+    aes(x = 100 * volatility_before, y = 100 * mean_before, label = name),
+    colour = jet,
+    bg.colour = "white",
+    bg.r = 0.2,
+    size = 3.8,
+    box.padding = 0.5,
+    point.padding = 0.3,
+    min.segment.length = 0.2,
+    segment.colour = grey,
+    max.overlaps = Inf,
+    seed = 1
+  ) +
+  scale_x_continuous(
+    labels = percent_axis,
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_y_continuous(labels = percent_axis) +
+  facet_wrap(~kind, scales = "free_x") +
+  labs(
+    x = paste("Volatility per year,", test_years),
+    y = "Mean return per year"
+  ) +
+  theme(
+    strip.text = element_text(hjust = 0, face = "bold"),
+    panel.spacing.x = unit(20, "pt")
+  )
+```
+
+- **Grey before, red after costs,** per dollar of the average gross position: the slope of a line from the origin is a Sharpe ratio (dashed: the market, `r number(market_sharpe, 0.01)`)
+- **Jensen, Kelly, Malamud & Pedersen (2026):** the *implementable efficient frontier*, the best return after costs at each level of risk. Weights learned with the costs in the objective beat forecasts that ignore them
+
+::: {.highlight}
+Before costs a free lunch; after the costs inside the anomalies none earns a premium. The costs belong in the objective
+:::
 
 ## Scoreboard of the machine learning lectures
 
 ```{r}
 #| label: scoreboard-table
 #| echo: false
+# After costs: the mean return per year per dollar of the average gross
+# position, since the Sharpe ratio of a negative mean says nothing (more
+# volatility would raise it). The market pays no costs here
+market_mean <- mean(market$mkt_excess[market$date >= test_start]) *
+  months_per_year
 scoreboard |>
+  left_join(select(after_costs, portfolio, mean_after), join_by(portfolio)) |>
   mutate(
+    mean_after = if_else(portfolio == "Market", market_mean, mean_after),
     across(c(estimation, test), \(x) number(x, 0.01)),
     turnover = if_else(is.na(turnover), "–", percent(turnover, 1)),
-    after_costs = "TBD"
+    mean_after = if_else(is.na(mean_after), "–", percent_text(mean_after, 0.1))
   ) |>
   select(
     Portfolio = portfolio,
     `Sharpe ratio, estimation` = estimation,
     "Sharpe ratio {test_years}" := test,
     `Turnover between anomalies` = turnover,
-    `After costs` = after_costs
+    `After costs` = mean_after
   )
 ```
 
-- No turnover (–) for the market, which holds no anomalies, and for the network SDFs of lecture 14, whose weights are not stored
+- **After costs:** the mean return per year `r test_years` per dollar of the gross position, after the costs of the last slides; the market pays none. –: no anomalies (market) or no stored weights (network SDFs)
 - The trading game charges 10 bps of every trade since 1 March: your own record is a row of this scoreboard
+
+## Backup: where the costs come from
+
+```{r}
+#| label: backup-costs-table
+#| echo: false
+after_costs |>
+  mutate(
+    across(c(mean_before, cost_inside, cost_between, mean_after), \(x) {
+      percent_text(x, 0.1)
+    })
+  ) |>
+  select(
+    Portfolio = portfolio,
+    "Before costs" = mean_before,
+    "Costs inside the anomalies" = cost_inside,
+    "Costs between anomalies" = cost_between,
+    "After costs" = mean_after
+  )
+```
+
+Mean returns and costs per year, `r test_years`, per dollar of the average gross position. Constant SDF weights pay almost only the costs inside the anomalies; the forecasts also pay for their trades between anomalies
