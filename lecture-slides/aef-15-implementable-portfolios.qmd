@@ -574,7 +574,7 @@ Plot.plot({
 :::
 
 ::: {.content-visible unless-profile="live"}
-In the open question of exercise 6, you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the ridge SDF
+In the open question of exercise 7, you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the ridge SDF
 :::
 
 # What the portfolios trade
