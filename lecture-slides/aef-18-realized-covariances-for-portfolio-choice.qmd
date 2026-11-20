@@ -13,8 +13,8 @@ library(scales)
 
 # VOLARE: daily realized measures and realized covariances of 40 US stocks,
 # January 2015 to October 2026 (licensed, see data-raw/volare.R)
-volare_measures <- "data/volare_stocks_realized_measures_daily.parquet"
-volare_covariances <- "data/volare_stocks_realized_covariances_daily.parquet"
+volare_measures <- "data/volare_realized_measures_daily.parquet"
+volare_covariances <- "data/volare_realized_covariances_daily.parquet"
 
 # Backtest: daily from the first trading day of 2016, a year of daily returns
 # for the sample covariance and Ledoit-Wolf, two halves for the subperiods
@@ -69,7 +69,7 @@ import polars as pl
 #| include: false
 # The 30 Dow Jones stocks (today's members, as in lectures 2 to 5)
 measures <- read_parquet(volare_measures) |>
-  filter(dow30) |>
+  filter(asset_class == "stock", dow30) |>
   select(date, symbol, open_price, close_price, trades) |>
   arrange(symbol, date)
 
@@ -175,15 +175,13 @@ $$
 
 ```{r}
 #| label: read-covariances-r
-symbols <- read_parquet("data/volare_stocks_realized_measures_daily.parquet") |>
-  filter(dow30) |>
+symbols <- read_parquet("data/volare_realized_measures_daily.parquet") |>
+  filter(asset_class == "stock", dow30) |>
   distinct(symbol) |>
   pull(symbol) |>
   sort()
 # One row per pair of stocks and day: realized covariances from 1-minute returns
-covariances <- read_parquet(
-  "data/volare_stocks_realized_covariances_daily.parquet"
-) |>
+covariances <- read_parquet("data/volare_realized_covariances_daily.parquet") |>
   filter(asset1 %in% symbols, asset2 %in% symbols)
 dates <- sort(unique(covariances$date))
 n_stocks <- length(symbols)
@@ -203,14 +201,14 @@ rcov[cbind(j, i, t)] <- covariances$rcov
 #| label: read-covariances-py
 #| eval: false
 symbols = sorted(
-    pl.read_parquet("data/volare_stocks_realized_measures_daily.parquet")
-    .filter(pl.col("dow30"))["symbol"]
+    pl.read_parquet("data/volare_realized_measures_daily.parquet")
+    .filter(pl.col("asset_class") == "stock", pl.col("dow30"))["symbol"]
     .unique()
 )
 # One row per pair of stocks and day: realized covariances from 1-minute returns
-covariances = pl.read_parquet(
-    "data/volare_stocks_realized_covariances_daily.parquet"
-).filter(pl.col("asset1").is_in(symbols) & pl.col("asset2").is_in(symbols))
+covariances = pl.read_parquet("data/volare_realized_covariances_daily.parquet").filter(
+    pl.col("asset1").is_in(symbols) & pl.col("asset2").is_in(symbols)
+)
 dates = covariances["date"].unique().sort()
 n_stocks = len(symbols)
 
