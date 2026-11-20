@@ -12,7 +12,7 @@ library(tidymodels)
 library(scales)
 library(patchwork)
 
-# The factor zoo of lecture 10 and exercise 6
+# The factor zoo of lecture 10 and exercise 7
 sample_start <- ymd("1973-01-01")
 sample_end <- ymd("2023-12-31")
 test_start <- ymd("2000-01-01")

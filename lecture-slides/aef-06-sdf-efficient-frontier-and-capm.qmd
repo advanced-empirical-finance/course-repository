@@ -654,4 +654,4 @@ GRS = `r number(grs, 0.01)`, p-value `r number(p_value, 0.01)`: the ten industri
 - **Power:** the ten industries have similar betas (`r number(min(capm$beta), 0.01)` to `r number(max(capm$beta), 0.01)`) and similar average excess returns (`r percent(min(capm_annual$mean), 0.1)` to `r percent(max(capm_annual$mean), 0.1)` a year), so the test has little chance to reject the CAPM even if it is wrong. Test assets with more spread, e.g. portfolios sorted on size and book-to-market, have large CAPM alphas (Fama & French, 1993). Next lecture sorts all stocks on beta
 - **A flat security market line:** low-beta stocks earn too much, high-beta stocks too little (Fama & French, 2004; Frazzini & Pedersen, 2014)
 - **The market is unobservable:** a test of the CAPM tests the proxy, here the CRSP value-weighted index (Roll, 1977)
-- **Betas move over time:** exercise 4 estimates them with rolling windows for every CRSP stock
+- **Betas move over time:** exercise 5 estimates them with rolling windows for every CRSP stock

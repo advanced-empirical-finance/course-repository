@@ -129,7 +129,7 @@ macro = (
 ```{r}
 #| label: load-stock-characteristics-r
 #| include: false
-# The data of exercise 5: the characteristics of Gu, Kelly & Xiu, ranked
+# The data of exercise 6: the characteristics of Gu, Kelly & Xiu, ranked
 # within each month into [-1, 1], merged with CRSP. Only their coverage and one
 # month for the tree illustration appear on the slides
 stock_characteristics <- read_parquet(
@@ -177,7 +177,7 @@ rm(stock_characteristics)
 
 ## Empirical asset pricing via machine learning
 
-- **Data:** almost 30,000 US stocks, March 1957 to December 2016, more than 6,200 a month on average. Our version from exercise 5, merged with CRSP: `r comma(characteristics_coverage$stocks)` stocks, `r format(characteristics_coverage$first, "%B %Y")` to `r format(characteristics_coverage$last, "%B %Y")`, about `r comma(characteristics_coverage$per_month, 100)` a month
+- **Data:** almost 30,000 US stocks, March 1957 to December 2016, more than 6,200 a month on average. Our version from exercise 6, merged with CRSP: `r comma(characteristics_coverage$stocks)` stocks, `r format(characteristics_coverage$first, "%B %Y")` to `r format(characteristics_coverage$last, "%B %Y")`, about `r comma(characteristics_coverage$per_month, 100)` a month
 - **Predictors:** 94 characteristics, each interacted with 8 macro predictors (Welch & Goyal), plus 74 industry dummies: $94 \times (8 + 1) + 74 = 920$
 - **Samples:** training 1957–1974, validation 1975–1986, test 1987–2016. The models are refitted every year on a growing training sample; the validation sample rolls forward. Our trees and forests on the zoo are fitted once, as in lectures 10 to 12, and tested on `r year(test_start)`–`r year(sample_end)`
 - **Methods:** OLS, partial least squares, principal component regression, elastic net, generalized linear models, random forests, gradient boosted trees, and neural networks with one to five layers
@@ -474,7 +474,7 @@ plot_step(tree_steps[[4]])
 :::
 ::::
 
-- `r format(illustration_month, "%B %Y")`, the month of lecture 7: `r comma(nrow(cross_section))` stocks of exercise 5. Labels: the average excess return in each region, equal-weighted
+- `r format(illustration_month, "%B %Y")`, the month of lecture 7: `r comma(nrow(cross_section))` stocks of exercise 6. Labels: the average excess return in each region, equal-weighted
 - **Sort:** the breakpoints of lecture 8, here from all stocks, whatever the returns
 
 ::: {.fragment fragment-index=1}

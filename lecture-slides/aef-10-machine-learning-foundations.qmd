@@ -45,7 +45,7 @@ months_per_year = 12
 #| label: download-anomalies
 #| include: false
 # The long-short returns of the Open Source Asset Pricing anomalies, release
-# 2026.10, as in exercise 6
+# 2026.10, as in exercise 7
 osap_url <- paste0(
   "https://huggingface.co/datasets/OpenSourceAP/CrossSection/resolve/",
   "Data-Release-2026.10/Portfolios/Full%20Sets%20OP/PredictorLSretWide.parquet"
@@ -157,7 +157,7 @@ test_months = anomalies.filter(pl.col("date") >= test_start)
 ```
 :::
 
-Open Source Asset Pricing (Chen & Zimmermann), as in exercise 6; the file stores returns in percent. `r length(anomaly_names)` of the `r n_osap` long-short anomalies have a return in every month; `y`, a one in every month, is the target of today's regressions. Estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r nrow(estimation_months)` months), test `r year(test_start)`–`r year(sample_end)` (`r nrow(test_months)`)
+Open Source Asset Pricing (Chen & Zimmermann), as in exercise 7; the file stores returns in percent. `r length(anomaly_names)` of the `r n_osap` long-short anomalies have a return in every month; `y`, a one in every month, is the target of today's regressions. Estimation sample `r year(sample_start)`–`r year(test_start) - 1` (`r nrow(estimation_months)` months), test `r year(test_start)`–`r year(sample_end)` (`r nrow(test_months)`)
 
 ## The plug-in portfolio of the zoo
 
