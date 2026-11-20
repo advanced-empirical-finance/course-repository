@@ -115,12 +115,8 @@ spy = pl.concat(
 # overnight fall below 60% of the price is a split (8 in the Dow Jones stocks,
 # 2:1 to 20:1), with the rounded price ratio as the split ratio
 split_threshold <- log(0.6)
-volare <- bind_rows(
-  read_parquet("data/volare_futures_realized_measures_daily.parquet") |>
-    filter(symbol == "ES"),
-  read_parquet("data/volare_stocks_realized_measures_daily.parquet") |>
-    filter(dow30)
-) |>
+volare <- read_parquet("data/volare_realized_measures_daily.parquet") |>
+  filter(symbol == "ES" | (asset_class == "stock" & dow30)) |>
   select(symbol, date, open_price, close_price, rv5) |>
   arrange(symbol, date) |>
   mutate(
@@ -830,10 +826,8 @@ $$
 #| label: volare-measures
 #| include: false
 # The measures of the 30 Dow Jones stocks relative to rv5: ratios of means
-dow_measures <- read_parquet(
-  "data/volare_stocks_realized_measures_daily.parquet"
-) |>
-  filter(dow30)
+dow_measures <- read_parquet("data/volare_realized_measures_daily.parquet") |>
+  filter(asset_class == "stock", dow30)
 relative_to_rv5 <- map_dbl(
   set_names(c("rv1", "rk", "bv5", "rsp5", "rsn5")),
   \(measure) mean(dow_measures[[measure]]) / mean(dow_measures$rv5)
@@ -954,10 +948,8 @@ $$
 days_week <- 5
 days_month <- 22
 
-har_data <- read_parquet(
-  "data/volare_futures_realized_measures_daily.parquet"
-) |>
-  filter(symbol == "ES") |>
+har_data <- read_parquet("data/volare_realized_measures_daily.parquet") |>
+  filter(asset_class == "future", symbol == "ES") |>
   arrange(date) |>
   transmute(
     date,
@@ -980,8 +972,8 @@ days_week = 5
 days_month = 22
 
 har_data = (
-    pl.read_parquet("data/volare_futures_realized_measures_daily.parquet")
-    .filter(pl.col("symbol") == "ES")
+    pl.read_parquet("data/volare_realized_measures_daily.parquet")
+    .filter(pl.col("asset_class") == "future", pl.col("symbol") == "ES")
     .sort("date")
     .select("date", rv=1e4 * pl.col("rv5"))
     .with_columns(
