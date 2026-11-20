@@ -100,7 +100,7 @@ betas = tf.estimate_betas(
 :::
 
 - `crsp_monthly` holds the monthly excess returns of all US stocks in CRSP, `factors_ff3_monthly` the market excess return
-- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 4 uses it, too
+- `estimate_betas()` from tidyfinance runs the regression on every `r window_length`-month window of every stock at once; exercise 5 uses it, too
 - `r comma(nrow(betas))` betas for `r comma(n_distinct(betas$permno))` stocks, `r year(min(betas$date))`–`r year(max(betas$date))`; the median beta is `r number(median(betas$beta_mkt_excess), 0.01)`
 
 ## What a portfolio sort does

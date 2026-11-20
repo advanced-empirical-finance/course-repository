@@ -43,7 +43,7 @@ theme_set(
 
 ::: {.fragment}
 ::: {.highlight}
-**Today:** how much can we trust a published result? One number runs through the lecture: the CAPM alpha of high minus low beta from exercise 4
+**Today:** how much can we trust a published result? One number runs through the lecture: the CAPM alpha of high minus low beta from exercise 5
 :::
 :::
 
@@ -137,9 +137,9 @@ Hypothesis 1: market efficiency improves over time. Please send me your t-statis
 ::: {.fragment}
 ::: {.your-turn}
 
-[Exercise 4]{.your-turn-badge} You did the same
+[Exercise 5]{.your-turn-badge} You did the same
 
-**1. Data.** Monthly CRSP returns and your betas from exercise 4
+**1. Data.** Monthly CRSP returns and your betas from exercise 5
 
 **2. Hypothesis.** High-beta stocks earn lower CAPM alphas than low-beta stocks
 
@@ -175,7 +175,7 @@ Which standard errors?
 :::
 ::::
 
-## Exercise 4: your estimates
+## Exercise 5: your estimates
 
 ```{r}
 #| label: survey-setup
@@ -294,7 +294,7 @@ function largeLegends(figure) {
 
 ::: {.content-visible unless-profile="live"}
 ::: {.box}
-**What you did.** In exercise 4, all of you tested the same hypothesis on the same CRSP data: high-beta stocks earn lower CAPM alphas than low-beta stocks. Every other choice was yours. You entered your alpha of high minus low, its standard error and your choices in a survey
+**What you did.** In exercise 5, all of you tested the same hypothesis on the same CRSP data: high-beta stocks earn lower CAPM alphas than low-beta stocks. Every other choice was yours. You entered your alpha of high minus low, its standard error and your choices in a survey
 :::
 
 **In the lecture**, a chart shows all your alphas, sorted from the lowest to the highest, each with its 95% confidence interval and coloured by one of your choices. Two numbers summarize it:
@@ -322,7 +322,7 @@ function largeLegends(figure) {
 ```{r}
 #| label: forking-paths
 #| include: false
-# Three choices of the exercise 4 survey, without "Other": every combination
+# Three choices of the exercise 5 survey, without "Other": every combination
 # is one path from the data to one alpha
 paths <- expand_grid(
   stocks = c("All stocks", "No small stocks"),
@@ -451,7 +451,7 @@ forking_plot <- ggplot() +
 
 - **Gelman and Loken (2013):** every reasonable choice is a fork in the path from the data to the result. Each researcher walks one path and reports one number
 - **No cheating needed:** a researcher who tries only one path still reports a number that depends on the path
-- **Exercise 4:** three of your choices alone give `r n_paths` paths; the betas, the sample period and the standard errors multiply them
+- **Exercise 5:** three of your choices alone give `r n_paths` paths; the betas, the sample period and the standard errors multiply them
 
 :::
 ::: {.column width="58%"}
@@ -547,7 +547,7 @@ publication_plot <- researchers |>
 ```
 
 ::: {.content-visible when-profile="live"}
-Your exercise 4 estimates as t-statistics, alpha divided by its standard error. A journal that publishes only [|*t*| > `r number(critical_value, 0.01)`]{style="white-space: nowrap"} prints only the red ones
+Your exercise 5 estimates as t-statistics, alpha divided by its standard error. A journal that publishes only [|*t*| > `r number(critical_value, 0.01)`]{style="white-space: nowrap"} prints only the red ones
 
 ```{ojs}
 //| label: exercise-3-publication
@@ -598,7 +598,7 @@ Your exercise 4 estimates as t-statistics, alpha divided by its standard error. 
 - **Simulation:** `r comma(n_researchers)` researchers estimate the same alpha. True alpha: `r number(true_alpha, 1, style_negative = "minus")`% a year; standard error of each estimate: `r standard_error`% a year
 - **The journal** publishes only $|t| > `r number(critical_value, 0.01)`$
 - **Published:** `r n_published` of `r comma(n_researchers)`, with an average alpha of `r number(average_published, 0.1, style_negative = "minus")`% a year, `r number(average_published / true_alpha, 0.1)` times the true alpha
-- **In the lecture:** the same filter on your exercise 4 estimates
+- **In the lecture:** the same filter on your exercise 5 estimates
 
 :::
 ::: {.column width="60%"}

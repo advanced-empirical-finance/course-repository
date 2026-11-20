@@ -244,7 +244,7 @@ if (live) {
 - **The factors are latent:** we estimate them from the returns themselves
 
 ::: {.highlight}
-**Today:** your validation schemes from exercise 6. Then which few factors: the ones that explain the most variance (principal components) or the ones that carry a premium (risk-premium PCA)? And how many?
+**Today:** your validation schemes from exercise 7. Then which few factors: the ones that explain the most variance (principal components) or the ones that carry a premium (risk-premium PCA)? And how many?
 :::
 
 # Your validation schemes
@@ -281,7 +281,7 @@ Plot.plot({
 :::
 
 ::: {.content-visible unless-profile="live"}
-In the open question of exercise 6, you chose your own validation scheme for the ridge penalty. In the lecture, we plot your Sharpe ratios in the test sample by how you split the months, against the five consecutive blocks of lecture 11
+In exercise 7 (*Your own validation scheme*), you chose a validation scheme for the ridge penalty. In the lecture, we plot your Sharpe ratios in the test sample by how you split the months, against the five consecutive blocks of lecture 11
 :::
 
 # Principal components
