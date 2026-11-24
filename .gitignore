@@ -6,6 +6,8 @@
 *.live.html
 # Rendered slides: the repository keeps the PDFs only
 lecture-slides/*.html
+# ... except the slide-log script that the live decks include
+!lecture-slides/_slide-log.html
 lecture-slides/*_cache/
 lecture-slides/*_files/
 **/*.quarto_ipynb

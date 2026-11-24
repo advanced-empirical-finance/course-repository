@@ -1,0 +1,62 @@
+<!--
+  Live version only (_quarto-live.yml): reports every slide change to eumel, so
+  that the transcript of a recorded lecture can be cut by slide. The key is
+  filled in by the live-slides script on eumel and is never in the repository.
+  Press "r" when the audio recording starts: that logs a marker to line up the
+  recording with the slides.
+-->
+<script>
+(function () {
+  const endpoint = "https://eumel.tail81c88a.ts.net:10000/slidelog";
+  const key = "__SLIDELOG_KEY__";
+  if (key.startsWith("__")) return;
+  const deck = location.pathname.split("/").pop().replace(/\.live\.html$/, "");
+
+  function send(event) {
+    const slide = Reveal.getCurrentSlide();
+    const heading = slide && slide.querySelector("h1, h2");
+    const index = Reveal.getIndices();
+    const body = JSON.stringify({
+      key: key,
+      event: event,
+      deck: deck,
+      h: index.h,
+      v: index.v || 0,
+      f: index.f === undefined ? -1 : index.f,
+      title: heading ? heading.textContent.trim() : ""
+    });
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body,
+      keepalive: true
+    }).catch(function () {});
+  }
+
+  function notice(text) {
+    const box = document.createElement("div");
+    box.textContent = text;
+    box.style.cssText =
+      "position:fixed;top:1rem;right:1rem;z-index:9999;padding:.4rem .8rem;" +
+      "background:#901a1e;color:#fff;font:600 16px system-ui;border-radius:4px";
+    document.body.appendChild(box);
+    setTimeout(function () { box.remove(); }, 2500);
+  }
+
+  function start() {
+    send("open");
+    Reveal.on("slidechanged", function () { send("slide"); });
+    Reveal.on("fragmentshown", function () { send("fragment"); });
+    Reveal.on("fragmenthidden", function () { send("fragment"); });
+    Reveal.addKeyBinding(
+      { keyCode: 82, key: "R", description: "Mark the start of the audio recording" },
+      function () { send("recording"); notice("Recording start marked"); }
+    );
+  }
+
+  if (window.Reveal && Reveal.isReady && Reveal.isReady()) start();
+  else window.addEventListener("load", function () {
+    if (Reveal.isReady()) start(); else Reveal.on("ready", start);
+  });
+})();
+</script>
