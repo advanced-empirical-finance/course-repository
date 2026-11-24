@@ -9,3 +9,5 @@
 format:
   revealjs:
     output-ext: live.html
+    # Report every slide change to eumel (key filled in by live-slides)
+    include-after-body: lecture-slides/_slide-log.html
