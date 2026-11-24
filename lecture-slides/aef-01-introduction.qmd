@@ -88,7 +88,7 @@ ggplot() +
 ::: {.box style="box-sizing: border-box;"}
 **Portfolio choice**
 
-*February to mid-March*
+*February and March*
 
 The efficient portfolio and its estimation error; shrinkage and transaction costs; the SDF and the CAPM; factors, sorts and reproducibility
 :::
@@ -268,8 +268,8 @@ Questions about content go to the **Absalon discussion board**, so everyone bene
 
 ## Every week
 
-- **Lectures:** Mondays 10–12 in odd weeks (CSS 35.3.12) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers
-- **Exercises:** eight sets, in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions
+- **Lectures:** Mondays 10–12 in odd weeks (CSS 35.3.12) and Thursdays 13–15 (CSS 18-01-11): methods, theory and recent papers. Three lectures are at other times, all 10–12: Friday 5 March (CSS 35.3.12), Wednesday 31 March and Monday 19 April (CSS 18-01-11)
+- **Exercises:** in R or Python, mostly built on [Tidy Finance](https://www.tidy-finance.org), with solutions
 - **Exercise classes:** Mondays 8–10 in odd weeks (CSS 2-2-36): open office hours with Nikolai
 
 ::: {.highlight}
@@ -410,7 +410,8 @@ Six quick questions, anonymous:
 
 - Are you an exchange student?
 - What do you mainly want to take away from this course?
-- How good are you at R and Python?
+- How good are you at R?
+- How good are you at Python?
 - How would you describe your use of AI?
 - Have you completed the technical prerequisites?
 :::
@@ -422,7 +423,8 @@ A short anonymous survey in the first lecture:
 
 - Are you an exchange student?
 - What do you mainly want to take away from this course?
-- How good are you at R and Python?
+- How good are you at R?
+- How good are you at Python?
 - How would you describe your use of AI?
 - Have you completed the technical prerequisites?
 :::
@@ -462,18 +464,20 @@ surveyCharts(background)
 | **Positron** | The editor: code, console, data viewer, Git and AI assistant in one place |
 | **Quarto** | Weaves text and code into one report: your hand-ins are Quarto files rendered to PDF |
 | **uv and uvr** | Install Python, R and exactly the course's package versions |
-| **Git and GitHub** | Version control and your team's repository |
+| **Git and GitHub** | Version control for your team |
 
 : {tbl-colwidths="[25,75]"}
 
 ## Where the data come from
 
-- **CRSP** (Center for Research in Security Prices): monthly returns of every US common stock, 1960 to 2025 in the course file. Licensed: download `crsp_monthly.parquet` from Absalon into the `data` folder, as in exercise 1. Git ignores the file: never upload it, never paste it into an AI tool
+- **CRSP** (Center for Research in Security Prices): monthly returns of every US common stock, 1960 to 2025 in the course file. Licensed: download it from Absalon into the `data` folder, as in exercise 1, together with the two VOLARE files of realized measures. Git ignores these files: never upload them, never paste them into an AI tool
 - The other files are public and already in the `data` folder of the course repository
 
 | File | Content |
 |---|---|
-| `crsp_monthly.parquet` | CRSP monthly returns, market capitalization, exchange, industry |
+| `crsp_monthly.parquet` | CRSP monthly returns, market capitalization, exchange, industry (Absalon) |
+| `volare_realized_measures_daily.parquet` | Daily realized variances of 40 US stocks and five futures, from VOLARE (Absalon) |
+| `volare_realized_covariances_daily.parquet` | Daily realized covariances of the 40 stocks (Absalon) |
 | `factors_ff3_monthly.parquet` | Fama-French three factors and the risk-free rate |
 | `industries_ff_monthly.parquet` | Ten industry portfolios |
 | `macro_predictors.parquet` | Welch and Goyal (2008) predictors |
