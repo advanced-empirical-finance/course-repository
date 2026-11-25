@@ -251,6 +251,8 @@ sdf_rows <- tibble(
   )
 ) |>
   unnest_wider(sharpe)
+# The best SDF with constant weights in the test sample
+lasso_row <- filter(sdf_rows, Portfolio == "Lasso on anomalies")
 
 # Lecture 13: the tree of depth 2 and the forest tuned on blocks of months
 tree <- rpart(
@@ -281,12 +283,12 @@ forest_row <- forecast_row("Random forest", predict(forest_fit, panel)$.pred)
 
 ## From forests to networks
 
-- **Lectures 10 to 12:** the SDF of the zoo with constant weights. The ridge SDF leads the out-of-sample comparison with a Sharpe ratio of `r number(ridge_sharpe[["test"]], 0.01)` in `r test_years`
+- **Lectures 10 to 12:** the SDF of the zoo with constant weights. Shrinkage of all anomalies leads the out-of-sample comparison: in `r test_years`, the lasso earns a Sharpe ratio of `r number(lasso_row$test, 0.01)`, the ridge SDF `r number(ridge_sharpe[["test"]], 0.01)`
 - **Lecture 13:** forecasts of each anomaly's return from its last return, its momentum and `r length(macro_names)` macro predictors. The portfolio of the random forest's forecasts earns `r number(forest_row$test, 0.01)`
 - Both uses of machine learning can take a more flexible function: a neural network
 
 ::: {.highlight}
-**Today:** neural networks, first for the forecasts of lecture 13, then for the SDF itself (Chen, Pelger & Zhu, 2024): each anomaly's weight depends on the state of the economy, and a second network chooses the test assets. Can flexibility beat the ridge SDF?
+**Today:** neural networks, first for the forecasts of lecture 13, then for the SDF itself (Chen, Pelger & Zhu, 2024): each anomaly's weight depends on the state of the economy, and a second network chooses the test assets. Can flexibility beat the linear SDFs?
 :::
 
 # Neural networks
@@ -757,4 +759,14 @@ bind_rows(
 ```
 
 - Penalties and numbers of factors chosen by cross-validation, network settings on `r validation_years`. The forecasts' estimation sample starts in `r format(min(panel$date), "%B %Y")`, after a year of history
+
+## Who was right on the zoo?
+
+- **All plausibly relevant predictors, with shrinkage:** Kelly, Malamud & Zhou. The lasso keeps `r lasso_row$Inputs` and earns `r number(lasso_row$test, 0.01)` in `r test_years`, the ridge SDF on all `r ncol(returns)` earns `r number(ridge_sharpe[["test"]], 0.01)`. Even PCA keeps `r pca_factors` components when cross-validation chooses
+- **Rich nonlinear models:** mixed. Among the forecasts, the random forest (`r number(forest_row$test, 0.01)`) beats OLS (`r number(ols_row$test, 0.01)`), and the adversary lifts the SDF network from `r number(feed_forward$sr_test, 0.01)` to `r number(cpz_light$sr_test, 0.01)`. No nonlinear model comes close to the linear SDFs
+
+::: {.highlight}
+With `r year(test_start) - year(sample_start)` years of monthly returns: include all anomalies and shrink, but keep the SDF linear
+:::
+
 - **Lecture 15:** what all these portfolios trade, and what remains after costs

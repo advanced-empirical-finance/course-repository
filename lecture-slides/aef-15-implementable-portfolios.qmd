@@ -420,13 +420,15 @@ comparison <- bind_rows(
     join_by(portfolio)
   )
 
+# The model to beat in exercise 10: the best one in the test sample
+best_model <- slice_max(comparison, test, n = 1)
+
 if (live) {
   ojs_define(
     poll_base = poll_base,
     comparison_survey = comparison_survey,
-    ridge_test = comparison$test[
-      comparison$portfolio == "Ridge (prior on Sharpe ratios)"
-    ],
+    best_name = best_model$portfolio,
+    best_test = best_model$test,
     test_years = test_years
   )
 }
@@ -564,8 +566,8 @@ Plot.plot({
   x: {label: `Sharpe ratio of your SDF portfolio, ${test_years}`, grid: true},
   y: {label: null, domain: ["Ridge, lasso or elastic net", "Principal components", "Trees or random forest", "Neural network", "Other"]},
   marks: [
-    Plot.ruleX([ridge_test], {stroke: "#666666", strokeDasharray: "4,3"}),
-    Plot.text([`Ridge SDF ${ridge_test.toFixed(2)}`], {x: ridge_test, frameAnchor: "top", dy: -6, fill: "#666666"}),
+    Plot.ruleX([best_test], {stroke: "#666666", strokeDasharray: "4,3"}),
+    Plot.text([`${best_name} ${best_test.toFixed(2)}`], {x: best_test, frameAnchor: "top", dy: -6, fill: "#666666"}),
     Plot.dot(class_rows, {x: "test", y: "method", fill: "#901A1E", r: 7, fillOpacity: 0.7}),
     Plot.text([`${class_rows.length} results`], {frameAnchor: "bottom-right", dy: -6, fill: "#3d3d3d"})
   ]
@@ -574,7 +576,7 @@ Plot.plot({
 :::
 
 ::: {.content-visible unless-profile="live"}
-In exercise 10 (*Beat the best model*), you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the ridge SDF
+In exercise 10 (*Beat the best model*), you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the best model of the lectures, the `r tolower(best_model$portfolio)` (`r number(best_model$test, 0.01)`)
 :::
 
 # What the portfolios trade
