@@ -759,14 +759,4 @@ bind_rows(
 ```
 
 - Penalties and numbers of factors chosen by cross-validation, network settings on `r validation_years`. The forecasts' estimation sample starts in `r format(min(panel$date), "%B %Y")`, after a year of history
-
-## Who was right on the zoo?
-
-- **All plausibly relevant predictors, with shrinkage:** Kelly, Malamud & Zhou. The lasso keeps `r lasso_row$Inputs` and earns `r number(lasso_row$test, 0.01)` in `r test_years`, the ridge SDF on all `r ncol(returns)` earns `r number(ridge_sharpe[["test"]], 0.01)`. Even PCA keeps `r pca_factors` components when cross-validation chooses
-- **Rich nonlinear models:** mixed. Among the forecasts, the random forest (`r number(forest_row$test, 0.01)`) beats OLS (`r number(ols_row$test, 0.01)`), and the adversary lifts the SDF network from `r number(feed_forward$sr_test, 0.01)` to `r number(cpz_light$sr_test, 0.01)`. No nonlinear model comes close to the linear SDFs
-
-::: {.highlight}
-With `r year(test_start) - year(sample_start)` years of monthly returns: include all anomalies and shrink, but keep the SDF linear
-:::
-
 - **Lecture 15:** what all these portfolios trade, and what remains after costs
