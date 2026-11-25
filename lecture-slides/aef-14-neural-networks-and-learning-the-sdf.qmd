@@ -23,8 +23,9 @@ lasso_lambdas <- 10^seq(-6, -2.5, by = 0.25)
 macro_names <- c("dp", "tbl", "tms", "dfy", "svar")
 test_years <- paste0(year(test_start), "–", year(sample_end))
 
-# The rows of lectures 12 and 13 on the scoreboard: up to 60 PCA and RP-PCA
-# factors, chosen by cross-validation; the tree and the forest of lecture 13
+# The rows of lectures 12 and 13 in the out-of-sample comparison: up to 60 PCA
+# and RP-PCA factors, chosen by cross-validation; the tree and the forest of
+# lecture 13
 max_factors <- 60
 phi_rp <- 10
 tree_depth <- 2
@@ -165,7 +166,8 @@ forecast_row <- function(method, forecast) {
 #| include: false
 #| cache: true
 #| cache.extra: !expr list(lasso_lambdas, max_factors, phi_rp, tree_depth, min_leaf, n_trees, forest_grid, ridge_lambda, rlang::hash(panel), rlang::hash(returns))
-# The other rows of the scoreboard, with the code of lectures 10 to 13
+# The other rows of the out-of-sample comparison, with the code of
+# lectures 10 to 13
 portfolio_sharpe <- function(weights) {
   c(
     estimation = sharpe_ratio(returns[estimation, ] %*% weights),
@@ -279,7 +281,7 @@ forest_row <- forecast_row("Random forest", predict(forest_fit, panel)$.pred)
 
 ## From forests to networks
 
-- **Lectures 10 to 12:** the SDF of the zoo with constant weights. The ridge SDF leads the scoreboard with a Sharpe ratio of `r number(ridge_sharpe[["test"]], 0.01)` in `r test_years`
+- **Lectures 10 to 12:** the SDF of the zoo with constant weights. The ridge SDF leads the out-of-sample comparison with a Sharpe ratio of `r number(ridge_sharpe[["test"]], 0.01)` in `r test_years`
 - **Lecture 13:** forecasts of each anomaly's return from its last return, its momentum and `r length(macro_names)` macro predictors. The portfolio of the random forest's forecasts earns `r number(forest_row$test, 0.01)`
 - Both uses of machine learning can take a more flexible function: a neural network
 
@@ -698,17 +700,17 @@ ggplot(cpz_runs, aes(x = sr_valid, y = sr_test, color = model)) +
 ## Flexibility against economic structure
 
 - **Nagel (2021):** returns are noisy and samples are short; machine learning in asset pricing works best with economic restrictions, such as a prior that rules out implausibly high Sharpe ratios
-- **Our scoreboard:** `r ncol(returns)` anomalies, `r year(test_start) - year(sample_start)` years of estimation data. The ridge SDF has one tuning parameter and an economic prior; the networks have thousands of parameters and only the data
+- **Our out-of-sample comparison:** `r ncol(returns)` anomalies, `r year(test_start) - year(sample_start)` years of estimation data. The ridge SDF has one tuning parameter and an economic prior; the networks have thousands of parameters and only the data
 - Gu, Kelly & Xiu and Chen, Pelger & Zhu use tens of thousands of stocks and decades of data: there, flexibility pays
 
 ::: {.highlight}
 The more data, the more flexibility can pay; with little data, economic structure wins
 :::
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 # Every row of lectures 10 to 14
 bind_rows(

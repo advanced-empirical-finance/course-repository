@@ -60,7 +60,7 @@ theme_set(
 )
 
 source("lecture-slides/_live-poll.R")
-scoreboard_survey <- "aef27-ex08-scoreboard"
+comparison_survey <- "aef27-ex08-scoreboard"
 ```
 
 ```{r}
@@ -68,7 +68,7 @@ scoreboard_survey <- "aef27-ex08-scoreboard"
 #| include: false
 #| cache: true
 #| cache.extra: !expr list(sample_start, sample_end, test_start, n_folds, ridge_lambdas, lasso_lambdas, macro_names, max_factors, phi_rp, n_trees, forest_grid)
-# Every row of the scoreboard, with the code of lectures 10 to 14
+# Every row of the out-of-sample comparison, with the code of lectures 10 to 14
 
 # Lecture 10: the zoo, the sample split, the Sharpe ratio metric and the
 # workflows. Months start on their first day, as in lectures 13 and 14
@@ -341,7 +341,7 @@ forecast_weights <- map(forecasts, \(forecast) {
 ```
 
 ```{r}
-#| label: scoreboard-rows
+#| label: comparison-rows
 #| include: false
 # The anomaly returns as a matrix, one column per anomaly
 returns <- as.matrix(anomalies[anomaly_names])
@@ -394,7 +394,7 @@ cpz_runs <- read_csv(
   ) |>
   slice_max(sr_valid, n = 1, by = model)
 
-scoreboard <- bind_rows(
+comparison <- bind_rows(
   tibble(
     portfolio = "Market",
     estimation = sharpe_ratio_vec(
@@ -423,9 +423,9 @@ scoreboard <- bind_rows(
 if (live) {
   ojs_define(
     poll_base = poll_base,
-    scoreboard_survey = scoreboard_survey,
-    ridge_test = scoreboard$test[
-      scoreboard$portfolio == "Ridge (prior on Sharpe ratios)"
+    comparison_survey = comparison_survey,
+    ridge_test = comparison$test[
+      comparison$portfolio == "Ridge (prior on Sharpe ratios)"
     ],
     test_years = test_years
   )
@@ -523,33 +523,33 @@ after_costs <- portfolio_costs |>
   )
 stopifnot(all.equal(
   after_costs$before,
-  scoreboard$test[match(after_costs$portfolio, scoreboard$portfolio)]
+  comparison$test[match(after_costs$portfolio, comparison$portfolio)]
 ))
 ```
 
-## The scoreboard so far
+## The out-of-sample comparison so far
 
 - **Lectures 10 to 12:** the SDF, the best portfolio of the zoo, estimated directly, with shrinkage (ridge, lasso) or with a few factors (PCA, RP-PCA). The SDF weights stay constant
 - **Lectures 13 and 14:** forecasts of each anomaly's return from random forests and neural networks, turned into new weights every month, and SDFs from neural networks
 - Every Sharpe ratio so far is **before trading costs**, but an investor earns the return after costs
 
 ::: {.highlight}
-**Today:** after the assignment 2 discussion in the first hour, your results against the scoreboard, how much each portfolio trades, and what is left after trading costs
+**Today:** after the assignment 2 discussion in the first hour, your rows in the comparison, how much each portfolio trades, and what is left after trading costs
 :::
 
 # Assignment 2 discussion
 
-# Your scoreboard
+# Your row in the comparison
 
-## Can you beat the scoreboard?
+## Can you beat the best model?
 
 ::: {.content-visible when-profile="live"}
 {{< include _live-poll-ojs.qmd >}}
 
 ```{ojs}
-//| label: class-scoreboard
+//| label: class-comparison
 //| echo: false
-class_results = surveyResults(scoreboard_survey)
+class_results = surveyResults(comparison_survey)
 class_rows = {
   if (class_results === null) return [];
   const values = id => (class_results.questions.find(q => q.id === id) || {}).values || [];
@@ -574,7 +574,7 @@ Plot.plot({
 :::
 
 ::: {.content-visible unless-profile="live"}
-In exercise 10 (*Beat the scoreboard*), you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the ridge SDF
+In exercise 10 (*Beat the best model*), you tried to beat the best model of the lectures on the factor zoo. In the lecture, we plot your Sharpe ratios in the test sample by the kind of method you used, against the ridge SDF
 :::
 
 # What the portfolios trade
@@ -594,7 +594,7 @@ turnover_shown <- c(
   "Forecasts: random forest",
   "Forecasts: neural network"
 )
-scoreboard |>
+comparison |>
   filter(portfolio %in% turnover_shown) |>
   mutate(
     portfolio = fct_reorder(portfolio, turnover),
@@ -940,7 +940,7 @@ short_names <- c(
 )
 short_names[pca_name] <- "PCA"
 short_names[rp_pca_name] <- "RP-PCA"
-market_sharpe <- scoreboard$test[scoreboard$portfolio == "Market"]
+market_sharpe <- comparison$test[comparison$portfolio == "Market"]
 after_costs |>
   mutate(
     name = short_names[portfolio],
@@ -1018,17 +1018,17 @@ after_costs |>
 Before costs a free lunch; after the costs inside the anomalies none earns a premium. The costs belong in the objective
 :::
 
-## Scoreboard of the machine learning lectures
+## The full out-of-sample comparison
 
 ```{r}
-#| label: scoreboard-table
+#| label: comparison-table
 #| echo: false
 # After costs: the mean return per year per dollar of the average gross
 # position, since the Sharpe ratio of a negative mean says nothing (more
 # volatility would raise it). The market pays no costs here
 market_mean <- mean(market$mkt_excess[market$date >= test_start]) *
   months_per_year
-scoreboard |>
+comparison |>
   left_join(select(after_costs, portfolio, mean_after), join_by(portfolio)) |>
   mutate(
     mean_after = if_else(portfolio == "Market", market_mean, mean_after),
@@ -1046,7 +1046,7 @@ scoreboard |>
 ```
 
 - **After costs:** the mean return per year `r test_years` per dollar of the gross position, after the costs of the last slides; the market pays none. –: no anomalies (market) or no stored weights (network SDFs)
-- The trading game charges 10 bps of every trade since 1 March: your own record is a row of this scoreboard
+- The trading game charges 10 bps of every trade since 1 March: your own record is a row of this comparison
 
 ## Backup: where the costs come from
 

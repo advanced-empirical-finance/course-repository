@@ -806,10 +806,10 @@ count_panel + lasso_sharpe_panel & theme(legend.position = "bottom")
 - The larger $\lambda$, the fewer anomalies get a non-zero weight
 - In hindsight, `r lasso_path$anomalies[which.max(lasso_path$test)]` anomalies do best in the test sample (Sharpe ratio `r number(max(lasso_path$test), 0.01)`), better than all of them. But picking $\lambda$ by the test sample would be overfitting again
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 tibble(
   Portfolio = c("Market", "1/N over all anomalies", "Plug-in mean-variance"),
