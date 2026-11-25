@@ -84,6 +84,32 @@ n_osap <- ncol(read_parquet(osap_file)) - 1
 :::
 ::::
 
+## Parsimony or complexity?
+
+<!-- display: flex and border-box: the two boxes end at the same height -->
+:::: {.columns style="display: flex;"}
+::: {.column width="48%"}
+::: {.box style="box-sizing: border-box;"}
+"Since all models are wrong, the scientist cannot obtain a 'correct' one by excessive elaboration. On the contrary, following William of Occam he should seek an economical description of natural phenomena. […] overelaboration and overparameterization is often the mark of mediocrity."
+
+**George Box**, *Science and Statistics* (1976, JASA)
+:::
+:::
+::: {.column width="4%"}
+:::
+::: {.column width="48%"}
+::: {.box style="box-sizing: border-box;"}
+"Our results are not a license to add arbitrary predictors to a model. Instead, we recommend (i) including all plausibly relevant predictors and (ii) using rich nonlinear models rather than simple linear specifications. Doing so confers prediction and portfolio benefits, even when training data are scarce, particularly when accompanied by prudent shrinkage."
+
+**Bryan Kelly**, in Kelly, Malamud & Zhou, *The Virtue of Complexity in Return Prediction* (2024, JF)
+:::
+:::
+::::
+
+::: {.highlight}
+Lectures 10 to 14 put both views to the test on the factor zoo: shrinkage of all anomalies (10 and 11), principal components (12), nonlinear models (13 and 14)
+:::
+
 ## From 27 stocks to `r length(anomaly_names)` anomalies
 
 - **Lectures 2 to 5:** with 27 Dow Jones stocks, the plug-in portfolio already failed out of sample, and shrinkage helped
@@ -806,10 +832,10 @@ count_panel + lasso_sharpe_panel & theme(legend.position = "bottom")
 - The larger $\lambda$, the fewer anomalies get a non-zero weight
 - In hindsight, `r lasso_path$anomalies[which.max(lasso_path$test)]` anomalies do best in the test sample (Sharpe ratio `r number(max(lasso_path$test), 0.01)`), better than all of them. But picking $\lambda$ by the test sample would be overfitting again
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 tibble(
   Portfolio = c("Market", "1/N over all anomalies", "Plug-in mean-variance"),

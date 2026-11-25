@@ -844,10 +844,10 @@ forecast_rows |>
 Trees can also serve the SDF of lectures 10 to 12: the trees propose the portfolios, the shrunk SDF picks and weights them
 :::
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 tibble(
   Portfolio = c(
@@ -872,5 +872,5 @@ tibble(
   )
 ```
 
-- Forecasts need `r momentum_months` months of history, so their estimation sample starts in `r forecast_start`; the rows of lectures 10 to 12 stay on the scoreboard
+- Forecasts need `r momentum_months` months of history, so their estimation sample starts in `r forecast_start`; the rows of lectures 10 to 12 stay in the comparison
 - **Lecture 14:** a neural network for the forecasts, and a network that learns the SDF directly

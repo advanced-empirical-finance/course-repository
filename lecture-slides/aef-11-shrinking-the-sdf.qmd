@@ -788,13 +788,13 @@ ggplot(sparsity, aes(x = kept, y = test, color = inputs)) +
 - **Bayesian model averaging** (Bryzgalova, Huang & Julliard, 2023; Avramov, Cheng, Metzker & Voigt, 2023): weight every combination of factors by its posterior probability and average the SDFs
 - Bryzgalova, Huang & Julliard: no small set of factors dominates; the averaged SDF is dense
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 #| results: asis
-scoreboard <- tibble(
+comparison <- tibble(
   Portfolio = c(
     "Market",
     "1/N over all anomalies",
@@ -835,7 +835,7 @@ spanner <- paste0(
   "<thead>\n<tr><th colspan=\"2\" style=\"border-bottom: none;\"></th>",
   "<th colspan=\"2\" style=\"text-align: center;\">Sharpe ratio</th></tr>"
 )
-scoreboard |>
+comparison |>
   knitr::kable(
     format = "html",
     align = "l",

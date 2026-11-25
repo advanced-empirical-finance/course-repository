@@ -590,10 +590,10 @@ ggplot(factor_cv, aes(x = factors, y = cv, color = method)) +
 - **Instrumented PCA** (Kelly, Pruitt & Su, 2019): loadings are functions of characteristics, $\beta_{i,t} = z_{i,t}'\Gamma$, and the factors stay latent. A handful of such factors prices the cross-section of individual stocks
 - **Lecture 14:** a neural network lets the SDF weights depend on characteristics in any shape
 
-## Scoreboard
+## Out-of-sample comparison
 
 ```{r}
-#| label: scoreboard
+#| label: comparison
 #| echo: false
 # Number of factors chosen by cross-validation
 chosen <- factor_paths |>
