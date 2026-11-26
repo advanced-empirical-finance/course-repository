@@ -671,7 +671,7 @@ bounce_by_year <- trade_returns |>
   summarize(
     autocorrelation = cor(trade_return, previous),
     roll_half_spread = 1e4 * sqrt(-cov(trade_return, previous)),
-    median_half_spread = median(spread) / 2,
+    median_half_spread = median(spread, na.rm = TRUE) / 2,
     .by = year
   )
 bounce_noisiest <- bounce_by_year |> filter(year == noisiest_year)

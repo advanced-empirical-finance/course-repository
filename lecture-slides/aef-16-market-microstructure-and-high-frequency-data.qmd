@@ -515,8 +515,8 @@ intraday <- spy |>
     clock = hour(time) + minute(time) / 60
   ) |>
   summarize(
-    spread = median(spread),
-    depth = median((depth0_ask + depth0_bid) / 2 * midquote),
+    spread = median(spread, na.rm = TRUE),
+    depth = median((depth0_ask + depth0_bid) / 2 * midquote, na.rm = TRUE),
     volume = median(trading_volume),
     .by = clock
   )
@@ -555,8 +555,8 @@ intraday_panel("spread", "Spread (bps)", number_format(0.01)) +
 #| fig-height: 3.6
 yearly <- spy |>
   summarize(
-    spread = mean(spread),
-    depth = mean((depth0_ask + depth0_bid) / 2 * midquote),
+    spread = mean(spread, na.rm = TRUE),
+    depth = mean((depth0_ask + depth0_bid) / 2 * midquote, na.rm = TRUE),
     .by = year
   )
 crisis <- yearly |> filter(year %in% crisis_years)
@@ -612,12 +612,13 @@ $$
 ```{r}
 #| label: price-impact-r
 # Midquote returns (bps) on net buying in USD million per interval:
-# signed shares times the midquote of their snapshot
+# signed shares times the midquote of their snapshot. signed_volume is
+# missing in snapshots without trades
 interval_length <- "1 minute"
 price_impact <- spy |>
   mutate(day = as_date(ts), minute = floor_date(ts, interval_length)) |>
   summarize(
-    flow = sum(signed_volume * midquote) / 1e6,
+    flow = sum(signed_volume * midquote, na.rm = TRUE) / 1e6,
     midquote = last(midquote),
     .by = c(year, day, minute)
   ) |>
@@ -637,7 +638,8 @@ price_impact <- spy |>
 #| label: price-impact-py
 #| eval: false
 # Midquote returns (bps) on net buying in USD million per interval:
-# signed shares times the midquote of their snapshot
+# signed shares times the midquote of their snapshot. signed_volume is
+# missing in snapshots without trades; sum() skips missing values
 interval_length = "1m"
 price_impact = (
     spy.with_columns(
