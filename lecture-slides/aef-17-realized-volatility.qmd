@@ -18,7 +18,7 @@ library(patchwork)
 days_per_year <- 252
 
 # The SPY data of lecture 16: March of every year
-years <- 2008:2025
+years <- 2008:2026
 sample_month <- 3
 recent_year <- 2024
 crash_day <- ymd("2020-03-12")
@@ -91,7 +91,7 @@ spy <- map(years, \(year) {
 #| eval: false
 # The SPY data of lecture 16: five-second snapshots of the order book during
 # regular trading hours, for one month in every year
-years = range(2008, 2026)
+years = range(2008, 2027)
 sample_month = 3
 
 spy = pl.concat(

@@ -448,7 +448,7 @@ lobster_messages |>
 #| cache: true
 # Five-second snapshots of the SPY order book during regular trading hours,
 # for one month in every year
-years <- 2008:2025
+years <- 2008:2026
 sample_month <- 3
 
 spy <- map(years, \(year) {
@@ -471,7 +471,7 @@ spy <- map(years, \(year) {
 #| eval: false
 # Five-second snapshots of the SPY order book during regular trading hours,
 # for one month in every year
-years = range(2008, 2026)
+years = range(2008, 2027)
 sample_month = 3
 
 spy = pl.concat(
