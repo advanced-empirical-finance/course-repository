@@ -255,7 +255,7 @@ es_start <- min(volare$date[volare$symbol == "ES"])
 
 - **Lecture 16:** trade prices bounce between the bid and the ask, so their changes are negatively autocorrelated, $\text{Cov}(\Delta p_t, \Delta p_{t-1}) = -s^2/4$. The more often we sample, the more of this noise we measure
 - **Lectures 2 to 5:** portfolio choice needs the covariance matrix, estimated from monthly returns (60 months in lecture 3). Volatility changes much faster than that
-- **Assignment 3 (6 to 13 May):** realized volatility from the SPY snapshots of lecture 16 and from VOLARE, and forecasts of it
+- **Assignment 3 (6 to 18 May):** covariance forecasts from VOLARE's realized measures for a minimum-variance portfolio of the Dow stocks
 
 ::: {.highlight}
 **Today:** measure a day's volatility from intraday returns, keep microstructure noise out of the measure, and forecast tomorrow's volatility with GARCH and HAR
