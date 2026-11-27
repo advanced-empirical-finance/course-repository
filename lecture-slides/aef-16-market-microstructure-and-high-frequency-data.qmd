@@ -56,7 +56,7 @@ import tidyfinance as tf
 - **So far:** monthly returns, one number per stock and month
 - **Below the surface:** NASDAQ has no trading floor. Every order is a message, time-stamped to the nanosecond: billions of messages a day across US stocks
 - **Why:** trading costs (lecture 5 and the trading game), volatility measured within the day (lecture 17), covariances for portfolio choice (lecture 18)
-- Assignment 3 on realized volatility from high-frequency data starts on 6 May
+- Assignment 3 on high-frequency data and portfolio risk starts on 6 May
 
 ::: {.highlight}
 **Today:** how a stock trades in the limit order book, high-frequency data from LOBSTER for SPY, liquidity and price impact

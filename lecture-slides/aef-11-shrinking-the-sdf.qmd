@@ -853,3 +853,7 @@ comparison |>
 
 - Every penalty chosen by cross-validation in the estimation sample
 - **Lecture 12:** a few factors from the principal components, chosen for their premium instead of their variance
+
+::: {.highlight}
+Assignment 2 on machine learning in asset pricing starts today
+:::
