@@ -646,7 +646,3 @@ tibble(
 ```
 
 - Every penalty and every number of factors chosen by cross-validation in the estimation sample
-
-::: {.highlight}
-Assignment 2 on machine learning in asset pricing starts today
-:::
